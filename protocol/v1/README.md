@@ -12,7 +12,7 @@ Status: **v1 draft** (frozen at the first stable module release, 1.0.0). Licence
 
 | Party | Address |
 | --- | --- |
-| Connect service of the platform | `https://connect.kronixon.com/v1/…` (production), `https://connect-staging.kronixon.com/v1/…` (staging) |
+| Connect service of the platform | `https://connect.kronixon.com/v1/…` |
 | Module (PrestaShop) | `https://<shop>/module/kronixonconnect/api?path=<endpoint>` or, without friendly URLs, `https://<shop>/index.php?fc=module&module=kronixonconnect&controller=api&path=<endpoint>` |
 
 The platform never touches the shop's database, files or the PrestaShop Webservice: everything goes
@@ -55,7 +55,7 @@ signed, so a signature is the same with and without friendly URLs. Another versi
 | `X-KX-Key-Id` | signed requests and responses | `cur` or `prev` (which secret signed; absent = try `cur`, then `prev`) |
 | `Idempotency-Key` | optional on `POST`/`DELETE` | a UUID; same key + same body → the stored answer with `X-KX-Idempotent-Replay: true`; same key + another body → `409 idempotency_conflict` |
 | `X-KX-Request-Id` | optional request, always response | echoed when it is 1–64 of `[A-Za-z0-9._-]`, otherwise a UUID is issued; also `error.request_id` |
-| `X-KX-Module-Version`, `X-KX-Time-Used` | module responses | module semver; milliseconds spent |
+| `X-KX-Module-Version`, `X-KX-Time-Used` | signed module responses only (§4.3) | module semver; milliseconds spent |
 | `User-Agent` | requests | `KronixonConnect/<version> (prestashop <ps>; php <php>)` or `KronixonPlatform/<version>` |
 
 Module answers never set cookies and carry `Cache-Control: no-store`.
@@ -107,19 +107,28 @@ request and response strings apart. **Both sides reject an unsigned or wrongly s
 answers are signed when the responder holds a secret; a module that is not paired has none, so its
 `403 store_unpaired` is unsigned — clients must not trust any data in an unsigned answer.
 
+Headers of a module answer:
+
+| Answer | Headers |
+| --- | --- |
+| Unsigned (any answer before a verified signature: `400`, `403 store_unpaired`, `403 ip_not_allowed`, `401`, `405`, `413`, `500` of an unpaired module) | `X-KX-Protocol`, `X-KX-Request-Id`, `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, `X-Robots-Tag: noindex, nofollow` — nothing else, in particular no module version, so an unauthenticated caller cannot fingerprint a release |
+| Signed (after a verified request) | the unsigned set plus `X-KX-Timestamp`, `X-KX-Signature`, `X-KX-Key-Id`, `X-KX-Module-Version`, `X-KX-Time-Used` (and `X-KX-Idempotent-Replay` on a replay) |
+
 ### 4.4 Verification order
 
 1. Parse the request (`400 bad_request`, `405`, `413 payload_too_large`); check `X-KX-Protocol` (`400`).
 2. Is the receiver paired / is the store known and not revoked (`403 store_unpaired` / `403 store_revoked`)?
    No endpoint, known or not, is revealed before this point.
-3. Format of timestamp, nonce and signature (`401 signature_invalid`).
-4. Clock window: `|receiver_now − X-KX-Timestamp| ≤ 300` seconds, else `401 timestamp_out_of_window`;
+3. Module: the caller's IP against the optional IP allowlist (`403 ip_not_allowed`), **before** any
+   signature work.
+4. Format of timestamp, nonce and signature (`401 signature_invalid`).
+5. Clock window: `|receiver_now − X-KX-Timestamp| ≤ 300` seconds, else `401 timestamp_out_of_window`;
    every error carries `server_time` so the sender can correct its clock.
-5. HMAC against the candidate keys: `X-KX-Key-Id` narrows to that key; without it `cur`, then `prev`
+6. HMAC against the candidate keys: `X-KX-Key-Id` narrows to that key; without it `cur`, then `prev`
    while it is valid (`401 signature_invalid`).
-6. Nonce: first use within 10 minutes, else `401 nonce_reused`. The nonce is stored **after** a valid
+7. Nonce: first use within 10 minutes, else `401 nonce_reused`. The nonce is stored **after** a valid
    signature, so a forged request cannot burn a nonce. Platform: Redis `SET NX EX 600`; module: table `kx_nonce`.
-7. Route: unknown endpoint `404 not_found`, wrong method `405 method_not_allowed`.
+8. Route: unknown endpoint `404 not_found`, wrong method `405 method_not_allowed`.
 
 ### 4.5 Rotation and revocation
 
@@ -216,12 +225,14 @@ In module **0.1.0** (this skeleton) no endpoint is implemented: every `/v1/…` 
 | `POST /v1/stores/{store_id}/unpair` | `platform/unpair.json` | yes | B2 |
 | `POST /v1/stores/{store_id}/rotate-request` | `platform/rotate-request.json` | yes | B2 |
 | `POST /v1/stores/{store_id}/events` | `platform/store-events.json` | yes | C3 |
-| `GET /v1/module/latest` | `platform/module-latest.json` | when paired | E |
+| `GET /v1/module/latest` | `platform/module-latest.json` | yes | E |
 
 Each schema file has `$defs.query` (GET) or `$defs.request` (POST/DELETE) and `$defs.response`, plus
 `x-kx-endpoint` with method, path and whether it is signed. Shared types are in
 [`schemas/common.json`](schemas/common.json); events in [`schemas/events.json`](schemas/events.json).
-Every `$id` is `https://connect.kronixon.com/protocol/v1/schemas/<file>`; resolve it to this directory.
+Every `$id` is `https://connect.kronixon.com/protocol/v1/schemas/<file>`. `$id`s are identifiers, not
+download URLs — map them to `protocol/v1/schemas/` locally (register the files in your validator's
+schema registry; nothing is fetched over the network).
 
 ## 7. Errors
 
@@ -249,7 +260,7 @@ users as is, and never contains secrets, signatures, host paths or stack traces.
 | `method_not_allowed` | 405 | wrong method (`details.allowed`) | no |
 | `busy` | 409 | another write holds the shop's write lock | yes, after `retry_after` |
 | `idempotency_conflict` | 409 | same `Idempotency-Key`, different body | no |
-| `payload_too_large` | 413 | body above 4 MB (before or after gzip) | no (split) |
+| `payload_too_large` | 413 | body above 4 MB before gzip (the module also stops a gzip body that inflates above 4 MB, §9) | no (split) |
 | `batch_too_large` | 413 | more than 100 / 1 000 / 50 items | no (split) |
 | `validation_failed` | 422 | the body breaks the schema (`details.errors[]`) | no |
 | `rate_limited` | 429 | above 120 requests/min | yes, after `retry_after` |
@@ -281,7 +292,7 @@ Types and payloads: [`schemas/events.json`](schemas/events.json).
 | Limit | Value |
 | --- | --- |
 | Time budget per module request | 25 s (configurable up to 30 s); writers stop with `continue: true` when less than 1.5 s is left |
-| Request body | 4 MB before and after gzip |
+| Request body | 4 MB before gzip (the bytes as sent). Extra zip-bomb guard: the module also stops decoding a gzip body once it inflates above 4 MB (`413`) |
 | `GET catalog/*` answer | ≤ 8 MB (the module lowers `limit` itself) |
 | Entity batch / bulk rows / images | 100 / 1 000 / 50 per request; images ≤ 20 MB each, ≤ 100 MB per request |
 | Rate limit (module) | 120 requests/min per shop |

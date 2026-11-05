@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://connect.kronixon.com/protocol/v1/schemas/platform/module-latest.json",
   "title": "GET /v1/module/latest (platform)",
-  "description": "The newest compatible release for this shop (signed when paired, unsigned otherwise); the zip is verified with a pinned Ed25519 key before any install (Spec §10, plan D16).",
+  "description": "The newest compatible release for this shop (a signed request and a signed answer, so only a paired module asks); the zip is verified with a pinned Ed25519 key before any install (Spec §10, plan D16).",
   "x-kx-endpoint": {
     "method": "GET",
     "path": "/v1/module/latest",
