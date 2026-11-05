@@ -90,9 +90,6 @@ final class KxFixture
     /** @var array<string, int> */
     private $counts = [];
 
-    /** @var list<string> */
-    private $digest = [];
-
     /** @var float */
     private $started;
 
@@ -129,7 +126,7 @@ final class KxFixture
             'prestashop' => _PS_VERSION_,
             'php' => PHP_VERSION,
             'counts' => $this->counts,
-            'digest' => hash('sha256', implode("\n", $this->digest)),
+            'digest' => hash('sha256', implode("\n", $this->storedCatalog())),
             'ms' => (int) round((microtime(true) - $this->started) * 1000),
         ];
     }
@@ -140,7 +137,7 @@ final class KxFixture
         if ($id > 0) {
             return $id;
         }
-        $language = new Language();
+        $language = new Language;
         $language->name = 'Bulgarian (Български)';
         $language->iso_code = 'bg';
         $language->locale = 'bg-BG';
@@ -180,7 +177,7 @@ final class KxFixture
 
     private function category(int $parent, string $en, string $bg): int
     {
-        $category = new Category();
+        $category = new Category;
         $category->id_parent = $parent;
         $category->active = true;
         $category->name = $this->lang($en, $bg);
@@ -188,7 +185,6 @@ final class KxFixture
         $category->description = $this->lang('<p>'.$en.'</p>', '<p>'.$bg.'</p>');
         $category->doNotRegenerateNTree = true;
         $this->save($category, 'category '.$en);
-        $this->digest[] = 'category|'.$en.'|'.$parent;
 
         return (int) $category->id;
     }
@@ -200,7 +196,7 @@ final class KxFixture
     {
         $ids = [];
         for ($i = 1; $i <= 20; $i++) {
-            $brand = new Manufacturer();
+            $brand = new Manufacturer;
             $brand->name = sprintf('Brand %02d', $i);
             $brand->active = true;
             $brand->description = $this->lang('Brand description', 'Описание на марката');
@@ -219,7 +215,7 @@ final class KxFixture
     {
         $ids = [];
         for ($i = 1; $i <= 3; $i++) {
-            $supplier = new Supplier();
+            $supplier = new Supplier;
             $supplier->name = sprintf('Supplier %d', $i);
             $supplier->active = true;
             $this->save($supplier, 'supplier');
@@ -238,12 +234,12 @@ final class KxFixture
         $features = [];
         $values = 0;
         for ($f = 1; $f <= 15; $f++) {
-            $feature = new Feature();
+            $feature = new Feature;
             $feature->name = $this->lang(sprintf('Feature %02d', $f), sprintf('Характеристика %02d', $f));
             $this->save($feature, 'feature');
             $features[(int) $feature->id] = [];
             for ($v = 1; $v <= 200; $v++) {
-                $value = new FeatureValue();
+                $value = new FeatureValue;
                 $value->id_feature = (int) $feature->id;
                 $value->custom = false;
                 $value->value = $this->lang(sprintf('Value %02d-%03d', $f, $v), sprintf('Стойност %02d-%03d', $f, $v));
@@ -266,7 +262,7 @@ final class KxFixture
         $class = class_exists('ProductAttribute') ? 'ProductAttribute' : 'Attribute';
         $groups = [];
         foreach ([['Colour', 'Цвят', true, ['Red' => '#E74C3C', 'Green' => '#27AE60', 'Blue' => '#2980B9', 'Black' => '#000000', 'White' => '#FFFFFF']], ['Size', 'Размер', false, ['S' => '', 'M' => '', 'L' => '', 'XL' => '']]] as [$en, $bg, $isColor, $values]) {
-            $group = new AttributeGroup();
+            $group = new AttributeGroup;
             $group->name = $this->lang($en, $bg);
             $group->public_name = $this->lang($en, $bg);
             $group->group_type = $isColor ? 'color' : 'select';
@@ -274,7 +270,7 @@ final class KxFixture
             $this->save($group, 'attribute group');
             $ids = [];
             foreach ($values as $name => $color) {
-                $value = new $class();
+                $value = new $class;
                 $value->id_attribute_group = (int) $group->id;
                 $value->name = $this->lang($name, $name);
                 $value->color = $color;
@@ -309,7 +305,7 @@ final class KxFixture
             $quantity = $this->random->int(0, 250);
             $productCategories = $this->random->pickDistinct($categories, $this->random->int(1, 2));
 
-            $product = new Product();
+            $product = new Product;
             $product->name = $this->lang(sprintf('Fixture product %03d', $i), sprintf('Тестов продукт %03d', $i));
             $product->link_rewrite = $this->lang(sprintf('fixture-product-%03d', $i), sprintf('testov-produkt-%03d', $i));
             $product->description_short = $this->lang('<p>Short description '.$i.'</p>', '<p>Кратко описание '.$i.'</p>');
@@ -338,7 +334,7 @@ final class KxFixture
             Tag::addTags($this->en, $id, ['fixture', 'group-'.($i % 10)]);
             Tag::addTags($this->bg, $id, ['тест', 'група-'.($i % 10)]);
 
-            $productSupplier = new ProductSupplier();
+            $productSupplier = new ProductSupplier;
             $productSupplier->id_product = $id;
             $productSupplier->id_product_attribute = 0;
             $productSupplier->id_supplier = (int) $product->id_supplier;
@@ -357,7 +353,6 @@ final class KxFixture
                 $this->image($id, $position, $i, $imageTypes);
                 $images++;
             }
-            $this->digest[] = implode('|', ['product', $reference, $price, $quantity, implode(',', $productCategories)]);
         }
         $this->counts['products'] = 500;
         $this->counts['products_with_combinations'] = $withCombinations;
@@ -379,7 +374,7 @@ final class KxFixture
         }
         $made = 0;
         foreach ($this->random->pickDistinct($pairs, $count) as $n => $pair) {
-            $combination = new Combination();
+            $combination = new Combination;
             $combination->id_product = $productId;
             $combination->reference = $reference.'-'.($n + 1);
             $combination->price = sprintf('%d.00', $this->random->int(0, 20));
@@ -400,7 +395,7 @@ final class KxFixture
      */
     private function image(int $productId, int $position, int $i, array $types): void
     {
-        $image = new Image();
+        $image = new Image;
         $image->id_product = $productId;
         $image->position = $position;
         $image->cover = $position === 1;
@@ -448,6 +443,134 @@ final class KxFixture
         if (! $object->add()) {
             throw new RuntimeException('Could not create '.$what.'.');
         }
+    }
+
+    /**
+     * The digest input: the fixture as the shop stored it, read back from the database by natural
+     * keys (references, names, language iso codes), never by ids, so it compares across versions.
+     * Covers categories (names in every language, parent), brands, suppliers, features and their
+     * values, and per KX-* product: price, weight, EAN, brand, supplier, stock, name and link_rewrite
+     * in every language, categories, default category, features, combinations (reference, price,
+     * default, attributes, stock), images (count, position, cover) and tags in every language.
+     *
+     * @return list<string>
+     */
+    private function storedCatalog(): array
+    {
+        $p = _DB_PREFIX_;
+        $shop = (int) Configuration::get('PS_SHOP_DEFAULT');
+        $en = $this->en;
+        $iso = [];
+        foreach (Language::getLanguages(false) as $language) {
+            $iso[(int) $language['id_lang']] = (string) $language['iso_code'];
+        }
+        $byLang = static function (array $rows, string $field) use ($iso): string {
+            $out = [];
+            foreach ($rows as $row) {
+                $out[] = ($iso[(int) $row['id_lang']] ?? '?').'='.$row[$field];
+            }
+            sort($out, SORT_STRING);
+
+            return implode(';', $out);
+        };
+        $map = function (string $sql, string $key, string $value): array {
+            $out = [];
+            foreach ($this->rows($sql) as $row) {
+                $out[(int) $row[$key]] = (string) $row[$value];
+            }
+
+            return $out;
+        };
+        $names = static function (array $ids, array $map): string {
+            $out = [];
+            foreach ($ids as $id) {
+                $out[] = $map[(int) $id] ?? '?';
+            }
+            sort($out, SORT_STRING);
+
+            return implode(',', $out);
+        };
+
+        $categoryName = $map("SELECT id_category, name FROM {$p}category_lang WHERE id_lang = {$en} AND id_shop = {$shop}", 'id_category', 'name');
+        $brandName = $map("SELECT id_manufacturer, name FROM {$p}manufacturer", 'id_manufacturer', 'name');
+        $supplierName = $map("SELECT id_supplier, name FROM {$p}supplier", 'id_supplier', 'name');
+        $featureName = $map("SELECT id_feature, name FROM {$p}feature_lang WHERE id_lang = {$en}", 'id_feature', 'name');
+        $valueName = $map("SELECT id_feature_value, value FROM {$p}feature_value_lang WHERE id_lang = {$en}", 'id_feature_value', 'value');
+        $attributeName = $map("SELECT id_attribute, name FROM {$p}attribute_lang WHERE id_lang = {$en}", 'id_attribute', 'name');
+        $attributeGroup = $map("SELECT id_attribute, id_attribute_group FROM {$p}attribute", 'id_attribute', 'id_attribute_group');
+        $groupName = $map("SELECT id_attribute_group, name FROM {$p}attribute_group_lang WHERE id_lang = {$en}", 'id_attribute_group', 'name');
+
+        $lines = [];
+        foreach ($this->rows("SELECT c.id_category, c.id_parent FROM {$p}category c JOIN {$p}category_lang cl ON cl.id_category = c.id_category AND cl.id_lang = {$en} AND cl.id_shop = {$shop} WHERE cl.name LIKE 'Department %' OR cl.name LIKE 'Category %'") as $c) {
+            $id = (int) $c['id_category'];
+            $lines[] = implode('|', ['category', $categoryName[$id], 'parent='.($categoryName[(int) $c['id_parent']] ?? '?'),
+                $byLang($this->rows("SELECT id_lang, name FROM {$p}category_lang WHERE id_category = {$id} AND id_shop = {$shop}"), 'name')]);
+        }
+        foreach ($this->rows("SELECT fv.id_feature, fv.id_feature_value FROM {$p}feature_value fv JOIN {$p}feature_lang fl ON fl.id_feature = fv.id_feature AND fl.id_lang = {$en} WHERE fl.name LIKE 'Feature %'") as $v) {
+            $lines[] = 'feature_value|'.$featureName[(int) $v['id_feature']].'='.$valueName[(int) $v['id_feature_value']];
+        }
+        $brands = array_values(array_filter($brandName, static function (string $name): bool {
+            return strpos($name, 'Brand ') === 0;
+        }));
+        $suppliers = array_values(array_filter($supplierName, static function (string $name): bool {
+            return strpos($name, 'Supplier ') === 0;
+        }));
+        sort($brands, SORT_STRING);
+        sort($suppliers, SORT_STRING);
+        $lines[] = 'brands|'.implode(',', $brands);
+        $lines[] = 'suppliers|'.implode(',', $suppliers);
+
+        foreach ($this->rows("SELECT id_product, reference, price, weight, ean13, id_manufacturer, id_supplier, id_category_default FROM {$p}product WHERE reference LIKE 'KX-%'") as $product) {
+            $id = (int) $product['id_product'];
+            $ref = (string) $product['reference'];
+            $lines[] = implode('|', ['product', $ref, $product['price'], $product['weight'], $product['ean13'],
+                $brandName[(int) $product['id_manufacturer']] ?? '-', $supplierName[(int) $product['id_supplier']] ?? '-',
+                'default='.($categoryName[(int) $product['id_category_default']] ?? '?'),
+                'stock='.StockAvailable::getQuantityAvailableByProduct($id, 0, $shop)]);
+            $lang = $this->rows("SELECT id_lang, name, link_rewrite FROM {$p}product_lang WHERE id_product = {$id} AND id_shop = {$shop}");
+            $lines[] = $ref.'|name|'.$byLang($lang, 'name');
+            $lines[] = $ref.'|link_rewrite|'.$byLang($lang, 'link_rewrite');
+            $lines[] = $ref.'|categories|'.$names(array_column($this->rows("SELECT id_category FROM {$p}category_product WHERE id_product = {$id}"), 'id_category'), $categoryName);
+            $features = [];
+            foreach ($this->rows("SELECT id_feature, id_feature_value FROM {$p}feature_product WHERE id_product = {$id}") as $f) {
+                $features[] = $featureName[(int) $f['id_feature']].'='.$valueName[(int) $f['id_feature_value']];
+            }
+            sort($features, SORT_STRING);
+            $lines[] = $ref.'|features|'.implode(',', $features);
+            foreach ($this->rows("SELECT id_product_attribute, reference, price, default_on FROM {$p}product_attribute WHERE id_product = {$id}") as $combination) {
+                $ipa = (int) $combination['id_product_attribute'];
+                $attributes = [];
+                foreach ($this->rows("SELECT id_attribute FROM {$p}product_attribute_combination WHERE id_product_attribute = {$ipa}") as $a) {
+                    $attributes[] = $groupName[(int) $attributeGroup[(int) $a['id_attribute']]].'='.$attributeName[(int) $a['id_attribute']];
+                }
+                sort($attributes, SORT_STRING);
+                $lines[] = implode('|', ['combination', $combination['reference'], $combination['price'], 'default='.(int) $combination['default_on'],
+                    implode(',', $attributes), 'stock='.StockAvailable::getQuantityAvailableByProduct($id, $ipa, $shop)]);
+            }
+            $images = [];
+            foreach ($this->rows("SELECT position, cover FROM {$p}image WHERE id_product = {$id}") as $image) {
+                $images[] = (int) $image['position'].((int) $image['cover'] === 1 ? ':cover' : '');
+            }
+            sort($images, SORT_STRING);
+            $lines[] = $ref.'|images|'.count($images).'|'.implode(',', $images);
+            $lines[] = $ref.'|tags|'.$byLang($this->rows("SELECT t.id_lang, t.name FROM {$p}product_tag pt JOIN {$p}tag t ON t.id_tag = pt.id_tag WHERE pt.id_product = {$id}"), 'name');
+        }
+        sort($lines, SORT_STRING);
+
+        return $lines;
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function rows(string $sql): array
+    {
+        $rows = Db::getInstance()->executeS($sql);
+        if (! is_array($rows)) {
+            throw new RuntimeException('Fixture digest query failed.');
+        }
+
+        return array_values($rows);
     }
 }
 
