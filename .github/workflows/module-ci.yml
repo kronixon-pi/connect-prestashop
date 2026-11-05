@@ -1,0 +1,111 @@
+name: module-ci
+# Every PR and every push to main: static checks, PHPUnit on the lowest and the highest PHP, the
+# protocol schemas and vectors, a smoke install on PrestaShop 9.1.5 (PHP 8.5 image), commitlint.
+# The job "module-ci" at the end is the one required check of the main ruleset.
+on:
+  pull_request:
+  push: { branches: [main] }
+  workflow_dispatch:
+concurrency: { group: "module-ci-${{ github.ref }}", cancel-in-progress: true }
+permissions: { contents: read }
+
+jobs:
+  lint:
+    name: lint (PSR-12, PHPCompatibility 7.4-8.5, PHPStan 6)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+        with: { php-version: "8.4", coverage: none, tools: none }
+      - uses: ramsey/composer-install@65e4f84970763564f46a70b8a54b90d033b3bdda # 4.0.0
+      - run: tools/vendor/bin/php-cs-fixer check --diff --show-progress=none
+      - run: tools/vendor/bin/phpcs --standard=phpcs.xml.dist --report=summary
+      - run: tools/vendor/bin/phpstan analyse --no-progress --error-format=github
+      - run: shellcheck scripts/*.sh docker/fixture/*.sh
+      # Same pinned image as platform's ci.yml (manual bump there; CI pins are authoritative).
+      - name: actionlint (.github/workflows/*.yml)
+        run: docker run --rm -v "$PWD:/repo:ro" -w /repo rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667 -color
+
+  phpunit:
+    name: phpunit (PHP ${{ matrix.php }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix: { php: ["7.4", "8.5"] }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+        with: { php-version: "${{ matrix.php }}", coverage: none, tools: none }
+      - uses: ramsey/composer-install@65e4f84970763564f46a70b8a54b90d033b3bdda # 4.0.0
+      - name: php -l on every PHP file
+        run: |
+          php -r 'echo PHP_VERSION, PHP_EOL;'
+          failed=0 count=0
+          while IFS= read -r -d '' file; do
+            count=$((count + 1))
+            php -l "$file" >/dev/null || failed=1
+          done < <(git ls-files -z '*.php')
+          echo "linted $count files"
+          exit "$failed"
+      - run: tools/vendor/bin/phpunit --testsuite unit
+
+  protocol:
+    name: protocol (schemas, vectors)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+        with: { php-version: "8.4", coverage: none, tools: none }
+      - uses: ramsey/composer-install@65e4f84970763564f46a70b8a54b90d033b3bdda # 4.0.0
+      # ids, compilation, examples, vectors.json against its schema, the README endpoint list, the module's error answers
+      - run: tools/vendor/bin/phpunit --testsuite protocol
+      # An independent validator: every schema file against the draft 2020-12 metaschema.
+      - run: git ls-files -z 'protocol/v1/schemas/*.json' | xargs -0 pipx run --spec 'check-jsonschema==0.33.3' check-jsonschema --check-metaschema
+
+  smoke:
+    name: smoke install (PrestaShop 9.1.5, PHP 8.5)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # 9.1.5-apache is the image's default PHP 8.5 build; the matrix covers 9.1.5 on PHP 8.4.
+      # PS_FOLDER_ADMIN=admin-dev is set in docker/compose.common.yml (other names break the 9.1.5 auto-install).
+      - run: scripts/ps-smoke.sh 91
+        env: { PS_TAG: "9.1.5-apache" }
+
+  commitlint:
+    name: commitlint
+    if: github.event_name == 'pull_request' && github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: { contents: read, pull-requests: read }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { fetch-depth: 0 }
+      - uses: wagoid/commitlint-github-action@b948419dd99f3fd78a6548d48f94e3df7f6bf3ed # v6.2.1
+        with: { configFile: .commitlintrc.json }
+      - name: PR title (it becomes the squash commit)
+        env: { TITLE: "${{ github.event.pull_request.title }}" }
+        run: |
+          dir="$RUNNER_TEMP/commitlint"
+          mkdir -p "$dir" && cp .commitlintrc.json "$dir/"
+          npm install --prefix "$dir" --no-audit --no-fund --silent @commitlint/cli@19.8.1 @commitlint/config-conventional@19.8.1
+          printf '%s\n' "$TITLE" | "$dir/node_modules/.bin/commitlint" --cwd "$dir" --config "$dir/.commitlintrc.json"
+
+  module-ci:
+    name: module-ci
+    if: always()
+    needs: [lint, phpunit, protocol, smoke, commitlint]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: every job passed (commitlint may be skipped outside PRs)
+        env: { NEEDS: "${{ toJSON(needs) }}" }
+        run: |
+          printf '%s' "$NEEDS" | jq -e '
+            (.commitlint.result == "success" or .commitlint.result == "skipped")
+            and (del(.commitlint) | to_entries | all(.value.result == "success"))' >/dev/null \
+            || { printf '%s' "$NEEDS" | jq -c 'map_values(.result)'; exit 1; }

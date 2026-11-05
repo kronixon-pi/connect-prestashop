@@ -1,0 +1,50 @@
+name: matrix
+# The PrestaShop version matrix (plan D18): auto-install from the official image, module install,
+# uninstall/reinstall, GET /v1/status through both URL forms. Runs on PRs to main, when the label
+# "matrix" is added to any PR, weekly, and by hand. 9.2.0 is non-blocking until it is green.
+on:
+  pull_request: { types: [opened, synchronize, reopened, labeled] }
+  schedule: [{ cron: "23 4 * * 1" }]
+  workflow_dispatch:
+# A label other than "matrix" gets its own group, so it does not cancel a running matrix.
+concurrency:
+  group: "matrix-${{ github.ref }}-${{ github.event.action == 'labeled' && github.event.label.name || 'run' }}"
+  cancel-in-progress: true
+permissions: { contents: read }
+
+jobs:
+  install:
+    name: "PrestaShop ${{ matrix.tag }}"
+    if: >-
+      github.event_name != 'pull_request'
+      || (github.event.action == 'labeled' && github.event.label.name == 'matrix')
+      || (github.event.action != 'labeled'
+          && (github.event.pull_request.base.ref == 'main' || contains(github.event.pull_request.labels.*.name, 'matrix')))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    continue-on-error: ${{ matrix.experimental }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { ps: "178", tag: "1.7.8.11-7.4-apache", experimental: false }
+          - { ps: "81", tag: "8.1.7-8.1-apache", experimental: false }
+          - { ps: "82", tag: "8.2.8-8.1-apache", experimental: false }
+          - { ps: "90", tag: "9.0.3-8.4", experimental: false }
+          - { ps: "91", tag: "9.1.5-8.4", experimental: false }
+          - { ps: "92", tag: "9.2.0-6.0-classic-8.2-apache", experimental: true }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: scripts/ps-smoke.sh ${{ matrix.ps }}
+        env: { PS_TAG: "${{ matrix.tag }}" }
+
+  required:
+    name: matrix (required versions)
+    if: always() && needs.install.result != 'skipped'
+    needs: [install]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: the five required versions passed (9.2.0 is continue-on-error)
+        env: { RESULT: "${{ needs.install.result }}" }
+        run: test "$RESULT" = "success"

@@ -1,0 +1,21 @@
+version: 2
+# GitHub Actions are pinned to commit SHAs with a `# vX.Y.Z` comment; Dependabot updates both.
+# composer holds development tools only (tools/vendor, never shipped in the module zip).
+# Dependabot's "Bump …" subjects skip commitlint (module-ci.yml).
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule: { interval: monthly }
+    cooldown: { default-days: 7 }
+    labels: ["type:chore", "deps"]
+    commit-message: { prefix: "ci" }
+  - package-ecosystem: composer
+    directory: "/"
+    schedule: { interval: monthly }
+    cooldown: { default-days: 7 }
+    groups: { dev-tools: { dependency-type: development } }
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    labels: ["type:chore", "deps"]
+    commit-message: { prefix: "chore", include: "scope" }
