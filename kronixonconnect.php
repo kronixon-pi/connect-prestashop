@@ -62,10 +62,18 @@ class KronixonConnect extends Module
         }
         $installer = $this->installer();
 
-        return parent::install()
-            && $installer->createTables()
-            && $installer->writeDefaults()
-            && $this->registerHook(Hooks::forCompat($compat));
+        // All or nothing: a failed install leaves no module row, no table and no KX_* key behind.
+        return $installer->install(
+            function (): bool {
+                return (bool) parent::install();
+            },
+            function (): bool {
+                return (bool) parent::uninstall();
+            },
+            function () use ($compat): bool {
+                return (bool) $this->registerHook(Hooks::forCompat($compat));
+            }
+        );
     }
 
     public function uninstall(): bool
@@ -95,7 +103,7 @@ class KronixonConnect extends Module
 
     private function installer(): Installer
     {
-        return new Installer(Db::getInstance(), __DIR__.'/sql', _DB_PREFIX_, _MYSQL_ENGINE_);
+        return Installer::forShop(__DIR__.'/sql');
     }
 
     /*

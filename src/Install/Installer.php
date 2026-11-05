@@ -49,8 +49,8 @@ final class Installer
         'KX_BLOG_PREFIX',
     ];
 
-    /** @var Db */
-    private $db;
+    /** @var callable(string): bool */
+    private $execute;
 
     /** @var string */
     private $sqlDir;
@@ -61,22 +61,55 @@ final class Installer
     /** @var string */
     private $engine;
 
-    public function __construct(Db $db, string $sqlDir, string $prefix, string $engine)
+    /**
+     * @param  callable(string): bool  $execute  runs one DDL statement (Db::execute in the shop)
+     */
+    public function __construct(callable $execute, string $sqlDir, string $prefix, string $engine)
     {
-        $this->db = $db;
+        $this->execute = $execute;
         $this->sqlDir = rtrim($sqlDir, '/');
         $this->prefix = $prefix;
         $this->engine = $engine;
     }
 
-    public function createTables(): bool
+    public static function forShop(string $sqlDir): self
     {
-        return $this->run('install.sql');
+        return new self(static function (string $sql): bool {
+            return (bool) Db::getInstance()->execute($sql);
+        }, $sqlDir, _DB_PREFIX_, _MYSQL_ENGINE_);
     }
 
+    /**
+     * The install order: tables, the module row (Module::install), defaults, hooks. A failing step
+     * undoes itself and every earlier one (Steps), so a failed install leaves no module row, no table
+     * and no KX_* key behind.
+     *
+     * @param  callable(): bool  $addModule  Module::install() (the module row, tabs)
+     * @param  callable(): bool  $removeModule  Module::uninstall() (also drops the hook registrations)
+     * @param  callable(): bool  $registerHooks
+     */
+    public function install(callable $addModule, callable $removeModule, callable $registerHooks): bool
+    {
+        return Steps::run([
+            [[$this, 'createTables'], [$this, 'dropTables']],
+            [$addModule, $removeModule],
+            [[$this, 'writeDefaults'], [$this, 'deleteConfiguration']],
+            [$registerHooks, static function (): bool {
+                return true;
+            }],
+        ]);
+    }
+
+    /** Stops at the first failing statement (install() then drops what was created). */
+    public function createTables(): bool
+    {
+        return $this->run('install.sql', true);
+    }
+
+    /** Runs every DROP TABLE IF EXISTS even after a failure, so it also cleans a half-created set. */
     public function dropTables(): bool
     {
-        return $this->run('uninstall.sql');
+        return $this->run('uninstall.sql', false);
     }
 
     public function writeDefaults(): bool
@@ -101,18 +134,22 @@ final class Installer
         return $ok;
     }
 
-    private function run(string $file): bool
+    private function run(string $file, bool $stopOnError): bool
     {
         $sql = file_get_contents($this->sqlDir.'/'.$file);
         if ($sql === false) {
             return false;
         }
+        $ok = true;
         foreach (SqlFile::statements($sql, $this->prefix, $this->engine) as $statement) {
-            if (! $this->db->execute($statement)) {
-                return false;
+            if (! ($this->execute)($statement)) {
+                $ok = false;
+                if ($stopOnError) {
+                    return false;
+                }
             }
         }
 
-        return true;
+        return $ok;
     }
 }
