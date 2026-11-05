@@ -137,7 +137,7 @@ final class KxFixture
         if ($id > 0) {
             return $id;
         }
-        $language = new Language;
+        $language = new Language();
         $language->name = 'Bulgarian (Български)';
         $language->iso_code = 'bg';
         $language->locale = 'bg-BG';
@@ -177,7 +177,7 @@ final class KxFixture
 
     private function category(int $parent, string $en, string $bg): int
     {
-        $category = new Category;
+        $category = new Category();
         $category->id_parent = $parent;
         $category->active = true;
         $category->name = $this->lang($en, $bg);
@@ -196,7 +196,7 @@ final class KxFixture
     {
         $ids = [];
         for ($i = 1; $i <= 20; $i++) {
-            $brand = new Manufacturer;
+            $brand = new Manufacturer();
             $brand->name = sprintf('Brand %02d', $i);
             $brand->active = true;
             $brand->description = $this->lang('Brand description', 'Описание на марката');
@@ -215,7 +215,7 @@ final class KxFixture
     {
         $ids = [];
         for ($i = 1; $i <= 3; $i++) {
-            $supplier = new Supplier;
+            $supplier = new Supplier();
             $supplier->name = sprintf('Supplier %d', $i);
             $supplier->active = true;
             $this->save($supplier, 'supplier');
@@ -234,12 +234,12 @@ final class KxFixture
         $features = [];
         $values = 0;
         for ($f = 1; $f <= 15; $f++) {
-            $feature = new Feature;
+            $feature = new Feature();
             $feature->name = $this->lang(sprintf('Feature %02d', $f), sprintf('Характеристика %02d', $f));
             $this->save($feature, 'feature');
             $features[(int) $feature->id] = [];
             for ($v = 1; $v <= 200; $v++) {
-                $value = new FeatureValue;
+                $value = new FeatureValue();
                 $value->id_feature = (int) $feature->id;
                 $value->custom = false;
                 $value->value = $this->lang(sprintf('Value %02d-%03d', $f, $v), sprintf('Стойност %02d-%03d', $f, $v));
@@ -262,7 +262,7 @@ final class KxFixture
         $class = class_exists('ProductAttribute') ? 'ProductAttribute' : 'Attribute';
         $groups = [];
         foreach ([['Colour', 'Цвят', true, ['Red' => '#E74C3C', 'Green' => '#27AE60', 'Blue' => '#2980B9', 'Black' => '#000000', 'White' => '#FFFFFF']], ['Size', 'Размер', false, ['S' => '', 'M' => '', 'L' => '', 'XL' => '']]] as [$en, $bg, $isColor, $values]) {
-            $group = new AttributeGroup;
+            $group = new AttributeGroup();
             $group->name = $this->lang($en, $bg);
             $group->public_name = $this->lang($en, $bg);
             $group->group_type = $isColor ? 'color' : 'select';
@@ -270,7 +270,7 @@ final class KxFixture
             $this->save($group, 'attribute group');
             $ids = [];
             foreach ($values as $name => $color) {
-                $value = new $class;
+                $value = new $class();
                 $value->id_attribute_group = (int) $group->id;
                 $value->name = $this->lang($name, $name);
                 $value->color = $color;
@@ -305,7 +305,7 @@ final class KxFixture
             $quantity = $this->random->int(0, 250);
             $productCategories = $this->random->pickDistinct($categories, $this->random->int(1, 2));
 
-            $product = new Product;
+            $product = new Product();
             $product->name = $this->lang(sprintf('Fixture product %03d', $i), sprintf('Тестов продукт %03d', $i));
             $product->link_rewrite = $this->lang(sprintf('fixture-product-%03d', $i), sprintf('testov-produkt-%03d', $i));
             $product->description_short = $this->lang('<p>Short description '.$i.'</p>', '<p>Кратко описание '.$i.'</p>');
@@ -334,7 +334,7 @@ final class KxFixture
             Tag::addTags($this->en, $id, ['fixture', 'group-'.($i % 10)]);
             Tag::addTags($this->bg, $id, ['тест', 'група-'.($i % 10)]);
 
-            $productSupplier = new ProductSupplier;
+            $productSupplier = new ProductSupplier();
             $productSupplier->id_product = $id;
             $productSupplier->id_product_attribute = 0;
             $productSupplier->id_supplier = (int) $product->id_supplier;
@@ -374,7 +374,7 @@ final class KxFixture
         }
         $made = 0;
         foreach ($this->random->pickDistinct($pairs, $count) as $n => $pair) {
-            $combination = new Combination;
+            $combination = new Combination();
             $combination->id_product = $productId;
             $combination->reference = $reference.'-'.($n + 1);
             $combination->price = sprintf('%d.00', $this->random->int(0, 20));
@@ -395,7 +395,7 @@ final class KxFixture
      */
     private function image(int $productId, int $position, int $i, array $types): void
     {
-        $image = new Image;
+        $image = new Image();
         $image->id_product = $productId;
         $image->position = $position;
         $image->cover = $position === 1;
