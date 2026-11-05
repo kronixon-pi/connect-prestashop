@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://connect.kronixon.com/protocol/v1/schemas/platform/store-events.json",
+  "title": "POST /v1/stores/{store_id}/events (platform)",
+  "description": "Webhook batch from the outbox: ≤ 200 events, ≤ 1 MB; deduplicated by event_id and (store, type, external_id, occurred_at); occurred_at more than 5 min ahead is rejected (Spec §7.1, plan D13).",
+  "x-kx-endpoint": {
+    "method": "POST",
+    "path": "/v1/stores/{store_id}/events",
+    "signed": true,
+    "pr": "platform C3 / M5"
+  },
+  "$defs": {
+    "request": {
+      "type": "object",
+      "required": ["batch_id", "sent_at", "module_version", "events"],
+      "properties": {
+        "batch_id": { "$ref": "../common.json#/$defs/uuid" },
+        "sent_at": { "$ref": "../common.json#/$defs/datetime" },
+        "module_version": { "type": "string" },
+        "events": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 200,
+          "items": { "$ref": "../events.json#/$defs/event" }
+        }
+      },
+      "examples": [
+        {
+          "batch_id": "0192b2e4-9b3c-7d4e-9f50-6b7c8d9e0f1a",
+          "sent_at": "2026-09-30T12:40:05Z",
+          "module_version": "1.0.0",
+          "events": [
+            {
+              "event_id": "0192b2e4-7c1a-7d3e-9f4b-2a6c8e0d1f35",
+              "type": "price.updated",
+              "external_id": "123",
+              "occurred_at": "2026-09-30T12:40:00Z",
+              "dedupe_key": "price.updated:123:29846200",
+              "origin": "shop",
+              "payload": { "variant_id": "0", "price": "89.990000" }
+            }
+          ]
+        }
+      ]
+    },
+    "response": {
+      "type": "object",
+      "required": ["accepted", "duplicates", "rejected"],
+      "properties": {
+        "accepted": {
+          "type": "array",
+          "items": { "$ref": "../common.json#/$defs/uuid" }
+        },
+        "duplicates": {
+          "type": "array",
+          "items": { "$ref": "../common.json#/$defs/uuid" }
+        },
+        "rejected": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["event_id", "code"],
+            "properties": {
+              "event_id": { "$ref": "../common.json#/$defs/uuid" },
+              "code": { "type": "string", "maxLength": 64 }
+            }
+          }
+        }
+      },
+      "examples": [
+        {
+          "accepted": ["0192b2e4-7c1a-7d3e-9f4b-2a6c8e0d1f35"],
+          "duplicates": [],
+          "rejected": []
+        }
+      ]
+    }
+  }
+}

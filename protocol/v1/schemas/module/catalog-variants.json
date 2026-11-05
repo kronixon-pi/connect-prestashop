@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://connect.kronixon.com/protocol/v1/schemas/module/catalog-variants.json",
+  "title": "GET catalog/variants",
+  "description": "Combinations of one product (product_id) or of all, by cursor (Spec §6.4).",
+  "x-kx-endpoint": {
+    "method": "GET",
+    "path": "/v1/catalog/variants",
+    "signed": true,
+    "pr": "M2"
+  },
+  "$defs": {
+    "query": {
+      "allOf": [{ "$ref": "../common.json#/$defs/catalog_query" }],
+      "properties": {
+        "product_id": { "$ref": "../common.json#/$defs/external_id" }
+      },
+      "examples": [
+        { "product_id": "123" },
+        { "since": "2026-09-01T00:00:00Z", "limit": "500" }
+      ]
+    },
+    "variant": {
+      "type": "object",
+      "required": [
+        "external_id",
+        "product_id",
+        "kx_id",
+        "price_impact",
+        "quantity",
+        "default",
+        "option_values"
+      ],
+      "properties": {
+        "external_id": { "$ref": "../common.json#/$defs/external_id" },
+        "product_id": { "$ref": "../common.json#/$defs/external_id" },
+        "kx_id": { "$ref": "../common.json#/$defs/kx_id" },
+        "reference": { "type": "string" },
+        "ean13": { "type": "string" },
+        "mpn": { "type": "string" },
+        "price_impact": { "$ref": "../common.json#/$defs/money" },
+        "wholesale_price": { "$ref": "../common.json#/$defs/money" },
+        "weight_impact": { "$ref": "../common.json#/$defs/money" },
+        "quantity": { "type": "integer" },
+        "default": { "type": "boolean" },
+        "option_values": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["group_id", "value_id"],
+            "properties": {
+              "group_id": { "$ref": "../common.json#/$defs/external_id" },
+              "value_id": { "$ref": "../common.json#/$defs/external_id" }
+            }
+          }
+        },
+        "image_ids": {
+          "type": "array",
+          "items": { "$ref": "../common.json#/$defs/external_id" }
+        },
+        "minimal_quantity": { "type": "integer", "minimum": 1 },
+        "available_date": { "type": ["string", "null"] }
+      }
+    },
+    "response": {
+      "type": "object",
+      "required": ["data", "meta"],
+      "properties": {
+        "data": { "type": "array", "items": { "$ref": "#/$defs/variant" } },
+        "meta": { "$ref": "../common.json#/$defs/page_meta" }
+      },
+      "examples": [
+        {
+          "data": [
+            {
+              "external_id": "77",
+              "product_id": "123",
+              "kx_id": null,
+              "reference": "ABC-1-RED",
+              "ean13": "",
+              "mpn": "",
+              "price_impact": "5.000000",
+              "wholesale_price": "0",
+              "weight_impact": "0",
+              "quantity": 3,
+              "default": true,
+              "option_values": [{ "group_id": "2", "value_id": "15" }],
+              "image_ids": ["9002"],
+              "minimal_quantity": 1,
+              "available_date": null
+            }
+          ],
+          "meta": {
+            "count": 1,
+            "next_cursor": null,
+            "has_more": false,
+            "generated_at": "2026-09-30T12:40:00Z"
+          }
+        }
+      ]
+    }
+  }
+}

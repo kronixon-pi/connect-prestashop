@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<ruleset name="kronixonconnect-compat">
+    <description>PHPCompatibility: the module runs on PHP 7.4 to 8.5 (PrestaShop 1.7.8 to 9.x).</description>
+    <file>kronixonconnect.php</file>
+    <file>controllers</file>
+    <file>src</file>
+    <file>sql</file>
+    <file>tests</file>
+    <exclude-pattern>tests/phpstan/*</exclude-pattern>
+    <arg name="extensions" value="php"/>
+    <arg name="colors"/>
+    <arg value="sp"/>
+    <config name="testVersion" value="7.4-8.5"/>
+    <rule ref="PHPCompatibility"/>
+</ruleset>

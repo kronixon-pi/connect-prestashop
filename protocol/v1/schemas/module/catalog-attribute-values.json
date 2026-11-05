@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://connect.kronixon.com/protocol/v1/schemas/module/catalog-attribute-values.json",
+  "title": "GET catalog/attribute-values",
+  "description": "Values of a feature (custom = per-product value) or of an attribute group (Spec §6.7).",
+  "x-kx-endpoint": {
+    "method": "GET",
+    "path": "/v1/catalog/attribute-values",
+    "signed": true,
+    "pr": "M2"
+  },
+  "$defs": {
+    "query": {
+      "allOf": [{ "$ref": "../common.json#/$defs/catalog_query" }],
+      "required": ["kind"],
+      "properties": {
+        "kind": { "enum": ["feature", "attribute_group"] },
+        "parent_id": { "$ref": "../common.json#/$defs/external_id" }
+      },
+      "examples": [{ "kind": "feature", "parent_id": "7" }]
+    },
+    "value": {
+      "type": "object",
+      "required": ["external_id", "parent_id"],
+      "properties": {
+        "external_id": { "$ref": "../common.json#/$defs/external_id" },
+        "parent_id": { "$ref": "../common.json#/$defs/external_id" },
+        "kx_id": { "$ref": "../common.json#/$defs/kx_id" },
+        "custom": { "type": "boolean" },
+        "value": { "$ref": "../common.json#/$defs/multilang" },
+        "name": { "$ref": "../common.json#/$defs/multilang" },
+        "color": {
+          "anyOf": [
+            { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
+            { "type": "null" }
+          ]
+        },
+        "position": { "type": "integer", "minimum": 0 }
+      },
+      "anyOf": [{ "required": ["value"] }, { "required": ["name"] }]
+    },
+    "response": {
+      "type": "object",
+      "required": ["data", "meta"],
+      "properties": {
+        "data": { "type": "array", "items": { "$ref": "#/$defs/value" } },
+        "meta": { "$ref": "../common.json#/$defs/page_meta" }
+      },
+      "examples": [
+        {
+          "data": [
+            {
+              "external_id": "310",
+              "parent_id": "7",
+              "kx_id": null,
+              "custom": false,
+              "value": { "bg": "512 GB", "en": "512 GB" }
+            },
+            {
+              "external_id": "15",
+              "parent_id": "2",
+              "kx_id": null,
+              "name": { "bg": "Red" },
+              "color": "#ff0000",
+              "position": 0
+            }
+          ],
+          "meta": {
+            "count": 2,
+            "next_cursor": null,
+            "has_more": false,
+            "generated_at": "2026-09-30T12:40:00Z"
+          }
+        }
+      ]
+    }
+  }
+}

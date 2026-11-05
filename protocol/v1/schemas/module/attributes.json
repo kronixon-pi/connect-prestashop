@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://connect.kronixon.com/protocol/v1/schemas/module/attributes.json",
+  "title": "POST attributes",
+  "description": "Features and attribute groups without their values; facets places a feature in layered navigation per category, with the facets capability (Spec §6.17).",
+  "x-kx-endpoint": {
+    "method": "POST",
+    "path": "/v1/attributes",
+    "signed": true,
+    "pr": "M3"
+  },
+  "$defs": {
+    "item": {
+      "type": "object",
+      "required": ["key", "kind", "name"],
+      "properties": {
+        "key": { "$ref": "../common.json#/$defs/key" },
+        "kind": { "enum": ["feature", "attribute_group"] },
+        "external_id": { "$ref": "../common.json#/$defs/external_id_or_null" },
+        "kx_id": { "$ref": "../common.json#/$defs/kx_id" },
+        "name": { "$ref": "../common.json#/$defs/multilang" },
+        "public_name": { "$ref": "../common.json#/$defs/multilang" },
+        "group_type": { "enum": ["select", "color", "radio"] },
+        "position": { "type": ["integer", "null"], "minimum": 0 },
+        "match_by": { "type": "array", "items": { "const": "name" } },
+        "facets": {
+          "type": "object",
+          "required": ["mode", "categories"],
+          "properties": {
+            "mode": { "$ref": "../common.json#/$defs/mode" },
+            "categories": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["category_id"],
+                "properties": {
+                  "category_id": {
+                    "$ref": "../common.json#/$defs/external_id"
+                  },
+                  "position": { "type": ["integer", "null"] },
+                  "filter_type": { "type": "integer", "minimum": 0 },
+                  "show_limit": { "type": "integer", "minimum": 0 }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "request": {
+      "allOf": [{ "$ref": "../common.json#/$defs/items_request" }],
+      "properties": { "items": { "items": { "$ref": "#/$defs/item" } } },
+      "examples": [
+        {
+          "items": [
+            {
+              "key": "f-1",
+              "kind": "feature",
+              "external_id": null,
+              "kx_id": null,
+              "name": { "bg": "Capacity" },
+              "position": null,
+              "match_by": ["name"],
+              "facets": {
+                "mode": "merge",
+                "categories": [
+                  {
+                    "category_id": "45",
+                    "position": null,
+                    "filter_type": 0,
+                    "show_limit": 0
+                  }
+                ]
+              }
+            },
+            {
+              "key": "g-1",
+              "kind": "attribute_group",
+              "name": { "bg": "Color" },
+              "public_name": { "bg": "Color" },
+              "group_type": "color"
+            }
+          ]
+        }
+      ]
+    },
+    "response": {
+      "allOf": [{ "$ref": "../common.json#/$defs/batch_response" }],
+      "examples": [
+        {
+          "results": [
+            {
+              "key": "f-1",
+              "external_id": "7",
+              "status": "ok",
+              "action": "unchanged"
+            },
+            {
+              "key": "g-1",
+              "external_id": "2",
+              "status": "ok",
+              "action": "updated"
+            }
+          ],
+          "summary": { "ok": 2, "error": 0, "skipped": 0, "time_ms": 40 },
+          "continue": false
+        }
+      ]
+    }
+  }
+}

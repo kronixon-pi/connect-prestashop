@@ -1,0 +1,13 @@
+# PrestaShop 9.1.5 (PHP 8.4) + MariaDB 10.11 — `make up PS=91`. PS_TAG=9.1.5-apache runs PHP 8.5.
+# Run through scripts/compose.sh (make does): it pins the images from docker/images.lock.
+name: kx-ps91
+x-kx-ps-tag: "9.1.5-8.4"
+services:
+  db:
+    extends: { file: compose.common.yml, service: db }
+  ps:
+    extends: { file: compose.common.yml, service: ps }
+    image: ${PS_IMAGE:?run through scripts/compose.sh, which pins it from docker/images.lock}
+    depends_on: { db: { condition: service_healthy } }
+    environment: { PS_DOMAIN: "localhost:${PS_PORT:-8091}" }
+    ports: ["127.0.0.1:${PS_PORT:-8091}:80"]

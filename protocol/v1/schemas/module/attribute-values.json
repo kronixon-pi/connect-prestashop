@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://connect.kronixon.com/protocol/v1/schemas/module/attribute-values.json",
+  "title": "POST attribute-values",
+  "description": "Values of features (predefined, custom false) and of attribute groups; match_by value compares the default-language value, trimmed, case-insensitive (Spec §6.18).",
+  "x-kx-endpoint": {
+    "method": "POST",
+    "path": "/v1/attribute-values",
+    "signed": true,
+    "pr": "M3"
+  },
+  "$defs": {
+    "item": {
+      "type": "object",
+      "required": ["key", "kind", "parent_external_id"],
+      "properties": {
+        "key": { "$ref": "../common.json#/$defs/key" },
+        "kind": { "enum": ["feature", "attribute_group"] },
+        "parent_external_id": { "$ref": "../common.json#/$defs/external_id" },
+        "external_id": { "$ref": "../common.json#/$defs/external_id_or_null" },
+        "kx_id": { "$ref": "../common.json#/$defs/kx_id" },
+        "value": { "$ref": "../common.json#/$defs/multilang" },
+        "custom": { "type": "boolean" },
+        "name": { "$ref": "../common.json#/$defs/multilang" },
+        "color": { "type": ["string", "null"], "pattern": "^#[0-9a-fA-F]{6}$" },
+        "position": { "type": ["integer", "null"], "minimum": 0 },
+        "match_by": { "type": "array", "items": { "enum": ["value", "name"] } }
+      },
+      "if": { "properties": { "kind": { "const": "feature" } } },
+      "then": { "required": ["value"] },
+      "else": { "required": ["name"] }
+    },
+    "request": {
+      "allOf": [{ "$ref": "../common.json#/$defs/items_request" }],
+      "properties": { "items": { "items": { "$ref": "#/$defs/item" } } },
+      "examples": [
+        {
+          "items": [
+            {
+              "key": "fv-1",
+              "kind": "feature",
+              "parent_external_id": "7",
+              "external_id": null,
+              "kx_id": null,
+              "value": { "bg": "512 GB", "en": "512 GB" },
+              "custom": false,
+              "match_by": ["value"]
+            },
+            {
+              "key": "av-1",
+              "kind": "attribute_group",
+              "parent_external_id": "2",
+              "name": { "bg": "Red" },
+              "color": "#ff0000",
+              "position": null
+            }
+          ]
+        }
+      ]
+    },
+    "response": {
+      "allOf": [{ "$ref": "../common.json#/$defs/batch_response" }],
+      "examples": [
+        {
+          "results": [
+            {
+              "key": "fv-1",
+              "external_id": "310",
+              "status": "ok",
+              "action": "unchanged"
+            },
+            {
+              "key": "av-1",
+              "external_id": "15",
+              "status": "ok",
+              "action": "created"
+            }
+          ],
+          "summary": { "ok": 2, "error": 0, "skipped": 0, "time_ms": 30 },
+          "continue": false
+        }
+      ]
+    }
+  }
+}

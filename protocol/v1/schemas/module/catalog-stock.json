@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://connect.kronixon.com/protocol/v1/schemas/module/catalog-stock.json",
+  "title": "GET catalog/stock",
+  "description": "stock_available rows of the paired shop (or its shop group when stock is shared), up to 1 000 per page (Spec §6.11).",
+  "x-kx-endpoint": {
+    "method": "GET",
+    "path": "/v1/catalog/stock",
+    "signed": true,
+    "pr": "M2"
+  },
+  "$defs": {
+    "query": {
+      "allOf": [{ "$ref": "../common.json#/$defs/catalog_query" }],
+      "examples": [{ "limit": "1000" }]
+    },
+    "row": {
+      "type": "object",
+      "required": ["product_id", "variant_id", "location", "quantity"],
+      "properties": {
+        "product_id": { "$ref": "../common.json#/$defs/external_id" },
+        "variant_id": { "$ref": "../common.json#/$defs/external_id" },
+        "location": { "const": "default" },
+        "quantity": { "type": "integer" },
+        "physical_quantity": { "type": "integer" },
+        "reserved_quantity": { "type": "integer" },
+        "out_of_stock": { "enum": [0, 1, 2] },
+        "depends_on_stock": { "type": "boolean" },
+        "date_upd": { "$ref": "../common.json#/$defs/datetime_or_null" }
+      }
+    },
+    "response": {
+      "type": "object",
+      "required": ["data", "meta"],
+      "properties": {
+        "data": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": { "$ref": "#/$defs/row" }
+        },
+        "meta": { "$ref": "../common.json#/$defs/page_meta" }
+      },
+      "examples": [
+        {
+          "data": [
+            {
+              "product_id": "123",
+              "variant_id": "0",
+              "location": "default",
+              "quantity": 7,
+              "physical_quantity": 8,
+              "reserved_quantity": 1,
+              "out_of_stock": 2,
+              "depends_on_stock": false,
+              "date_upd": null
+            }
+          ],
+          "meta": {
+            "count": 1,
+            "next_cursor": null,
+            "has_more": false,
+            "generated_at": "2026-09-30T12:40:00Z"
+          }
+        }
+      ]
+    }
+  }
+}

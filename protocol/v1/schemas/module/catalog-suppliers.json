@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://connect.kronixon.com/protocol/v1/schemas/module/catalog-suppliers.json",
+  "title": "GET catalog/suppliers",
+  "description": "PrestaShop suppliers, with the suppliers capability (Spec §6.9); the platform keeps them as channel data until F1-01.",
+  "x-kx-endpoint": {
+    "method": "GET",
+    "path": "/v1/catalog/suppliers",
+    "signed": true,
+    "pr": "M2"
+  },
+  "$defs": {
+    "query": {
+      "allOf": [{ "$ref": "../common.json#/$defs/catalog_query" }],
+      "examples": [{}]
+    },
+    "supplier": {
+      "type": "object",
+      "required": ["external_id", "kx_id", "name", "active"],
+      "properties": {
+        "external_id": { "$ref": "../common.json#/$defs/external_id" },
+        "kx_id": { "$ref": "../common.json#/$defs/kx_id" },
+        "name": { "type": "string", "minLength": 1 },
+        "active": { "type": "boolean" },
+        "description": { "$ref": "../common.json#/$defs/multilang" },
+        "meta_title": { "$ref": "../common.json#/$defs/multilang" },
+        "meta_description": { "$ref": "../common.json#/$defs/multilang" },
+        "product_count": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "response": {
+      "type": "object",
+      "required": ["data", "meta"],
+      "properties": {
+        "data": { "type": "array", "items": { "$ref": "#/$defs/supplier" } },
+        "meta": { "$ref": "../common.json#/$defs/page_meta" }
+      },
+      "examples": [
+        {
+          "data": [
+            {
+              "external_id": "3",
+              "kx_id": null,
+              "name": "Distributor A",
+              "active": true,
+              "description": {},
+              "product_count": 120
+            }
+          ],
+          "meta": {
+            "count": 1,
+            "next_cursor": null,
+            "has_more": false,
+            "generated_at": "2026-09-30T12:40:00Z"
+          }
+        }
+      ]
+    }
+  }
+}

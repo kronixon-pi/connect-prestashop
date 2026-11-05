@@ -1,0 +1,37 @@
+{
+    "name": "kronixon-pi/connect-prestashop",
+    "description": "Kronixon Connect for PrestaShop 1.7.8+ / 8.x / 9.x: the companion module of Kronixon PI (protocol v1). Development tools only; they live in tools/vendor because PrestaShop loads a module's vendor/autoload.php at runtime.",
+    "type": "prestashop-module",
+    "license": "AFL-3.0",
+    "authors": [{ "name": "Kronixon", "homepage": "https://github.com/kronixon-pi" }],
+    "require": {
+        "php": ">=7.4"
+    },
+    "require-dev": {
+        "friendsofphp/php-cs-fixer": "^3.95",
+        "opis/json-schema": "^2.6",
+        "phpcompatibility/php-compatibility": "10.0.0-alpha2",
+        "phpstan/phpstan": "^2.3",
+        "phpunit/phpunit": "^9.6",
+        "squizlabs/php_codesniffer": "^3.13"
+    },
+    "autoload-dev": {
+        "psr-4": { "Kronixon\\Connect\\Tests\\": "tests/" }
+    },
+    "minimum-stability": "alpha",
+    "prefer-stable": true,
+    "config": {
+        "vendor-dir": "tools/vendor",
+        "platform": { "php": "7.4.33" },
+        "sort-packages": true,
+        "allow-plugins": { "dealerdirect/phpcodesniffer-composer-installer": true }
+    },
+    "scripts": {
+        "cs": "php-cs-fixer check --diff",
+        "cs:fix": "php-cs-fixer fix",
+        "compat": "phpcs --standard=phpcs.xml.dist",
+        "stan": "phpstan analyse --no-progress",
+        "test": "phpunit",
+        "protocol": "phpunit --testsuite protocol"
+    }
+}

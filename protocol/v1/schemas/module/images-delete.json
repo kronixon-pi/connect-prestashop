@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://connect.kronixon.com/protocol/v1/schemas/module/images-delete.json",
+  "title": "DELETE images",
+  "description": "Deletes images of one product by id or kx_key (only_kx protects images uploaded in the shop); a new cover is chosen automatically (Spec §6.25). Hosts that block DELETE send POST with X-HTTP-Method-Override: DELETE; the signature uses DELETE.",
+  "x-kx-endpoint": {
+    "method": "DELETE",
+    "path": "/v1/images",
+    "signed": true,
+    "pr": "M4"
+  },
+  "$defs": {
+    "request": {
+      "type": "object",
+      "required": ["product_id"],
+      "properties": {
+        "product_id": { "$ref": "../common.json#/$defs/external_id" },
+        "external_ids": {
+          "type": "array",
+          "maxItems": 50,
+          "items": { "$ref": "../common.json#/$defs/external_id" }
+        },
+        "kx_keys": {
+          "type": "array",
+          "maxItems": 50,
+          "items": { "type": "string", "maxLength": 64 }
+        },
+        "all": { "type": "boolean" },
+        "only_kx": { "type": "boolean" }
+      },
+      "anyOf": [
+        { "required": ["external_ids"] },
+        { "required": ["kx_keys"] },
+        { "properties": { "all": { "const": true } }, "required": ["all"] }
+      ],
+      "examples": [
+        {
+          "product_id": "123",
+          "external_ids": ["9001"],
+          "kx_keys": [],
+          "all": false,
+          "only_kx": true
+        }
+      ]
+    },
+    "response": {
+      "allOf": [{ "$ref": "../common.json#/$defs/batch_response" }],
+      "examples": [
+        {
+          "results": [
+            {
+              "key": "9001",
+              "external_id": "9001",
+              "status": "ok",
+              "action": "deleted"
+            }
+          ],
+          "summary": { "ok": 1, "error": 0, "skipped": 0, "time_ms": 60 },
+          "continue": false
+        }
+      ]
+    }
+  }
+}

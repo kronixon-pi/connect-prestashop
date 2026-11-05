@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://connect.kronixon.com/protocol/v1/schemas/module/brands.json",
+  "title": "POST brands",
+  "description": "Upserts manufacturers; a logo is fetched from a signed HTTPS URL and checked against its sha256 (Spec §6.19).",
+  "x-kx-endpoint": {
+    "method": "POST",
+    "path": "/v1/brands",
+    "signed": true,
+    "pr": "M3"
+  },
+  "$defs": {
+    "item": {
+      "type": "object",
+      "required": ["key", "name"],
+      "properties": {
+        "key": { "$ref": "../common.json#/$defs/key" },
+        "external_id": { "$ref": "../common.json#/$defs/external_id_or_null" },
+        "kx_id": { "$ref": "../common.json#/$defs/kx_id" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "active": { "type": "boolean" },
+        "description": { "$ref": "../common.json#/$defs/multilang" },
+        "short_description": { "$ref": "../common.json#/$defs/multilang" },
+        "meta_title": { "$ref": "../common.json#/$defs/multilang" },
+        "meta_description": { "$ref": "../common.json#/$defs/multilang" },
+        "logo": {
+          "anyOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "required": ["url", "sha256"],
+              "properties": {
+                "url": { "$ref": "../common.json#/$defs/https_url" },
+                "sha256": { "$ref": "../common.json#/$defs/sha256" }
+              }
+            }
+          ]
+        },
+        "match_by": { "type": "array", "items": { "const": "name" } }
+      }
+    },
+    "request": {
+      "allOf": [{ "$ref": "../common.json#/$defs/items_request" }],
+      "properties": { "items": { "items": { "$ref": "#/$defs/item" } } },
+      "examples": [
+        {
+          "items": [
+            {
+              "key": "b-1",
+              "external_id": null,
+              "kx_id": null,
+              "name": "Samsung",
+              "active": true,
+              "description": { "bg": "" },
+              "logo": null,
+              "match_by": ["name"]
+            }
+          ]
+        }
+      ]
+    },
+    "response": {
+      "allOf": [{ "$ref": "../common.json#/$defs/batch_response" }],
+      "examples": [
+        {
+          "results": [
+            {
+              "key": "b-1",
+              "external_id": "12",
+              "status": "ok",
+              "action": "unchanged"
+            }
+          ],
+          "summary": { "ok": 1, "error": 0, "skipped": 0, "time_ms": 12 },
+          "continue": false
+        }
+      ]
+    }
+  }
+}

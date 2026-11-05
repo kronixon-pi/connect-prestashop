@@ -1,0 +1,291 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://connect.kronixon.com/protocol/v1/schemas/common.json",
+  "title": "Connect protocol v1: shared definitions",
+  "description": "Types shared by every endpoint and event (protocol/v1/README.md §3, §5–§8). Receivers ignore members they do not know; a v1 change only adds optional members.",
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+    },
+    "external_id": {
+      "description": "A shop-side id as a decimal string (PrestaShop: id_product, id_category …). \"0\" means none / the base product.",
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,19})$"
+    },
+    "external_id_or_null": {
+      "anyOf": [{ "$ref": "#/$defs/external_id" }, { "type": "null" }]
+    },
+    "kx_id": {
+      "description": "The catalog's UUID of the entity, kept in the shop's kx_entity_map.",
+      "anyOf": [{ "$ref": "#/$defs/uuid" }, { "type": "null" }]
+    },
+    "key": {
+      "description": "Client key of an item in a batch, echoed in its result.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "money": {
+      "description": "A decimal amount as a string with a dot, up to 6 decimals (never a JSON number).",
+      "type": "string",
+      "pattern": "^-?[0-9]{1,15}(\\.[0-9]{1,6})?$"
+    },
+    "money_or_null": {
+      "anyOf": [{ "$ref": "#/$defs/money" }, { "type": "null" }]
+    },
+    "datetime": {
+      "description": "ISO 8601 in UTC with a Z suffix.",
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,6})?Z$"
+    },
+    "datetime_or_null": {
+      "anyOf": [{ "$ref": "#/$defs/datetime" }, { "type": "null" }]
+    },
+    "unix_time": { "type": "integer", "minimum": 0 },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "sha256_or_null": {
+      "anyOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }]
+    },
+    "lang_iso": {
+      "description": "PrestaShop's 2-letter language iso_code.",
+      "type": "string",
+      "pattern": "^[a-z]{2}$"
+    },
+    "multilang": {
+      "description": "A translated text: { \"<iso>\": \"value\" }.",
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/lang_iso" },
+      "additionalProperties": { "type": "string" }
+    },
+    "multilang_list": {
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/lang_iso" },
+      "additionalProperties": {
+        "type": "array",
+        "items": { "type": "string", "maxLength": 32 }
+      }
+    },
+    "https_url": {
+      "type": "string",
+      "pattern": "^https://[^\\s]+$",
+      "maxLength": 2048
+    },
+    "url": {
+      "type": "string",
+      "pattern": "^https?://[^\\s]+$",
+      "maxLength": 2048
+    },
+    "mode": { "enum": ["replace", "merge"] },
+    "error_code": {
+      "enum": [
+        "protocol_version_unsupported",
+        "bad_request",
+        "signature_invalid",
+        "timestamp_out_of_window",
+        "nonce_reused",
+        "store_unpaired",
+        "store_revoked",
+        "ip_not_allowed",
+        "capability_disabled",
+        "not_found",
+        "method_not_allowed",
+        "busy",
+        "idempotency_conflict",
+        "payload_too_large",
+        "batch_too_large",
+        "validation_failed",
+        "rate_limited",
+        "module_error",
+        "maintenance",
+        "pair_code_invalid",
+        "pair_code_expired",
+        "store_already_paired",
+        "store_url_insecure",
+        "module_too_old"
+      ]
+    },
+    "error_response": {
+      "description": "Every non-2xx answer (README §7).",
+      "type": "object",
+      "required": ["error"],
+      "properties": {
+        "error": {
+          "type": "object",
+          "required": ["code", "message", "request_id", "server_time"],
+          "properties": {
+            "code": { "$ref": "#/$defs/error_code" },
+            "message": { "type": "string", "maxLength": 500 },
+            "details": { "type": "object" },
+            "request_id": { "type": "string", "maxLength": 64 },
+            "server_time": { "$ref": "#/$defs/unix_time" },
+            "retry_after": { "type": "integer", "minimum": 0 }
+          }
+        }
+      },
+      "examples": [
+        {
+          "error": {
+            "code": "store_unpaired",
+            "message": "This module is not paired with Kronixon PI.",
+            "request_id": "4056df7f-8d8a-445a-9102-1e318c621ccc",
+            "server_time": 1790772000
+          }
+        },
+        {
+          "error": {
+            "code": "busy",
+            "message": "Another write holds the lock.",
+            "request_id": "r-1",
+            "server_time": 1790772000,
+            "retry_after": 5
+          }
+        }
+      ]
+    },
+    "catalog_query": {
+      "description": "Query of every GET catalog/* (README §6). until_id bounds an id range for parallel slices (plan Q13).",
+      "type": "object",
+      "properties": {
+        "since": { "$ref": "#/$defs/datetime" },
+        "cursor": { "type": "string", "maxLength": 512 },
+        "limit": { "type": "string", "pattern": "^[1-9][0-9]{0,3}$" },
+        "until_id": { "$ref": "#/$defs/external_id" }
+      }
+    },
+    "page_meta": {
+      "type": "object",
+      "required": ["count", "next_cursor", "has_more", "generated_at"],
+      "properties": {
+        "count": { "type": "integer", "minimum": 0 },
+        "next_cursor": { "type": ["string", "null"] },
+        "has_more": { "type": "boolean" },
+        "total": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Approximate; first page only, may be absent."
+        },
+        "max_id": {
+          "$ref": "#/$defs/external_id",
+          "description": "The highest id of the entity, for slicing the id space (plan Q13)."
+        },
+        "generated_at": { "$ref": "#/$defs/datetime" }
+      }
+    },
+    "item_result": {
+      "description": "Per-item result of a POST/DELETE batch (Spec §5.4).",
+      "type": "object",
+      "required": ["key", "status"],
+      "properties": {
+        "key": { "$ref": "#/$defs/key" },
+        "external_id": { "$ref": "#/$defs/external_id_or_null" },
+        "kx_id": { "$ref": "#/$defs/kx_id" },
+        "status": { "enum": ["ok", "error", "skipped", "conflict"] },
+        "action": { "enum": ["created", "updated", "unchanged", "deleted"] },
+        "code": { "type": "string", "maxLength": 64 },
+        "message": { "type": "string", "maxLength": 500 },
+        "field": { "type": "string", "maxLength": 128 },
+        "warnings": {
+          "type": "array",
+          "items": { "type": "string", "maxLength": 64 }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "status": { "const": "ok" } } },
+          "then": { "required": ["action"] }
+        },
+        {
+          "if": {
+            "properties": { "status": { "enum": ["error", "skipped"] } }
+          },
+          "then": { "required": ["code"] }
+        }
+      ]
+    },
+    "batch_response": {
+      "type": "object",
+      "required": ["results", "summary", "continue"],
+      "properties": {
+        "results": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/item_result" }
+        },
+        "summary": {
+          "type": "object",
+          "required": ["ok", "error", "skipped", "time_ms"],
+          "properties": {
+            "ok": { "type": "integer", "minimum": 0 },
+            "error": { "type": "integer", "minimum": 0 },
+            "skipped": { "type": "integer", "minimum": 0 },
+            "conflict": { "type": "integer", "minimum": 0 },
+            "time_ms": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "continue": {
+          "type": "boolean",
+          "description": "The time budget ran out; resend only the skipped items, in order."
+        },
+        "retry_after": { "type": "integer", "minimum": 0 }
+      },
+      "examples": [
+        {
+          "results": [
+            {
+              "key": "p-1",
+              "external_id": "123",
+              "kx_id": "0192b2e4-2f7a-7c5b-8a1d-3e4f5a6b7c8d",
+              "status": "ok",
+              "action": "created",
+              "warnings": []
+            },
+            {
+              "key": "p-2",
+              "external_id": null,
+              "status": "error",
+              "code": "validation_failed",
+              "message": "name[bg] is required",
+              "field": "name.bg"
+            },
+            {
+              "key": "p-3",
+              "external_id": "125",
+              "status": "skipped",
+              "code": "time_budget",
+              "message": "not processed"
+            }
+          ],
+          "summary": { "ok": 1, "error": 1, "skipped": 1, "time_ms": 24310 },
+          "continue": true,
+          "retry_after": 0
+        }
+      ]
+    },
+    "ok_response": {
+      "type": "object",
+      "required": ["ok"],
+      "properties": { "ok": { "const": true } },
+      "examples": [{ "ok": true }]
+    },
+    "items_request": {
+      "description": "Envelope of an entity batch: at most 100 items (413 batch_too_large above).",
+      "type": "object",
+      "required": ["items"],
+      "properties": {
+        "options": { "type": "object" },
+        "items": { "type": "array", "minItems": 1, "maxItems": 100 }
+      }
+    },
+    "image_ref": {
+      "type": "object",
+      "required": ["external_id", "position", "cover", "url"],
+      "properties": {
+        "external_id": { "$ref": "#/$defs/external_id" },
+        "position": { "type": "integer", "minimum": 0 },
+        "cover": { "type": "boolean" },
+        "url": { "$ref": "#/$defs/url" },
+        "sha256": { "$ref": "#/$defs/sha256_or_null" }
+      }
+    }
+  }
+}

@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://connect.kronixon.com/protocol/v1/schemas/module/catalog-tags.json",
+  "title": "GET catalog/tags",
+  "description": "Tags per language; product associations are in catalog/products.tags (Spec §6.13).",
+  "x-kx-endpoint": {
+    "method": "GET",
+    "path": "/v1/catalog/tags",
+    "signed": true,
+    "pr": "M2"
+  },
+  "$defs": {
+    "query": {
+      "allOf": [{ "$ref": "../common.json#/$defs/catalog_query" }],
+      "examples": [{ "limit": "500" }]
+    },
+    "tag": {
+      "type": "object",
+      "required": ["external_id", "lang", "name"],
+      "properties": {
+        "external_id": { "$ref": "../common.json#/$defs/external_id" },
+        "lang": { "$ref": "../common.json#/$defs/lang_iso" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "product_count": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "response": {
+      "type": "object",
+      "required": ["data", "meta"],
+      "properties": {
+        "data": { "type": "array", "items": { "$ref": "#/$defs/tag" } },
+        "meta": { "$ref": "../common.json#/$defs/page_meta" }
+      },
+      "examples": [
+        {
+          "data": [
+            {
+              "external_id": "40",
+              "lang": "bg",
+              "name": "nvme",
+              "product_count": 12
+            }
+          ],
+          "meta": {
+            "count": 1,
+            "next_cursor": null,
+            "has_more": false,
+            "generated_at": "2026-09-30T12:40:00Z"
+          }
+        }
+      ]
+    }
+  }
+}

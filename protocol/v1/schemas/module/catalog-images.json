@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://connect.kronixon.com/protocol/v1/schemas/module/catalog-images.json",
+  "title": "GET catalog/images",
+  "description": "Product images with their public URLs per image type; kx_key is set when the image came from POST images (Spec §6.10). The platform fetches the URLs through its Files service (plan D11).",
+  "x-kx-endpoint": {
+    "method": "GET",
+    "path": "/v1/catalog/images",
+    "signed": true,
+    "pr": "M2"
+  },
+  "$defs": {
+    "query": {
+      "allOf": [{ "$ref": "../common.json#/$defs/catalog_query" }],
+      "properties": {
+        "product_id": { "$ref": "../common.json#/$defs/external_id" }
+      },
+      "examples": [{ "product_id": "123" }]
+    },
+    "image": {
+      "type": "object",
+      "required": [
+        "external_id",
+        "product_id",
+        "position",
+        "cover",
+        "url",
+        "urls"
+      ],
+      "properties": {
+        "external_id": { "$ref": "../common.json#/$defs/external_id" },
+        "product_id": { "$ref": "../common.json#/$defs/external_id" },
+        "position": { "type": "integer", "minimum": 0 },
+        "cover": { "type": "boolean" },
+        "alt": { "$ref": "../common.json#/$defs/multilang" },
+        "url": { "$ref": "../common.json#/$defs/url" },
+        "urls": {
+          "type": "object",
+          "additionalProperties": { "$ref": "../common.json#/$defs/url" }
+        },
+        "sha256": { "$ref": "../common.json#/$defs/sha256_or_null" },
+        "kx_key": { "type": ["string", "null"], "maxLength": 64 },
+        "date_add": { "$ref": "../common.json#/$defs/datetime" }
+      }
+    },
+    "response": {
+      "type": "object",
+      "required": ["data", "meta"],
+      "properties": {
+        "data": { "type": "array", "items": { "$ref": "#/$defs/image" } },
+        "meta": { "$ref": "../common.json#/$defs/page_meta" }
+      },
+      "examples": [
+        {
+          "data": [
+            {
+              "external_id": "9001",
+              "product_id": "123",
+              "position": 1,
+              "cover": true,
+              "alt": { "bg": "ABC-1 - 1" },
+              "url": "https://shop.example.com/9001/ssd.jpg",
+              "urls": {
+                "small_default": "https://shop.example.com/9001-small_default/ssd.jpg",
+                "large_default": "https://shop.example.com/9001-large_default/ssd.jpg"
+              },
+              "sha256": null,
+              "kx_key": null,
+              "date_add": "2026-09-01T08:00:00Z"
+            }
+          ],
+          "meta": {
+            "count": 1,
+            "next_cursor": null,
+            "has_more": false,
+            "generated_at": "2026-09-30T12:40:00Z"
+          }
+        }
+      ]
+    }
+  }
+}

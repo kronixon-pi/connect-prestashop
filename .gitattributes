@@ -1,0 +1,22 @@
+* text=auto eol=lf
+
+# Not part of the module zip (`git archive` honours export-ignore; the release build in a later PR
+# uses the same list).
+/.github export-ignore
+/docker export-ignore
+/protocol export-ignore
+/scripts export-ignore
+/tests export-ignore
+/tools export-ignore
+/.well-known export-ignore
+/.commitlintrc.json export-ignore
+/.editorconfig export-ignore
+/.gitattributes export-ignore
+/.gitignore export-ignore
+/.php-cs-fixer.dist.php export-ignore
+/composer.json export-ignore
+/composer.lock export-ignore
+/Makefile export-ignore
+/phpcs.xml.dist export-ignore
+/phpstan.neon.dist export-ignore
+/phpunit.xml.dist export-ignore

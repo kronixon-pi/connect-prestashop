@@ -1,0 +1,203 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://connect.kronixon.com/protocol/v1/schemas/module/capabilities.json",
+  "title": "GET capabilities",
+  "description": "What the module can do on this shop and its limits (Spec §2.1, §6.1). A capability the shop lacks is false, never an error.",
+  "x-kx-endpoint": {
+    "method": "GET",
+    "path": "/v1/capabilities",
+    "signed": true,
+    "pr": "M1"
+  },
+  "$defs": {
+    "response": {
+      "type": "object",
+      "required": [
+        "protocol",
+        "module_version",
+        "min_platform_protocol",
+        "capabilities",
+        "limits"
+      ],
+      "properties": {
+        "protocol": { "const": "v1" },
+        "module_version": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$"
+        },
+        "min_platform_protocol": { "const": "v1" },
+        "capabilities": {
+          "type": "object",
+          "required": [
+            "products.write",
+            "variants",
+            "images",
+            "image_alt",
+            "categories",
+            "attributes",
+            "attribute_values_custom",
+            "stock",
+            "stock_locations",
+            "prices.bulk",
+            "specific_prices",
+            "tags",
+            "seo",
+            "redirects",
+            "multilang",
+            "multistore",
+            "blog",
+            "webhooks",
+            "search_reindex",
+            "cache_flush",
+            "orders.read"
+          ],
+          "properties": {
+            "products.write": { "type": "boolean" },
+            "variants": { "type": "boolean" },
+            "images": { "type": "boolean" },
+            "image_alt": { "type": "boolean" },
+            "categories": { "type": "boolean" },
+            "attributes": { "type": "boolean" },
+            "attribute_values_custom": { "type": "boolean" },
+            "stock": { "type": "boolean" },
+            "stock_locations": { "type": "boolean" },
+            "prices.bulk": { "type": "boolean" },
+            "specific_prices": {
+              "type": "boolean",
+              "description": "Phase 2; false in Phase 0."
+            },
+            "tags": { "type": "boolean" },
+            "seo": { "type": "boolean" },
+            "redirects": { "type": "boolean" },
+            "multilang": { "type": "boolean" },
+            "multistore": { "type": "boolean" },
+            "blog": {
+              "type": "object",
+              "required": ["enabled"],
+              "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "description": "Phase 2; false in Phase 0."
+                },
+                "adapters": { "type": "array", "items": { "type": "string" } },
+                "import_sources": {
+                  "type": "array",
+                  "items": { "enum": ["smartblog", "prestablog"] }
+                }
+              }
+            },
+            "webhooks": { "type": "boolean" },
+            "search_reindex": { "type": "boolean" },
+            "cache_flush": { "type": "boolean" },
+            "orders.read": {
+              "type": "boolean",
+              "description": "Phase 2; false in v1."
+            },
+            "facets": { "type": "boolean" },
+            "suppliers": { "type": "boolean" },
+            "events.pull": { "type": "boolean" },
+            "image_formats": {
+              "type": "array",
+              "items": { "enum": ["jpg", "png", "webp", "avif"] },
+              "minItems": 1
+            }
+          }
+        },
+        "limits": {
+          "type": "object",
+          "required": [
+            "batch",
+            "bulk_rows",
+            "images_per_request",
+            "time_budget_s",
+            "max_body_bytes"
+          ],
+          "properties": {
+            "batch": { "type": "integer", "minimum": 1, "maximum": 100 },
+            "bulk_rows": { "type": "integer", "minimum": 1, "maximum": 1000 },
+            "images_per_request": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50
+            },
+            "time_budget_s": { "type": "integer", "minimum": 1, "maximum": 30 },
+            "max_body_bytes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4194304
+            }
+          }
+        },
+        "features": {
+          "type": "object",
+          "properties": {
+            "redirect_types": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "404",
+                  "410",
+                  "301-product",
+                  "302-product",
+                  "301-category",
+                  "302-category"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "examples": [
+        {
+          "protocol": "v1",
+          "module_version": "1.0.0",
+          "min_platform_protocol": "v1",
+          "capabilities": {
+            "products.write": true,
+            "variants": true,
+            "images": true,
+            "image_alt": true,
+            "categories": true,
+            "attributes": true,
+            "attribute_values_custom": true,
+            "stock": true,
+            "stock_locations": false,
+            "prices.bulk": true,
+            "specific_prices": false,
+            "tags": true,
+            "seo": true,
+            "redirects": true,
+            "multilang": true,
+            "multistore": false,
+            "blog": { "enabled": false, "adapters": [], "import_sources": [] },
+            "webhooks": true,
+            "search_reindex": true,
+            "cache_flush": true,
+            "orders.read": false,
+            "facets": true,
+            "suppliers": true,
+            "events.pull": true,
+            "image_formats": ["jpg", "webp"]
+          },
+          "limits": {
+            "batch": 100,
+            "bulk_rows": 1000,
+            "images_per_request": 50,
+            "time_budget_s": 25,
+            "max_body_bytes": 4194304
+          },
+          "features": {
+            "redirect_types": [
+              "404",
+              "410",
+              "301-product",
+              "302-product",
+              "301-category",
+              "302-category"
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

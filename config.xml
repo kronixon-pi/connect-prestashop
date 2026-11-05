@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<module>
+    <name>kronixonconnect</name>
+    <displayName><![CDATA[Kronixon Connect]]></displayName>
+    <version><![CDATA[0.1.0]]></version>
+    <description><![CDATA[Connects this store to Kronixon PI over the signed Connect protocol v1.]]></description>
+    <author><![CDATA[Kronixon]]></author>
+    <tab><![CDATA[administration]]></tab>
+    <confirmUninstall><![CDATA[The connection to Kronixon PI and its module data will be removed. Continue?]]></confirmUninstall>
+    <is_configurable>1</is_configurable>
+    <need_instance>0</need_instance>
+    <limited_countries></limited_countries>
+</module>

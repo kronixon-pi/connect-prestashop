@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://connect.kronixon.com/protocol/v1/schemas/vectors.json",
+  "title": "Signature test vectors file",
+  "description": "Shape of protocol/v1/vectors.json, read by the module's and the platform's test suites.",
+  "type": "object",
+  "required": ["protocol", "secrets", "prev_valid_until", "vectors"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "protocol": { "const": "v1" },
+    "description": { "type": "string" },
+    "secrets": {
+      "type": "object",
+      "required": ["cur", "prev"],
+      "additionalProperties": false,
+      "properties": {
+        "cur": { "$ref": "#/$defs/secret" },
+        "prev": { "$ref": "#/$defs/secret" }
+      }
+    },
+    "prev_valid_until": { "$ref": "common.json#/$defs/unix_time" },
+    "vectors": {
+      "type": "array",
+      "minItems": 8,
+      "items": {
+        "oneOf": [
+          { "$ref": "#/$defs/request_vector" },
+          { "$ref": "#/$defs/response_vector" }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "secret": {
+      "description": "kxs_ + 32 base62 characters; the HMAC key is the string itself.",
+      "type": "string",
+      "pattern": "^kxs_[0-9A-Za-z]{32}$"
+    },
+    "key_id": { "enum": ["cur", "prev"] },
+    "request_vector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "description",
+        "key_id",
+        "transport",
+        "method",
+        "path",
+        "timestamp",
+        "nonce",
+        "body",
+        "expected"
+      ],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9.-]+$" },
+        "kind": { "const": "request" },
+        "description": { "type": "string" },
+        "key_id": { "$ref": "#/$defs/key_id" },
+        "transport": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["method", "query", "headers"],
+          "properties": {
+            "method": { "enum": ["GET", "POST", "DELETE"] },
+            "query": { "type": "string" },
+            "headers": {
+              "type": "object",
+              "additionalProperties": { "type": "string" }
+            },
+            "body_base64": { "type": "string", "contentEncoding": "base64" }
+          }
+        },
+        "method": { "enum": ["GET", "POST", "DELETE"] },
+        "path": { "type": "string", "pattern": "^/v1/[a-z0-9/_-]+$" },
+        "timestamp": { "$ref": "common.json#/$defs/unix_time" },
+        "nonce": { "$ref": "common.json#/$defs/uuid" },
+        "body": { "type": "string" },
+        "expected": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "body_sha256",
+            "canonical_query",
+            "canonical",
+            "signature"
+          ],
+          "properties": {
+            "body_sha256": { "$ref": "common.json#/$defs/sha256" },
+            "canonical_query": { "type": "string" },
+            "canonical": { "type": "string" },
+            "signature": { "$ref": "common.json#/$defs/sha256" }
+          }
+        }
+      }
+    },
+    "response_vector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "description",
+        "key_id",
+        "request_nonce",
+        "status",
+        "timestamp",
+        "body",
+        "expected"
+      ],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9.-]+$" },
+        "kind": { "const": "response" },
+        "description": { "type": "string" },
+        "key_id": { "$ref": "#/$defs/key_id" },
+        "request_nonce": { "$ref": "common.json#/$defs/uuid" },
+        "status": { "type": "integer", "minimum": 100, "maximum": 599 },
+        "timestamp": { "$ref": "common.json#/$defs/unix_time" },
+        "body": { "type": "string" },
+        "expected": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["body_sha256", "canonical", "signature"],
+          "properties": {
+            "body_sha256": { "$ref": "common.json#/$defs/sha256" },
+            "canonical": { "type": "string", "pattern": "^RESPONSE\\n" },
+            "signature": { "$ref": "common.json#/$defs/sha256" }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,16 @@
+# The PrestaShop and MariaDB images of the local shops, the CI smoke/matrix runs and the fixture
+# bake, pinned by digest (upstream re-pushes tags). This file is the only place to change them:
+# scripts/image-ref.sh turns `image:tag` into `image:tag@sha256:…` and refuses anything not listed.
+# A new tag or a refreshed digest: add/replace its line with the index digest of
+#   docker buildx imagetools inspect <image:tag> --format '{{json .Manifest}}' | jq -r .digest
+# Changing this file changes the fixture image tag (scripts/fixture-sha.sh).
+#
+# image:tag                                          digest
+mariadb:10.11.19                                     sha256:d769e37960821dfdcf096954f6e7ac89f747e116c1bba98e48edd265dfc7deae
+prestashop/prestashop:1.7.8.11-7.4-apache            sha256:2207a3418d24993c74ef112ec8fa28bd5ecab2eeb5317cc28050bc7bbcbd93be
+prestashop/prestashop:8.1.7-8.1-apache               sha256:03401aef0728eec1ab3c911fd19da824c2c41f136ec9b081a5283f4fb3a2e138
+prestashop/prestashop:8.2.8-8.1-apache               sha256:5e3f6ddd6fe80ccc466a192e9c8a95c16ebb91857b13518f8dca9a0139ca61a5
+prestashop/prestashop:9.0.3-8.4                      sha256:bd05527bc324b43bf70458413be60181614fad62f71a63af2525362985207b3d
+prestashop/prestashop:9.1.5-8.4                      sha256:2e56ab2bf96bb500efd53596bdeb7bf8b5d257aacf4f2bca9d5b2a6029f615d7
+prestashop/prestashop:9.1.5-apache                   sha256:515336e3c1c50c5613f7cd7382b384fa095fba9d7d8497c80aeb3046c135c535
+prestashop/prestashop:9.2.0-6.0-classic-8.2-apache   sha256:49f2c5d4136234f06d5512624f7c6fc548c4cdbbd344290c93a041304cd0b09e

@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://connect.kronixon.com/protocol/v1/schemas/module/categories.json",
+  "title": "POST categories",
+  "description": "Upserts categories in the given order, so parent_key may name an earlier item; regenerate_tree end rebuilds the nested tree once (Spec §6.16). No DELETE in v1: categories are deactivated.",
+  "x-kx-endpoint": {
+    "method": "POST",
+    "path": "/v1/categories",
+    "signed": true,
+    "pr": "M3"
+  },
+  "$defs": {
+    "item": {
+      "type": "object",
+      "required": ["key", "name"],
+      "properties": {
+        "key": { "$ref": "../common.json#/$defs/key" },
+        "external_id": { "$ref": "../common.json#/$defs/external_id_or_null" },
+        "kx_id": { "$ref": "../common.json#/$defs/kx_id" },
+        "parent_external_id": { "$ref": "../common.json#/$defs/external_id" },
+        "parent_key": { "$ref": "../common.json#/$defs/key" },
+        "name": { "$ref": "../common.json#/$defs/multilang" },
+        "link_rewrite": { "$ref": "../common.json#/$defs/multilang" },
+        "description": { "$ref": "../common.json#/$defs/multilang" },
+        "meta_title": { "$ref": "../common.json#/$defs/multilang" },
+        "meta_description": { "$ref": "../common.json#/$defs/multilang" },
+        "active": { "type": "boolean" },
+        "position": { "type": ["integer", "null"], "minimum": 0 },
+        "match_by": {
+          "type": "array",
+          "items": { "const": "name_under_parent" }
+        }
+      },
+      "not": { "required": ["parent_external_id", "parent_key"] }
+    },
+    "request": {
+      "allOf": [{ "$ref": "../common.json#/$defs/items_request" }],
+      "properties": {
+        "options": {
+          "type": "object",
+          "properties": { "regenerate_tree": { "enum": ["end", "none"] } }
+        },
+        "items": { "items": { "$ref": "#/$defs/item" } }
+      },
+      "examples": [
+        {
+          "items": [
+            {
+              "key": "c-0",
+              "external_id": null,
+              "kx_id": null,
+              "parent_external_id": "2",
+              "name": { "bg": "Storage" },
+              "active": true,
+              "position": null,
+              "match_by": ["name_under_parent"]
+            },
+            {
+              "key": "c-1",
+              "external_id": null,
+              "kx_id": null,
+              "parent_key": "c-0",
+              "name": { "bg": "SSD" },
+              "link_rewrite": { "bg": "ssd" },
+              "description": { "bg": "" },
+              "meta_title": {},
+              "meta_description": {},
+              "active": true
+            }
+          ],
+          "options": { "regenerate_tree": "end" }
+        }
+      ]
+    },
+    "response": {
+      "allOf": [{ "$ref": "../common.json#/$defs/batch_response" }],
+      "examples": [
+        {
+          "results": [
+            {
+              "key": "c-0",
+              "external_id": "46",
+              "status": "ok",
+              "action": "created"
+            },
+            {
+              "key": "c-1",
+              "external_id": "47",
+              "status": "ok",
+              "action": "created"
+            }
+          ],
+          "summary": { "ok": 2, "error": 0, "skipped": 0, "time_ms": 410 },
+          "continue": false
+        }
+      ]
+    }
+  }
+}
