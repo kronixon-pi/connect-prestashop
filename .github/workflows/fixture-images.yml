@@ -1,0 +1,58 @@
+name: fixture-images
+# Bakes ghcr.io/kronixon-pi/connect-ps-fixture:<ps tag>-<fixture sha>: an installed shop with the
+# module and the Spec §12 fixture (500 products), so test runs boot in seconds instead of installing
+# (plan D18, D19). Only by hand or when an input of the image changes; an existing tag is not rebuilt.
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - tests/fixtures/**
+      - scripts/bake-fixture.sh
+      - scripts/fixture-sha.sh
+      - scripts/ps/prepare-shop.php
+      - docker/fixture/**
+      - .github/workflows/fixture-images.yml
+concurrency: { group: "fixture-images-${{ github.ref }}", cancel-in-progress: false }
+permissions: { contents: read }
+
+jobs:
+  bake:
+    name: "bake ${{ matrix.tag }}"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    permissions: { contents: read, packages: write }
+    continue-on-error: ${{ matrix.experimental }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { tag: "1.7.8.11-7.4-apache", experimental: false }
+          - { tag: "8.1.7-8.1-apache", experimental: false }
+          - { tag: "8.2.8-8.1-apache", experimental: false }
+          - { tag: "9.0.3-8.4", experimental: false }
+          - { tag: "9.1.5-8.4", experimental: false }
+          - { tag: "9.2.0-6.0-classic-8.2-apache", experimental: true }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with: { registry: ghcr.io, username: "${{ github.actor }}", password: "${{ secrets.GITHUB_TOKEN }}" }
+      - id: image
+        env: { TAG: "${{ matrix.tag }}" }
+        run: |
+          image="ghcr.io/kronixon-pi/connect-ps-fixture:${TAG}-$(scripts/fixture-sha.sh)"
+          echo "name=$image" >>"$GITHUB_OUTPUT"
+          if docker manifest inspect "$image" >/dev/null 2>&1; then
+            echo "exists=true" >>"$GITHUB_OUTPUT"
+            echo "- \`$image\` exists, not rebuilt" >>"$GITHUB_STEP_SUMMARY"
+          else
+            echo "exists=false" >>"$GITHUB_OUTPUT"
+          fi
+      - if: steps.image.outputs.exists == 'false'
+        env: { TAG: "${{ matrix.tag }}", IMAGE: "${{ steps.image.outputs.name }}" }
+        run: scripts/bake-fixture.sh "$TAG" "$IMAGE"
+      - if: steps.image.outputs.exists == 'false'
+        env: { IMAGE: "${{ steps.image.outputs.name }}" }
+        run: |
+          start=$(date +%s)
+          docker push --quiet "$IMAGE"
+          echo "- pushed \`$IMAGE\` in $(( $(date +%s) - start )) s" >>"$GITHUB_STEP_SUMMARY"
