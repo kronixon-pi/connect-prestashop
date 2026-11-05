@@ -75,7 +75,7 @@ at runtime.
 | --- | --- | --- |
 | `module-ci` | every PR and push to `main` | PSR-12, PHPCompatibility, PHPStan 6, PHPUnit on 7.4 and 8.5, schemas + vectors, smoke install on 9.1.5 (PHP 8.5), commitlint |
 | `matrix` | PRs to `main`, label `matrix`, weekly | install + module + `GET /v1/status` on the six versions above |
-| `fixture-images` | by hand, or when the fixture changes | bakes `ghcr.io/kronixon-pi/connect-ps-fixture:<ps>-<fixture sha>` (installed shop + module + 500 products) |
+| `fixture-images` | on `main` only: a push that changes an image input, or by hand (by hand elsewhere it bakes without pushing) | bakes and publishes `ghcr.io/kronixon-pi/connect-ps-fixture:<ps>-<fixture sha>` (installed shop + module + 500 products); the fixture sha covers the generator, the bake scripts, the pinned images and the module code |
 
 Commits follow Conventional Commits with the scopes `api`, `auth`, `catalog`, `compat`, `outbox`,
 `update`, `admin`, `ci`, `deps` ([.commitlintrc.json](.commitlintrc.json)).
