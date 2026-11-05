@@ -1,0 +1,22 @@
+{
+  "extends": ["@commitlint/config-conventional"],
+  "rules": {
+    "scope-enum": [
+      2,
+      "always",
+      [
+        "api",
+        "auth",
+        "catalog",
+        "compat",
+        "outbox",
+        "update",
+        "admin",
+        "ci",
+        "deps"
+      ]
+    ],
+    "body-max-line-length": [0],
+    "footer-max-line-length": [0]
+  }
+}
