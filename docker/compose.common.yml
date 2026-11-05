@@ -1,0 +1,37 @@
+# Shared services of docker/compose.<ps>.yml (extended there; not used on its own).
+# A disposable local test shop: the database password below is a throwaway value of a container
+# bound to 127.0.0.1, not a secret. Admin login: the image defaults (demo@prestashop.com /
+# prestashop_demo, see the prestashop/prestashop image docs) at http://localhost:<port>/admin-dev.
+services:
+  db:
+    image: mariadb:10.11.19
+    environment:
+      MARIADB_ROOT_PASSWORD: prestashop
+      MARIADB_DATABASE: prestashop
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 3s
+      timeout: 5s
+      retries: 60
+    tmpfs:
+      - /var/lib/mysql
+
+  ps:
+    environment:
+      DB_SERVER: db
+      DB_USER: root
+      DB_PASSWD: prestashop
+      DB_NAME: prestashop
+      PS_INSTALL_AUTO: "1"
+      PS_INSTALL_DB: "0"
+      PS_ERASE_DB: "0"
+      # admin-dev is the only admin folder name with which the 9.1.5 auto-install finishes (plan M15).
+      PS_FOLDER_ADMIN: admin-dev
+      PS_FOLDER_INSTALL: install-dev
+      PS_DEMO_MODE: "0"
+      PS_ENABLE_SSL: "0"
+      PS_LANGUAGE: en
+      PS_COUNTRY: BG
+    volumes:
+      # The working tree as the module (read-only): what you edit is what the shop runs.
+      - ..:/var/www/html/modules/kronixonconnect:ro

@@ -1,0 +1,11 @@
+# PrestaShop 9.2.0 classic (PHP 8.2) + MariaDB 10.11 — `make up PS=92`. Non-blocking in the matrix.
+name: kx-ps92
+services:
+  db:
+    extends: { file: compose.common.yml, service: db }
+  ps:
+    extends: { file: compose.common.yml, service: ps }
+    image: prestashop/prestashop:${PS_TAG:-9.2.0-6.0-classic-8.2-apache}
+    depends_on: { db: { condition: service_healthy } }
+    environment: { PS_DOMAIN: "localhost:${PS_PORT:-8092}" }
+    ports: ["127.0.0.1:${PS_PORT:-8092}:80"]

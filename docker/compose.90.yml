@@ -1,0 +1,11 @@
+# PrestaShop 9.0.3 (PHP 8.4) + MariaDB 10.11 — `make up PS=90`.
+name: kx-ps90
+services:
+  db:
+    extends: { file: compose.common.yml, service: db }
+  ps:
+    extends: { file: compose.common.yml, service: ps }
+    image: prestashop/prestashop:${PS_TAG:-9.0.3-8.4}
+    depends_on: { db: { condition: service_healthy } }
+    environment: { PS_DOMAIN: "localhost:${PS_PORT:-8090}" }
+    ports: ["127.0.0.1:${PS_PORT:-8090}:80"]

@@ -1,0 +1,11 @@
+# PrestaShop 1.7.8.11 (PHP 7.4) + MariaDB 10.11 — `make up PS=178`.
+name: kx-ps178
+services:
+  db:
+    extends: { file: compose.common.yml, service: db }
+  ps:
+    extends: { file: compose.common.yml, service: ps }
+    image: prestashop/prestashop:${PS_TAG:-1.7.8.11-7.4-apache}
+    depends_on: { db: { condition: service_healthy } }
+    environment: { PS_DOMAIN: "localhost:${PS_PORT:-8178}" }
+    ports: ["127.0.0.1:${PS_PORT:-8178}:80"]
