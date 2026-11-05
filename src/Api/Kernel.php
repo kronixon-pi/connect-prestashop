@@ -92,7 +92,7 @@ final class Kernel
             }
         }
 
-        return $this->decorate($response, $budget->elapsedMs());
+        return $this->decorate($response);
     }
 
     /**
@@ -128,7 +128,7 @@ final class Kernel
 
     public function fatalResponse(): Response
     {
-        return $this->decorate(Response::fromError(ApiError::moduleError(), $this->requestId, $this->serverTime()), 0);
+        return $this->decorate(Response::fromError(ApiError::moduleError(), $this->requestId, $this->serverTime()));
     }
 
     public function suppressedErrors(): int
@@ -156,13 +156,18 @@ final class Kernel
         throw ApiError::signatureInvalid();
     }
 
-    private function decorate(Response $response, int $elapsedMs): Response
+    /**
+     * The one place that adds X-KX-* headers. Every M0 answer is unsigned, and an unsigned answer
+     * carries only X-KX-Protocol and X-KX-Request-Id (Response::wire() adds Cache-Control,
+     * X-Content-Type-Options and X-Robots-Tag): no module version an unauthenticated caller could
+     * use to fingerprint a release.
+     */
+    private function decorate(Response $response): Response
     {
+        // M1: a signed answer may add X-KX-Module-Version and X-KX-Time-Used, only after verification.
         return $response
             ->withHeader(Protocol::HEADER_PROTOCOL, Protocol::VERSION)
-            ->withHeader(Protocol::HEADER_REQUEST_ID, $this->requestId)
-            ->withHeader(Protocol::HEADER_MODULE_VERSION, Protocol::MODULE_VERSION)
-            ->withHeader(Protocol::HEADER_TIME_USED, (string) $elapsedMs);
+            ->withHeader(Protocol::HEADER_REQUEST_ID, $this->requestId);
     }
 
     private function serverTime(): int

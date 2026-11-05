@@ -38,8 +38,30 @@ final class KernelTest extends TestCase
         self::assertSame('v1', $response->header('X-KX-Protocol'));
         self::assertSame('req-123', $response->header('X-KX-Request-Id'));
         self::assertSame('req-123', $this->error($response)['request_id']);
-        self::assertSame('0.1.0', $response->header('X-KX-Module-Version'));
-        self::assertMatchesRegularExpression('/\A[0-9]+\z/', (string) $response->header('X-KX-Time-Used'));
+    }
+
+    public function test_an_unsigned_answer_does_not_reveal_the_module_version_or_timing(): void
+    {
+        $response = $this->kernel()->handle($this->server('GET', 'path=/v1/status') + ['HTTP_X_KX_REQUEST_ID' => 'req-1'], '');
+        [$headers] = $response->wire('', false);
+
+        self::assertSame(403, $response->status());
+        self::assertSame('store_unpaired', $this->error($response)['code']);
+        self::assertNull($response->header('X-KX-Module-Version'));
+        self::assertNull($response->header('X-KX-Time-Used'));
+        $names = array_keys($headers);
+        sort($names);
+        self::assertSame(['Cache-Control', 'Content-Length', 'Content-Type', 'X-Content-Type-Options', 'X-KX-Protocol', 'X-KX-Request-Id', 'X-Robots-Tag'], $names);
+        self::assertSame('no-store', $headers['Cache-Control']);
+    }
+
+    public function test_the_fatal_answer_is_unsigned_too(): void
+    {
+        $fatal = $this->kernel()->fatalResponse();
+
+        self::assertNull($fatal->header('X-KX-Module-Version'));
+        self::assertNull($fatal->header('X-KX-Time-Used'));
+        self::assertSame('v1', $fatal->header('X-KX-Protocol'));
     }
 
     public function test_a_malformed_request_id_is_replaced_by_a_uuid(): void
