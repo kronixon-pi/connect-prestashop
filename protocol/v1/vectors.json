@@ -1,0 +1,182 @@
+{
+  "$schema": "https://connect.kronixon.com/protocol/v1/schemas/vectors.json",
+  "protocol": "v1",
+  "description": "Signature test vectors of Connect protocol v1 (protocol/v1/README.md §4). Both implementations (module and platform) must reproduce every expected value. The secrets are public test values, never used by a real pairing.",
+  "secrets": {
+    "cur": "kxs_9Qm3vT7bLp2XcR8fWn4zHd6KyE1sAu5G",
+    "prev": "kxs_P7wD2qLz9XkR4mVb8NcT1yHs6GjF3aUe"
+  },
+  "prev_valid_until": 1790858400,
+  "vectors": [
+    {
+      "id": "spec-4.2-post-stock-bulk",
+      "kind": "request",
+      "description": "Spec §4.2 example 1: POST with a JSON body.",
+      "key_id": "cur",
+      "transport": {
+        "method": "POST",
+        "query": "path=stock/bulk",
+        "headers": { "X-KX-Key-Id": "cur" }
+      },
+      "method": "POST",
+      "path": "/v1/stock/bulk",
+      "timestamp": 1790772000,
+      "nonce": "0192b2e4-7c1a-7d3e-9f4b-2a6c8e0d1f35",
+      "body": "{\"rows\":[{\"external_id\":123,\"quantity\":7}]}",
+      "expected": {
+        "body_sha256": "142cbfb1fbcb6e319ac89ebbb22bcd6d651ff0cba117e97f8c13338afa1f8738",
+        "canonical_query": "",
+        "canonical": "POST\n/v1/stock/bulk\n1790772000\n0192b2e4-7c1a-7d3e-9f4b-2a6c8e0d1f35\n142cbfb1fbcb6e319ac89ebbb22bcd6d651ff0cba117e97f8c13338afa1f8738",
+        "signature": "46330005e9cf0a630b73b288ad7b8c7aaa2a124d10cb9d704f967854eae2f262"
+      }
+    },
+    {
+      "id": "spec-4.2-get-query",
+      "kind": "request",
+      "description": "Spec §4.2 example 2: GET with a query; `:` is percent-encoded in the canonical query.",
+      "key_id": "cur",
+      "transport": {
+        "method": "GET",
+        "query": "path=catalog/products&limit=100&since=2026-09-01T00:00:00Z",
+        "headers": { "X-KX-Key-Id": "cur" }
+      },
+      "method": "GET",
+      "path": "/v1/catalog/products",
+      "timestamp": 1790772000,
+      "nonce": "c7d1a2b3-4e5f-7a8b-9c0d-1e2f3a4b5c6d",
+      "body": "",
+      "expected": {
+        "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "canonical_query": "limit=100&since=2026-09-01T00%3A00%3A00Z",
+        "canonical": "GET\n/v1/catalog/products?limit=100&since=2026-09-01T00%3A00%3A00Z\n1790772000\nc7d1a2b3-4e5f-7a8b-9c0d-1e2f3a4b5c6d\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "signature": "596eaa3c8056b7d8198d997f36e39afe33765eb89ec35ee573ee3efcab7c3c49"
+      }
+    },
+    {
+      "id": "query-sorting-encoding",
+      "kind": "request",
+      "description": "Transport parameters dropped; form decoding (`+` is a space, `%2B` a plus); RFC 3986 re-encoding (`,` `:` space and UTF-8 encoded, `-` `~` kept); sorted by key, then value; an empty value kept as `key=`.",
+      "key_id": "cur",
+      "transport": {
+        "method": "GET",
+        "query": "fc=module&module=kronixonconnect&controller=api&path=catalog%2Fproducts&id_lang=1&since=2026-09-01T00:00:00Z&tag=ssd&limit=50&q=red+shoes%2Bsocks&tag=nvme&ids=3,1,2&city=Z%C3%BCrich&fields=&sort=-id~asc",
+        "headers": { "X-KX-Key-Id": "cur" }
+      },
+      "method": "GET",
+      "path": "/v1/catalog/products",
+      "timestamp": 1790772000,
+      "nonce": "0192b2e4-8a2b-7c3d-8e4f-5a6b7c8d9e0f",
+      "body": "",
+      "expected": {
+        "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "canonical_query": "city=Z%C3%BCrich&fields=&ids=3%2C1%2C2&limit=50&q=red%20shoes%2Bsocks&since=2026-09-01T00%3A00%3A00Z&sort=-id~asc&tag=nvme&tag=ssd",
+        "canonical": "GET\n/v1/catalog/products?city=Z%C3%BCrich&fields=&ids=3%2C1%2C2&limit=50&q=red%20shoes%2Bsocks&since=2026-09-01T00%3A00%3A00Z&sort=-id~asc&tag=nvme&tag=ssd\n1790772000\n0192b2e4-8a2b-7c3d-8e4f-5a6b7c8d9e0f\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "signature": "ae6475f08043b93fa6dcdbcf56b96a285af70b9a092e9df5a95a6422e5cc6c0a"
+      }
+    },
+    {
+      "id": "empty-body-no-query",
+      "kind": "request",
+      "description": "GET without endpoint parameters: no `?` on the PATH line; the body hash is sha256 of the empty string.",
+      "key_id": "cur",
+      "transport": {
+        "method": "GET",
+        "query": "path=capabilities",
+        "headers": { "X-KX-Key-Id": "cur" }
+      },
+      "method": "GET",
+      "path": "/v1/capabilities",
+      "timestamp": 1790772060,
+      "nonce": "0192b2e4-9b3c-7d4e-9f50-6b7c8d9e0f1a",
+      "body": "",
+      "expected": {
+        "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "canonical_query": "",
+        "canonical": "GET\n/v1/capabilities\n1790772060\n0192b2e4-9b3c-7d4e-9f50-6b7c8d9e0f1a\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "signature": "18e250c249f4c712d11c5dcf89b5cb87a37428ccb484c3ea37029aa3d0afd6a6"
+      }
+    },
+    {
+      "id": "gzip-body",
+      "kind": "request",
+      "description": "Content-Encoding: gzip on the wire; the signature covers the uncompressed body.",
+      "key_id": "cur",
+      "transport": {
+        "method": "POST",
+        "query": "path=prices/bulk",
+        "headers": { "Content-Encoding": "gzip", "X-KX-Key-Id": "cur" },
+        "body_base64": "H4sIAAAAAAACAy2LQQqAIBQF7/LWElYrvUqEiBoKofLVWoh3z0WznGE6Uq4hxQLZcd2teGW08Q6yUnODgdI729GRKdlmqgoWEuu2g+HRFHT8FZ8iUzBzhRCLEHyCcY4PohlaJmMAAAA="
+      },
+      "method": "POST",
+      "path": "/v1/prices/bulk",
+      "timestamp": 1790772000,
+      "nonce": "0192b2e4-ac4d-7e5f-8061-7c8d9e0f1a2b",
+      "body": "{\"options\":{\"flush_cache\":true},\"rows\":[{\"product_id\":\"123\",\"variant_id\":\"0\",\"price\":\"99.990000\"}]}",
+      "expected": {
+        "body_sha256": "e540330fd06000748cc62a6d311c6873d814ef3a3ba10da6cbacf1f645ec3eea",
+        "canonical_query": "",
+        "canonical": "POST\n/v1/prices/bulk\n1790772000\n0192b2e4-ac4d-7e5f-8061-7c8d9e0f1a2b\ne540330fd06000748cc62a6d311c6873d814ef3a3ba10da6cbacf1f645ec3eea",
+        "signature": "39015d6803cc1f69b3d2b94060831a71cd0b754e0e77b711e543dce6a63386a9"
+      }
+    },
+    {
+      "id": "method-override-delete",
+      "kind": "request",
+      "description": "A host that blocks DELETE: POST on the wire with X-HTTP-Method-Override: DELETE; the canonical METHOD is DELETE.",
+      "key_id": "cur",
+      "transport": {
+        "method": "POST",
+        "query": "path=images",
+        "headers": { "X-HTTP-Method-Override": "DELETE", "X-KX-Key-Id": "cur" }
+      },
+      "method": "DELETE",
+      "path": "/v1/images",
+      "timestamp": 1790772000,
+      "nonce": "0192b2e4-bd5e-7f60-9172-8d9e0f1a2b3c",
+      "body": "{\"product_id\":\"123\",\"external_ids\":[\"9001\"],\"all\":false,\"only_kx\":true}",
+      "expected": {
+        "body_sha256": "30306f3d775986509b11ca8bbb2a7a9e582cf07d0d26657ae244ac4cab95b314",
+        "canonical_query": "",
+        "canonical": "DELETE\n/v1/images\n1790772000\n0192b2e4-bd5e-7f60-9172-8d9e0f1a2b3c\n30306f3d775986509b11ca8bbb2a7a9e582cf07d0d26657ae244ac4cab95b314",
+        "signature": "5c440a5fec3acfb560b992cf5c9fd96097ccd30a090d90bffcc3845f9637c84f"
+      }
+    },
+    {
+      "id": "prev-key-after-rotation",
+      "kind": "request",
+      "description": "Signed with the previous secret inside its 24 h validity (X-KX-Key-Id: prev); the current secret does not verify it.",
+      "key_id": "prev",
+      "transport": {
+        "method": "GET",
+        "query": "path=health",
+        "headers": { "X-KX-Key-Id": "prev" }
+      },
+      "method": "GET",
+      "path": "/v1/health",
+      "timestamp": 1790772120,
+      "nonce": "0192b2e4-ce6f-7071-a283-9e0f1a2b3c4d",
+      "body": "",
+      "expected": {
+        "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "canonical_query": "",
+        "canonical": "GET\n/v1/health\n1790772120\n0192b2e4-ce6f-7071-a283-9e0f1a2b3c4d\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "signature": "58950475024449a5b51ec4ca63f6f11553bc6621bb4e38aeb0b7807576eeaef0"
+      }
+    },
+    {
+      "id": "signed-response",
+      "kind": "response",
+      "description": "The module's signed 200 response to spec-4.2-post-stock-bulk: bound to the request nonce, its own timestamp and the status.",
+      "key_id": "cur",
+      "request_nonce": "0192b2e4-7c1a-7d3e-9f4b-2a6c8e0d1f35",
+      "status": 200,
+      "timestamp": 1790772001,
+      "body": "{\"results\":[{\"key\":\"r-1\",\"external_id\":\"123\",\"status\":\"ok\",\"action\":\"updated\",\"previous_quantity\":5}],\"summary\":{\"ok\":1,\"error\":0,\"skipped\":0,\"time_ms\":12},\"continue\":false,\"retry_after\":0}",
+      "expected": {
+        "body_sha256": "2f585691f73cef4674a33a930b99e4d9a36115cf34c4577ad2f95b33dffd080b",
+        "canonical": "RESPONSE\n0192b2e4-7c1a-7d3e-9f4b-2a6c8e0d1f35\n1790772001\n200\n2f585691f73cef4674a33a930b99e4d9a36115cf34c4577ad2f95b33dffd080b",
+        "signature": "bdcc27dcaeee1bc264729b654c9b977b840a78dcceb9d3fdcc66a46069129235"
+      }
+    }
+  ]
+}
