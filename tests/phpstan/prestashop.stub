@@ -1,0 +1,206 @@
+<?php
+
+// PrestaShop core classes the module touches, with the signatures shared by 1.7.8–9.x (PHPStan only).
+
+class Context
+{
+    /** @var Cookie|null */
+    public $cookie;
+
+    /** @var Smarty */
+    public $smarty;
+
+    /** @var Link */
+    public $link;
+
+    /** @return Context */
+    public static function getContext() {}
+}
+
+class Cookie
+{
+    /** @return void */
+    public function disallowWriting() {}
+}
+
+class Smarty
+{
+    /**
+     * @param array<string, mixed>|string $tpl_var
+     * @param mixed $value
+     * @param bool $nocache
+     * @return static
+     */
+    public function assign($tpl_var, $value = null, $nocache = false) {}
+}
+
+class Link
+{
+    /**
+     * @param string $module
+     * @param string $controller
+     * @param array<string, mixed> $params
+     * @param bool|null $ssl
+     * @param int|null $idLang
+     * @param int|null $idShop
+     * @param bool $relativeProtocol
+     * @return string
+     */
+    public function getModuleLink($module, $controller = 'default', array $params = [], $ssl = null, $idLang = null, $idShop = null, $relativeProtocol = false) {}
+}
+
+class Db
+{
+    /**
+     * @param bool $master
+     * @return Db
+     */
+    public static function getInstance($master = true) {}
+
+    /**
+     * @param string $sql
+     * @param bool $use_cache
+     * @return bool
+     */
+    public function execute($sql, $use_cache = true) {}
+}
+
+class Configuration
+{
+    /**
+     * @param string $key
+     * @param int|null $idLang
+     * @param int|null $idShopGroup
+     * @param int|null $idShop
+     * @param mixed $default
+     * @return string|false
+     */
+    public static function get($key, $idLang = null, $idShopGroup = null, $idShop = null, $default = false) {}
+
+    /**
+     * @param string $key
+     * @param int|null $idLang
+     * @return string|false
+     */
+    public static function getGlobalValue($key, $idLang = null) {}
+
+    /**
+     * @param string $key
+     * @param mixed $values
+     * @param bool $html
+     * @param int|null $idShopGroup
+     * @param int|null $idShop
+     * @return bool
+     */
+    public static function updateValue($key, $values, $html = false, $idShopGroup = null, $idShop = null) {}
+
+    /**
+     * @param string $key
+     * @param mixed $values
+     * @param bool $html
+     * @return bool
+     */
+    public static function updateGlobalValue($key, $values, $html = false) {}
+
+    /**
+     * @param string $key
+     * @return bool
+     */
+    public static function deleteByName($key) {}
+}
+
+abstract class Module
+{
+    /** @var string */
+    public $name;
+
+    /** @var string */
+    public $tab;
+
+    /** @var string */
+    public $version;
+
+    /** @var string */
+    public $author;
+
+    /** @var int */
+    public $need_instance;
+
+    /** @var array<string, string> */
+    public $ps_versions_compliancy;
+
+    /** @var bool */
+    public $bootstrap;
+
+    /** @var string */
+    public $displayName;
+
+    /** @var string */
+    public $description;
+
+    /** @var string */
+    public $confirmUninstall;
+
+    /** @var list<string> */
+    protected $_errors = [];
+
+    /** @var Context */
+    protected $context;
+
+    /**
+     * @param string|null $name
+     * @param Context|null $context
+     */
+    public function __construct($name = null, $context = null) {}
+
+    /** @return bool */
+    public function install() {}
+
+    /** @return bool */
+    public function uninstall() {}
+
+    /**
+     * @param string $string
+     * @param string|false $specific
+     * @param string|null $locale
+     * @return string
+     */
+    public function l($string, $specific = false, $locale = null) {}
+
+    /**
+     * @param string|array<int, string> $hook_name
+     * @param array<int, int>|null $shop_list
+     * @return bool
+     */
+    public function registerHook($hook_name, $shop_list = null) {}
+
+    /**
+     * @param string $file
+     * @param string $template
+     * @param string|null $cache_id
+     * @param string|null $compile_id
+     * @return string
+     */
+    public function display($file, $template, $cache_id = null, $compile_id = null) {}
+}
+
+class FrontController
+{
+    /** @var Context */
+    protected $context;
+
+    /** @var bool */
+    public $ajax = false;
+
+    /** @var bool */
+    public $content_only = false;
+
+    /** @return void */
+    public function init() {}
+}
+
+class ModuleFrontController extends FrontController
+{
+    /** @var Module */
+    public $module;
+}
