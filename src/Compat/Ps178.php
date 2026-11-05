@@ -20,8 +20,7 @@ namespace Kronixon\Connect\Compat;
 
 /**
  * PrestaShop 1.7.8.x (PHP 7.1–7.4): class `Attribute`, no `410` redirect, jpg only.
- * Meta sizes are 255/512 as in 8.x/9.x (checked in 1.7.8.11 classes/Product.php; Spec §6.14's
- * "1.7.8: 128/255" is not what the core declares).
+ * Meta field lengths are the same on every version: see MetaLengths.
  */
 class Ps178 implements CompatInterface
 {
@@ -43,11 +42,6 @@ class Ps178 implements CompatInterface
     public function redirectTypes(): array
     {
         return ['404', '301-product', '302-product', '301-category', '302-category'];
-    }
-
-    public function metaLengths(): array
-    {
-        return ['meta_title' => 255, 'meta_description' => 512];
     }
 
     public function hasImageFormatSetting(): bool

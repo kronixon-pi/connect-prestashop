@@ -77,7 +77,6 @@ final class VersionTest extends TestCase
         self::assertSame(['actionObjectProductAttributeAddAfter'], Version::select('9.1.5')->versionHooks());
         self::assertNotContains('410', $ps178->redirectTypes());
         self::assertContains('410', Version::select('8.0.0')->redirectTypes());
-        self::assertSame(['meta_title' => 255, 'meta_description' => 512], $ps178->metaLengths());
         self::assertFalse(Version::select('8.0.5')->hasImageFormatSetting());
         self::assertTrue($ps81->hasImageFormatSetting());
     }

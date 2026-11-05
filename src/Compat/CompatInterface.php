@@ -45,13 +45,6 @@ interface CompatInterface
      */
     public function redirectTypes(): array;
 
-    /**
-     * Field sizes of Product meta fields (core `Product::$definition`).
-     *
-     * @return array{meta_title: int, meta_description: int}
-     */
-    public function metaLengths(): array;
-
     /** Whether the shop has the PS_IMAGE_FORMAT setting (webp/avif), PrestaShop 8.1+. */
     public function hasImageFormatSetting(): bool;
 }
