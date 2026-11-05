@@ -1,0 +1,5 @@
+Contact: https://github.com/kronixon-pi/connect-prestashop/security/advisories/new
+Contact: mailto:security@kronixon.com
+Expires: 2027-11-04T23:59:59Z
+Preferred-Languages: en, bg
+Policy: https://github.com/kronixon-pi/connect-prestashop/blob/main/SECURITY.md
