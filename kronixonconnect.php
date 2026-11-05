@@ -204,17 +204,27 @@ class KronixonConnect extends Module
     {
     }
 
-    /** @param array<string, mixed> $params */
+    /**
+     * Runs on every storefront request: must stay O(1) — M5.
+     *
+     * @param  array<string, mixed>  $params
+     */
     public function hookActionFrontControllerSetMedia(array $params): void
     {
     }
 
-    /** @param array<string, mixed> $params */
+    /**
+     * Runs on every back-office request: must stay O(1) — M5.
+     *
+     * @param  array<string, mixed>  $params
+     */
     public function hookActionAdminControllerSetMedia(array $params): void
     {
     }
 
     /**
+     * Runs on every request that builds the router: must stay O(1) — M5.
+     *
      * @param  array<string, mixed>  $params
      * @return array<string, mixed>
      */
