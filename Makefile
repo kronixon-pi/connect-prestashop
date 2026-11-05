@@ -5,7 +5,8 @@
 #   make check              lint + test + protocol (what module-ci runs, minus the shop)
 #   make matrix             the five required PrestaShop versions, one after another
 PS ?= 91
-COMPOSE = docker compose -f docker/compose.$(PS).yml
+# Images are pinned by digest in docker/images.lock; scripts/compose.sh resolves them.
+COMPOSE = scripts/compose.sh $(PS)
 PORT = $(shell sed -n 's/.*PS_PORT:-\([0-9]*\)}.*/\1/p' docker/compose.$(PS).yml | head -n 1)
 RUN = docker run --rm -u $$(id -u):$$(id -g) -v "$$PWD:/app" -w /app
 PHP74 = $(RUN) php:7.4-cli

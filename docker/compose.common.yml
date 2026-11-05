@@ -4,7 +4,7 @@
 # prestashop_demo, see the prestashop/prestashop image docs) at http://localhost:<port>/admin-dev.
 services:
   db:
-    image: mariadb:10.11.19
+    image: ${MARIADB_IMAGE:?run through scripts/compose.sh, which pins it from docker/images.lock}
     environment:
       MARIADB_ROOT_PASSWORD: prestashop
       MARIADB_DATABASE: prestashop

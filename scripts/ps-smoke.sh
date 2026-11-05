@@ -4,7 +4,8 @@
 #
 #   scripts/ps-smoke.sh <178|81|82|90|91|92> [--keep]
 #
-# Starts docker/compose.<ps>.yml (PS_TAG / PS_PORT override the image tag and port), waits for the
+# Starts docker/compose.<ps>.yml through scripts/compose.sh (images pinned by digest in
+# docker/images.lock; PS_TAG / PS_PORT override the image tag and port), waits for the
 # auto-install, installs the module from the read-only mount through bin/console, uninstalls and
 # reinstalls it, turns friendly URLs on and checks GET /v1/status through both URL forms (Spec §5.1).
 # Prints one timing line per step and a SMOKE summary line; --keep leaves the shop running.
@@ -21,7 +22,7 @@ tmp="$(mktemp -d)"
 t0=$(date +%s)
 failures=0
 
-dc() { docker compose -f "$file" "$@"; }
+dc() { "$root/scripts/compose.sh" "$ps" "$@"; }
 elapsed() { echo $(( $(date +%s) - t0 )); }
 step() { echo "[$(elapsed)s] $*"; }
 sql() { dc exec -T db mariadb -uroot -pprestashop prestashop -N -B -e "$1" </dev/null; }

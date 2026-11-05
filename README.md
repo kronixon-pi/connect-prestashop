@@ -58,6 +58,8 @@ make matrix           # install + module + GET /v1/status on 1.7.8, 8.1, 8.2, 9.
 ```
 
 `PS` is one of `178`, `81`, `82`, `90`, `91`, `92` ([docker/](docker/)); `PS_TAG` overrides the image tag.
+The PrestaShop and MariaDB images are pinned by digest in [docker/images.lock](docker/images.lock), the
+only place to change them; `scripts/compose.sh` (used by `make` and the CI scripts) resolves them.
 The shops use PrestaShop's documented default admin login and `admin-dev` as the admin folder.
 
 Layout: `kronixonconnect.php` (module class), `controllers/front/api.php` (the only API entry),

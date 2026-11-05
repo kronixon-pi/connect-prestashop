@@ -13,6 +13,8 @@ set -euo pipefail
 tag="${1:?usage: scripts/bake-fixture.sh <prestashop tag> <output image>}"
 out="${2:?usage: scripts/bake-fixture.sh <prestashop tag> <output image>}"
 root="$(cd "$(dirname "$0")/.." && pwd)"
+ps_image="$("$root/scripts/image-ref.sh" "prestashop/prestashop:$tag")" # pinned in docker/images.lock
+db_image="$("$root/scripts/image-ref.sh" mariadb)"
 port="${BAKE_PORT:-8099}"
 id="kxbake$$"
 net="$id-net"
@@ -33,7 +35,7 @@ trap cleanup EXIT
 
 start_db() { # name
     docker run -d --name "$1" --network "$net" --network-alias db --tmpfs /var/lib/mysql \
-        -e MARIADB_ROOT_PASSWORD=prestashop -e MARIADB_DATABASE=prestashop mariadb:10.11.19 >/dev/null
+        -e MARIADB_ROOT_PASSWORD=prestashop -e MARIADB_DATABASE=prestashop "$db_image" >/dev/null
     local i=0
     until docker exec "$1" healthcheck.sh --connect --innodb_initialized >/dev/null 2>&1; do
         i=$((i + 1)); [ "$i" -le 100 ] || { echo "database $1 did not start" >&2; return 1; }
@@ -65,7 +67,7 @@ docker run -d --name "$id-ps" --network "$net" -p "127.0.0.1:$port:80" \
     -e DB_SERVER=db -e DB_USER=root -e DB_PASSWD=prestashop -e DB_NAME=prestashop \
     -e PS_INSTALL_AUTO=1 -e PS_INSTALL_DB=0 -e PS_FOLDER_ADMIN=admin-dev -e PS_FOLDER_INSTALL=install-dev \
     -e PS_DOMAIN="localhost:$port" -e PS_LANGUAGE=en -e PS_COUNTRY=BG -e PS_ENABLE_SSL=0 \
-    "prestashop/prestashop:$tag" >/dev/null
+    "$ps_image" >/dev/null
 wait_web "$id-ps"
 install_s=$(elapsed)
 step "PrestaShop $tag installed"
@@ -103,6 +105,7 @@ docker commit \
     --change 'LABEL org.opencontainers.image.source=https://github.com/kronixon-pi/connect-prestashop' \
     --change "LABEL org.opencontainers.image.description=\"PrestaShop $tag with Kronixon Connect and the 500-product test fixture\"" \
     --change 'LABEL org.opencontainers.image.licenses=AFL-3.0' \
+    --change "LABEL org.opencontainers.image.base.name=$ps_image" \
     "$id-ps" "$out" >/dev/null
 step "committed $out"
 
