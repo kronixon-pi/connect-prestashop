@@ -118,7 +118,10 @@ products="$(sql "$id-db2" "SELECT COUNT(*) FROM ps_product WHERE reference LIKE 
 status="$(curl -s -o "$tmp/status.json" -w '%{http_code}' -H 'X-KX-Protocol: v1' "http://localhost:$((port + 1))/module/kronixonconnect/api?path=/v1/status")"
 code="$(jq -r '.error.code' "$tmp/status.json")"
 [ "$products" = "500" ] || { echo "baked image restored $products fixture products, want 500" >&2; exit 1; }
-[ "$status" = "403" ] && [ "$code" = "store_unpaired" ] || { echo "baked image API answered $status $code" >&2; exit 1; }
+if [ "$status" != "403" ] || [ "$code" != "store_unpaired" ]; then
+    echo "baked image API answered $status $code" >&2
+    exit 1
+fi
 step "baked image checked: $products fixture products, GET /v1/status → $status $code"
 
 size_mb=$(( $(docker image inspect -f '{{.Size}}' "$out") / 1048576 ))
