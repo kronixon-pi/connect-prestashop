@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://connect.kronixon.com/protocol/v1/schemas/module/catalog-categories.json",
+  "title": "GET catalog/categories",
+  "description": "The category tree, page by page; Root and Home carry root/is_home and map to the catalog's root (Spec §6.5).",
+  "x-kx-endpoint": {
+    "method": "GET",
+    "path": "/v1/catalog/categories",
+    "signed": true,
+    "pr": "M2"
+  },
+  "$defs": {
+    "query": {
+      "allOf": [{ "$ref": "../common.json#/$defs/catalog_query" }],
+      "examples": [{ "limit": "500" }]
+    },
+    "category": {
+      "type": "object",
+      "required": [
+        "external_id",
+        "kx_id",
+        "parent_id",
+        "root",
+        "level",
+        "position",
+        "active",
+        "name",
+        "link_rewrite"
+      ],
+      "properties": {
+        "external_id": { "$ref": "../common.json#/$defs/external_id" },
+        "kx_id": { "$ref": "../common.json#/$defs/kx_id" },
+        "parent_id": { "$ref": "../common.json#/$defs/external_id" },
+        "root": { "type": "boolean" },
+        "is_home": { "type": "boolean" },
+        "level": { "type": "integer", "minimum": 0 },
+        "position": { "type": "integer", "minimum": 0 },
+        "active": { "type": "boolean" },
+        "name": { "$ref": "../common.json#/$defs/multilang" },
+        "link_rewrite": { "$ref": "../common.json#/$defs/multilang" },
+        "description": { "$ref": "../common.json#/$defs/multilang" },
+        "meta_title": { "$ref": "../common.json#/$defs/multilang" },
+        "meta_description": { "$ref": "../common.json#/$defs/multilang" },
+        "product_count": { "type": "integer", "minimum": 0 },
+        "date_upd": { "$ref": "../common.json#/$defs/datetime" },
+        "content_hash": { "$ref": "../common.json#/$defs/sha256" }
+      }
+    },
+    "response": {
+      "type": "object",
+      "required": ["data", "meta"],
+      "properties": {
+        "data": { "type": "array", "items": { "$ref": "#/$defs/category" } },
+        "meta": { "$ref": "../common.json#/$defs/page_meta" }
+      },
+      "examples": [
+        {
+          "data": [
+            {
+              "external_id": "2",
+              "kx_id": null,
+              "parent_id": "1",
+              "root": true,
+              "is_home": true,
+              "level": 1,
+              "position": 0,
+              "active": true,
+              "name": { "en": "Home" },
+              "link_rewrite": { "en": "home" },
+              "product_count": 0,
+              "date_upd": "2026-09-01T08:00:00Z",
+              "content_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            },
+            {
+              "external_id": "45",
+              "kx_id": null,
+              "parent_id": "2",
+              "root": false,
+              "level": 2,
+              "position": 3,
+              "active": true,
+              "name": { "bg": "SSD", "en": "SSD" },
+              "link_rewrite": { "bg": "ssd", "en": "ssd" },
+              "description": {},
+              "meta_title": {},
+              "meta_description": {},
+              "product_count": 120,
+              "date_upd": "2026-09-01T08:00:00Z",
+              "content_hash": "142cbfb1fbcb6e319ac89ebbb22bcd6d651ff0cba117e97f8c13338afa1f8738"
+            }
+          ],
+          "meta": {
+            "count": 2,
+            "next_cursor": null,
+            "has_more": false,
+            "total": 2,
+            "max_id": "45",
+            "generated_at": "2026-09-30T12:40:00Z"
+          }
+        }
+      ]
+    }
+  }
+}

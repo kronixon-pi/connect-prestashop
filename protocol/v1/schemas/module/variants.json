@@ -1,0 +1,182 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://connect.kronixon.com/protocol/v1/schemas/module/variants.json",
+  "title": "POST variants",
+  "description": "Option groups, option values and combinations of a product in one atomic item (Spec §6.15). mode replace deletes the product's combinations that are not listed.",
+  "x-kx-endpoint": {
+    "method": "POST",
+    "path": "/v1/variants",
+    "signed": true,
+    "pr": "M3"
+  },
+  "$defs": {
+    "value": {
+      "type": "object",
+      "required": ["key", "name"],
+      "properties": {
+        "key": { "$ref": "../common.json#/$defs/key" },
+        "external_id": { "$ref": "../common.json#/$defs/external_id_or_null" },
+        "kx_id": { "$ref": "../common.json#/$defs/kx_id" },
+        "name": { "$ref": "../common.json#/$defs/multilang" },
+        "color": { "type": ["string", "null"], "pattern": "^#[0-9a-fA-F]{6}$" }
+      }
+    },
+    "group": {
+      "type": "object",
+      "required": ["key", "name", "values"],
+      "properties": {
+        "key": { "$ref": "../common.json#/$defs/key" },
+        "external_id": { "$ref": "../common.json#/$defs/external_id_or_null" },
+        "kx_id": { "$ref": "../common.json#/$defs/kx_id" },
+        "name": { "$ref": "../common.json#/$defs/multilang" },
+        "public_name": { "$ref": "../common.json#/$defs/multilang" },
+        "group_type": { "enum": ["select", "color", "radio"] },
+        "values": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/value" }
+        }
+      }
+    },
+    "combination": {
+      "type": "object",
+      "required": ["key", "values"],
+      "properties": {
+        "key": { "$ref": "../common.json#/$defs/key" },
+        "external_id": { "$ref": "../common.json#/$defs/external_id_or_null" },
+        "kx_id": { "$ref": "../common.json#/$defs/kx_id" },
+        "values": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "pattern": "^[^:]+:[^:]+$" }
+        },
+        "reference": { "type": "string" },
+        "ean13": { "type": "string" },
+        "mpn": { "type": "string" },
+        "price_impact": { "$ref": "../common.json#/$defs/money" },
+        "wholesale_price": { "$ref": "../common.json#/$defs/money" },
+        "weight_impact": { "$ref": "../common.json#/$defs/money" },
+        "default": { "type": "boolean" },
+        "image_keys": { "type": "array", "items": { "type": "string" } },
+        "minimal_quantity": { "type": "integer", "minimum": 1 },
+        "quantity_initial": { "type": "integer" }
+      }
+    },
+    "item": {
+      "type": "object",
+      "required": ["key", "product_id", "option_groups", "combinations"],
+      "properties": {
+        "key": { "$ref": "../common.json#/$defs/key" },
+        "product_id": { "$ref": "../common.json#/$defs/external_id" },
+        "option_groups": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/group" }
+        },
+        "combinations": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/combination" }
+        },
+        "mode": { "$ref": "../common.json#/$defs/mode" }
+      }
+    },
+    "request": {
+      "allOf": [{ "$ref": "../common.json#/$defs/items_request" }],
+      "properties": { "items": { "items": { "$ref": "#/$defs/item" } } },
+      "examples": [
+        {
+          "items": [
+            {
+              "key": "v-1",
+              "product_id": "123",
+              "option_groups": [
+                {
+                  "key": "g-color",
+                  "external_id": "2",
+                  "kx_id": null,
+                  "name": { "bg": "Color" },
+                  "public_name": { "bg": "Color" },
+                  "group_type": "color",
+                  "values": [
+                    {
+                      "key": "red",
+                      "external_id": null,
+                      "kx_id": null,
+                      "name": { "bg": "Red" },
+                      "color": "#ff0000"
+                    }
+                  ]
+                }
+              ],
+              "combinations": [
+                {
+                  "key": "c-1",
+                  "external_id": null,
+                  "kx_id": null,
+                  "values": ["g-color:red"],
+                  "reference": "ABC-1-RED",
+                  "ean13": "",
+                  "mpn": "",
+                  "price_impact": "5.00",
+                  "wholesale_price": "0",
+                  "weight_impact": "0",
+                  "default": true,
+                  "image_keys": ["img-1"],
+                  "minimal_quantity": 1,
+                  "quantity_initial": 0
+                }
+              ],
+              "mode": "merge"
+            }
+          ]
+        }
+      ]
+    },
+    "response": {
+      "allOf": [{ "$ref": "../common.json#/$defs/batch_response" }],
+      "properties": {
+        "results": {
+          "items": {
+            "properties": {
+              "groups": {
+                "type": "object",
+                "additionalProperties": {
+                  "$ref": "../common.json#/$defs/external_id"
+                }
+              },
+              "values": {
+                "type": "object",
+                "additionalProperties": {
+                  "$ref": "../common.json#/$defs/external_id"
+                }
+              },
+              "combinations": {
+                "type": "object",
+                "additionalProperties": {
+                  "$ref": "../common.json#/$defs/external_id"
+                }
+              }
+            }
+          }
+        }
+      },
+      "examples": [
+        {
+          "results": [
+            {
+              "key": "v-1",
+              "external_id": "123",
+              "status": "ok",
+              "action": "updated",
+              "groups": { "g-color": "2" },
+              "values": { "red": "15" },
+              "combinations": { "c-1": "77" },
+              "warnings": []
+            }
+          ],
+          "summary": { "ok": 1, "error": 0, "skipped": 0, "time_ms": 95 },
+          "continue": false
+        }
+      ]
+    }
+  }
+}

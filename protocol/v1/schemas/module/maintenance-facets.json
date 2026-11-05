@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://connect.kronixon.com/protocol/v1/schemas/module/maintenance-facets.json",
+  "title": "POST maintenance/facets",
+  "description": "Rebuilds ps_facetedsearch indexes for the given categories in portions with continue; 403 capability_disabled without the module (Spec §6.30).",
+  "x-kx-endpoint": {
+    "method": "POST",
+    "path": "/v1/maintenance/facets",
+    "signed": true,
+    "pr": "M4"
+  },
+  "$defs": {
+    "request": {
+      "type": "object",
+      "required": ["scope"],
+      "properties": {
+        "scope": { "enum": ["categories", "prices", "attributes", "all"] },
+        "category_ids": {
+          "type": "array",
+          "items": { "$ref": "../common.json#/$defs/external_id" }
+        },
+        "budget_s": { "type": "integer", "minimum": 1, "maximum": 25 },
+        "cursor": { "type": "string" }
+      },
+      "examples": [
+        { "scope": "categories", "category_ids": ["45"], "budget_s": 20 }
+      ]
+    },
+    "response": {
+      "type": "object",
+      "required": ["continue"],
+      "properties": {
+        "indexed": { "type": "integer", "minimum": 0 },
+        "cursor": { "type": ["string", "null"] },
+        "continue": { "type": "boolean" }
+      },
+      "examples": [
+        { "indexed": 500, "cursor": "eyJpZCI6NTAwfQ", "continue": true }
+      ]
+    }
+  }
+}

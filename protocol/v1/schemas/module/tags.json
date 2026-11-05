@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://connect.kronixon.com/protocol/v1/schemas/module/tags.json",
+  "title": "POST tags",
+  "description": "Creates tags without a product association (associations are in POST products.tags) (Spec §6.20).",
+  "x-kx-endpoint": {
+    "method": "POST",
+    "path": "/v1/tags",
+    "signed": true,
+    "pr": "M3"
+  },
+  "$defs": {
+    "item": {
+      "type": "object",
+      "required": ["key", "lang", "name"],
+      "properties": {
+        "key": { "$ref": "../common.json#/$defs/key" },
+        "lang": { "$ref": "../common.json#/$defs/lang_iso" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 32 }
+      }
+    },
+    "request": {
+      "allOf": [{ "$ref": "../common.json#/$defs/items_request" }],
+      "properties": { "items": { "items": { "$ref": "#/$defs/item" } } },
+      "examples": [
+        { "items": [{ "key": "t-1", "lang": "bg", "name": "nvme" }] }
+      ]
+    },
+    "response": {
+      "allOf": [{ "$ref": "../common.json#/$defs/batch_response" }],
+      "examples": [
+        {
+          "results": [
+            {
+              "key": "t-1",
+              "external_id": "40",
+              "status": "ok",
+              "action": "created"
+            }
+          ],
+          "summary": { "ok": 1, "error": 0, "skipped": 0, "time_ms": 3 },
+          "continue": false
+        }
+      ]
+    }
+  }
+}

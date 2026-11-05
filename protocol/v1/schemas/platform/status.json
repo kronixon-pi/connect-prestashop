@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://connect.kronixon.com/protocol/v1/schemas/platform/status.json",
+  "title": "GET /v1/status (platform)",
+  "description": "Unsigned probe of the Connect service: protocol and server time, used by the module's clock-drift self-check and by monitoring (plan D3). Not to be confused with the module's GET /v1/… paths.",
+  "x-kx-endpoint": {
+    "method": "GET",
+    "path": "/v1/status",
+    "signed": false,
+    "pr": "platform B1"
+  },
+  "$defs": {
+    "response": {
+      "type": "object",
+      "required": ["protocol", "server_time"],
+      "properties": {
+        "protocol": { "const": "v1" },
+        "server_time": { "$ref": "../common.json#/$defs/unix_time" }
+      },
+      "examples": [{ "protocol": "v1", "server_time": 1790772000 }]
+    }
+  }
+}

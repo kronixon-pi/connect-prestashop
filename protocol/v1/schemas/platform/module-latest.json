@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://connect.kronixon.com/protocol/v1/schemas/platform/module-latest.json",
+  "title": "GET /v1/module/latest (platform)",
+  "description": "The newest compatible release for this shop (signed when paired, unsigned otherwise); the zip is verified with a pinned Ed25519 key before any install (Spec §10, plan D16).",
+  "x-kx-endpoint": {
+    "method": "GET",
+    "path": "/v1/module/latest",
+    "signed": true,
+    "pr": "platform E / M6"
+  },
+  "$defs": {
+    "query": {
+      "type": "object",
+      "required": ["platform", "version", "php", "module"],
+      "properties": {
+        "platform": { "const": "prestashop" },
+        "version": { "type": "string" },
+        "php": { "type": "string" },
+        "module": { "type": "string" },
+        "channel": { "enum": ["stable", "staging"] }
+      },
+      "examples": [
+        {
+          "platform": "prestashop",
+          "version": "8.1.7",
+          "php": "8.1.29",
+          "module": "1.0.0"
+        }
+      ]
+    },
+    "response": {
+      "type": "object",
+      "required": ["latest", "compatible", "reason"],
+      "properties": {
+        "latest": {
+          "anyOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "required": [
+                "version",
+                "channel",
+                "min_platform",
+                "max_platform",
+                "min_php",
+                "url",
+                "size",
+                "sha256",
+                "signature",
+                "signature_key_id",
+                "released_at",
+                "mandatory",
+                "protocol"
+              ],
+              "properties": {
+                "version": { "type": "string" },
+                "channel": { "enum": ["stable", "staging"] },
+                "min_platform": { "type": "string" },
+                "max_platform": { "type": "string" },
+                "min_php": { "type": "string" },
+                "url": { "$ref": "../common.json#/$defs/https_url" },
+                "size": { "type": "integer", "minimum": 1 },
+                "sha256": { "$ref": "../common.json#/$defs/sha256" },
+                "signature": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9+/]{86}==$"
+                },
+                "signature_key_id": { "type": "string", "maxLength": 32 },
+                "changelog_url": { "$ref": "../common.json#/$defs/https_url" },
+                "released_at": { "$ref": "../common.json#/$defs/datetime" },
+                "mandatory": { "type": "boolean" },
+                "protocol": { "const": "v1" }
+              }
+            }
+          ]
+        },
+        "compatible": { "type": "boolean" },
+        "reason": { "type": ["string", "null"], "maxLength": 255 }
+      },
+      "examples": [
+        {
+          "latest": {
+            "version": "1.1.0",
+            "channel": "stable",
+            "min_platform": "1.7.8.0",
+            "max_platform": "9.2.99",
+            "min_php": "7.4.0",
+            "url": "https://connect.kronixon.com/dl/kronixonconnect-1.1.0.zip",
+            "size": 1843201,
+            "sha256": "142cbfb1fbcb6e319ac89ebbb22bcd6d651ff0cba117e97f8c13338afa1f8738",
+            "signature": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0+Pw==",
+            "signature_key_id": "kx-2026-01",
+            "changelog_url": "https://github.com/kronixon-pi/connect-prestashop/releases/tag/v1.1.0",
+            "released_at": "2026-10-01T08:00:00Z",
+            "mandatory": false,
+            "protocol": "v1"
+          },
+          "compatible": true,
+          "reason": null
+        }
+      ]
+    }
+  }
+}

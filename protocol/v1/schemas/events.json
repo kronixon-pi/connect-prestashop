@@ -1,0 +1,328 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://connect.kronixon.com/protocol/v1/schemas/events.json",
+  "title": "Store events (module → platform)",
+  "description": "One outbox event and its payload per type (Spec §7.2–§7.5). The platform treats an event as a hint and re-reads the entity (plan D13). Phase-2 types (order.*, specific_price.*) are not part of this schema yet.",
+  "$defs": {
+    "event": {
+      "type": "object",
+      "required": [
+        "event_id",
+        "type",
+        "occurred_at",
+        "dedupe_key",
+        "origin",
+        "payload"
+      ],
+      "properties": {
+        "event_id": { "$ref": "common.json#/$defs/uuid" },
+        "type": {
+          "enum": [
+            "product.created",
+            "product.updated",
+            "product.deleted",
+            "stock.updated",
+            "price.updated",
+            "category.created",
+            "category.updated",
+            "category.deleted",
+            "image.created",
+            "image.deleted",
+            "brand.updated",
+            "attribute_value.created",
+            "combination.created",
+            "combination.updated",
+            "combination.deleted",
+            "module.heartbeat",
+            "module.updated",
+            "module.update_failed",
+            "module.unpaired",
+            "module.outbox_overflow"
+          ]
+        },
+        "external_id": { "$ref": "common.json#/$defs/external_id_or_null" },
+        "occurred_at": { "$ref": "common.json#/$defs/datetime" },
+        "dedupe_key": { "type": "string", "minLength": 1, "maxLength": 191 },
+        "origin": { "enum": ["shop", "kronixon"] },
+        "payload": { "type": "object" }
+      },
+      "allOf": [
+        {
+          "if": { "$ref": "#/$defs/is_product_change" },
+          "then": {
+            "properties": { "payload": { "$ref": "#/$defs/product_change" } }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": { "enum": ["product.deleted", "brand.updated"] }
+            }
+          },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/empty" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "stock.updated" } } },
+          "then": {
+            "properties": { "payload": { "$ref": "#/$defs/stock_updated" } }
+          }
+        },
+        {
+          "if": { "properties": { "type": { "const": "price.updated" } } },
+          "then": {
+            "properties": { "payload": { "$ref": "#/$defs/price_updated" } }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "enum": [
+                  "category.created",
+                  "category.updated",
+                  "category.deleted"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": { "payload": { "$ref": "#/$defs/category_change" } }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": { "enum": ["image.created", "image.deleted"] }
+            }
+          },
+          "then": {
+            "properties": { "payload": { "$ref": "#/$defs/image_change" } }
+          }
+        },
+        {
+          "if": {
+            "properties": { "type": { "const": "attribute_value.created" } }
+          },
+          "then": {
+            "properties": {
+              "payload": { "$ref": "#/$defs/attribute_value_created" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "enum": [
+                  "combination.created",
+                  "combination.updated",
+                  "combination.deleted"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "payload": { "$ref": "#/$defs/combination_change" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "type": { "const": "module.heartbeat" } } },
+          "then": {
+            "properties": { "payload": { "$ref": "#/$defs/heartbeat" } }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": { "enum": ["module.updated", "module.update_failed"] }
+            }
+          },
+          "then": {
+            "properties": { "payload": { "$ref": "#/$defs/module_update" } }
+          }
+        },
+        {
+          "if": { "properties": { "type": { "const": "module.unpaired" } } },
+          "then": {
+            "properties": { "payload": { "$ref": "#/$defs/unpaired" } }
+          }
+        },
+        {
+          "if": {
+            "properties": { "type": { "const": "module.outbox_overflow" } }
+          },
+          "then": {
+            "properties": { "payload": { "$ref": "#/$defs/outbox_overflow" } }
+          }
+        }
+      ],
+      "examples": [
+        {
+          "event_id": "0192b2e4-7c1a-7d3e-9f4b-2a6c8e0d1f35",
+          "type": "product.updated",
+          "external_id": "123",
+          "occurred_at": "2026-09-30T12:40:00Z",
+          "dedupe_key": "product.updated:123:29846200",
+          "origin": "shop",
+          "payload": {
+            "fields_changed": ["price", "name"],
+            "content_hash": "142cbfb1fbcb6e319ac89ebbb22bcd6d651ff0cba117e97f8c13338afa1f8738"
+          }
+        },
+        {
+          "event_id": "0192b2e4-8a2b-7c3d-8e4f-5a6b7c8d9e0f",
+          "type": "product.deleted",
+          "external_id": "124",
+          "occurred_at": "2026-09-30T12:41:00Z",
+          "dedupe_key": "product.deleted:124:29846201",
+          "origin": "shop",
+          "payload": {}
+        }
+      ]
+    },
+    "is_product_change": {
+      "properties": {
+        "type": { "enum": ["product.created", "product.updated"] }
+      }
+    },
+    "empty": { "type": "object", "maxProperties": 0 },
+    "product_change": {
+      "type": "object",
+      "required": ["content_hash"],
+      "properties": {
+        "fields_changed": { "type": "array", "items": { "type": "string" } },
+        "content_hash": { "$ref": "common.json#/$defs/sha256" }
+      }
+    },
+    "stock_updated": {
+      "type": "object",
+      "required": ["variant_id", "quantity"],
+      "properties": {
+        "variant_id": { "$ref": "common.json#/$defs/external_id" },
+        "quantity": { "type": "integer" },
+        "previous_quantity": { "type": ["integer", "null"] }
+      }
+    },
+    "price_updated": {
+      "type": "object",
+      "required": ["variant_id", "price"],
+      "properties": {
+        "variant_id": { "$ref": "common.json#/$defs/external_id" },
+        "price": { "$ref": "common.json#/$defs/money" }
+      }
+    },
+    "category_change": {
+      "type": "object",
+      "required": ["parent_id"],
+      "properties": {
+        "parent_id": { "$ref": "common.json#/$defs/external_id" }
+      }
+    },
+    "image_change": {
+      "type": "object",
+      "required": ["product_id"],
+      "properties": {
+        "product_id": { "$ref": "common.json#/$defs/external_id" },
+        "position": { "type": "integer" },
+        "cover": { "type": "boolean" }
+      }
+    },
+    "attribute_value_created": {
+      "type": "object",
+      "required": ["kind", "parent_id"],
+      "properties": {
+        "kind": { "enum": ["feature", "attribute_group"] },
+        "parent_id": { "$ref": "common.json#/$defs/external_id" }
+      }
+    },
+    "combination_change": {
+      "type": "object",
+      "required": ["product_id"],
+      "properties": {
+        "product_id": { "$ref": "common.json#/$defs/external_id" }
+      }
+    },
+    "heartbeat": {
+      "type": "object",
+      "required": [
+        "module_version",
+        "ps_version",
+        "php",
+        "capabilities_hash",
+        "counts",
+        "outbox"
+      ],
+      "properties": {
+        "module_version": { "type": "string" },
+        "ps_version": { "type": "string" },
+        "php": { "type": "string" },
+        "capabilities_hash": { "$ref": "common.json#/$defs/sha256" },
+        "counts": {
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 0 }
+        },
+        "outbox": {
+          "type": "object",
+          "required": ["pending", "failed"],
+          "properties": {
+            "pending": { "type": "integer", "minimum": 0 },
+            "failed": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "cron": {
+          "type": "object",
+          "properties": {
+            "configured": { "type": "boolean" },
+            "last_run_at": { "$ref": "common.json#/$defs/datetime_or_null" }
+          }
+        },
+        "errors_24h": { "type": "integer", "minimum": 0 },
+        "last_errors": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "required": ["at", "code"],
+            "properties": {
+              "at": { "$ref": "common.json#/$defs/datetime" },
+              "code": { "type": "string" },
+              "message": { "type": "string", "maxLength": 255 }
+            }
+          }
+        },
+        "settings": { "type": "object" },
+        "update": {
+          "type": "object",
+          "properties": {
+            "available": { "type": ["string", "null"] },
+            "pending_confirmation": { "type": "boolean" }
+          }
+        }
+      }
+    },
+    "module_update": {
+      "type": "object",
+      "required": ["from", "to"],
+      "properties": {
+        "from": { "type": "string" },
+        "to": { "type": "string" },
+        "error": { "type": ["string", "null"], "maxLength": 255 }
+      }
+    },
+    "unpaired": {
+      "type": "object",
+      "required": ["reason"],
+      "properties": { "reason": { "type": "string", "maxLength": 64 } }
+    },
+    "outbox_overflow": {
+      "type": "object",
+      "required": ["merged"],
+      "properties": {
+        "merged": { "type": "integer", "minimum": 0 },
+        "since": { "$ref": "common.json#/$defs/datetime" }
+      }
+    }
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://connect.kronixon.com/protocol/v1/schemas/platform/rotate-request.json",
+  "title": "POST /v1/stores/{store_id}/rotate-request (platform)",
+  "description": "The module asks for a new secret (\"Request a new secret\"); the platform answers 202 and starts the POST rotate flow towards the module (Spec §4.3).",
+  "x-kx-endpoint": {
+    "method": "POST",
+    "path": "/v1/stores/{store_id}/rotate-request",
+    "signed": true,
+    "pr": "platform B2 / M1"
+  },
+  "$defs": {
+    "request": {
+      "type": "object",
+      "properties": {
+        "reason": { "enum": ["user", "suspected_leak", "scheduled"] }
+      },
+      "examples": [{ "reason": "user" }]
+    },
+    "response": {
+      "type": "object",
+      "required": ["ok", "rotation_started"],
+      "properties": {
+        "ok": { "const": true },
+        "rotation_started": { "type": "boolean" }
+      },
+      "examples": [{ "ok": true, "rotation_started": true }]
+    }
+  }
+}

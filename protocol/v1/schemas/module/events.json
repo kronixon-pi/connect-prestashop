@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://connect.kronixon.com/protocol/v1/schemas/module/events.json",
+  "title": "GET events",
+  "description": "Pull fallback for webhooks: pending and failed outbox events by id ascending, the same event shape as the webhook (Spec §6.34, §7). Used when the last accepted webhook is older than 1 h and heartbeat reports pending > 0.",
+  "x-kx-endpoint": {
+    "method": "GET",
+    "path": "/v1/events",
+    "signed": true,
+    "pr": "M5"
+  },
+  "$defs": {
+    "query": {
+      "type": "object",
+      "properties": {
+        "cursor": { "type": "string", "maxLength": 512 },
+        "limit": { "type": "string", "pattern": "^[1-9][0-9]{0,2}$" }
+      },
+      "examples": [{ "limit": "200" }]
+    },
+    "response": {
+      "type": "object",
+      "required": ["data", "meta"],
+      "properties": {
+        "data": {
+          "type": "array",
+          "maxItems": 200,
+          "items": { "$ref": "../events.json#/$defs/event" }
+        },
+        "meta": { "$ref": "../common.json#/$defs/page_meta" }
+      },
+      "examples": [
+        {
+          "data": [
+            {
+              "event_id": "0192b2e4-7c1a-7d3e-9f4b-2a6c8e0d1f35",
+              "type": "stock.updated",
+              "external_id": "123",
+              "occurred_at": "2026-09-30T12:40:00Z",
+              "dedupe_key": "stock.updated:123:29846200",
+              "origin": "shop",
+              "payload": {
+                "variant_id": "0",
+                "quantity": 6,
+                "previous_quantity": 7
+              }
+            }
+          ],
+          "meta": {
+            "count": 1,
+            "next_cursor": null,
+            "has_more": false,
+            "generated_at": "2026-09-30T13:41:00Z"
+          }
+        }
+      ]
+    }
+  }
+}

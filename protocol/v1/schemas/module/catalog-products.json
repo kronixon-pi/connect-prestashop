@@ -1,0 +1,217 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://connect.kronixon.com/protocol/v1/schemas/module/catalog-products.json",
+  "title": "GET catalog/products",
+  "description": "Products page by page, ordered by id ascending (Spec §6.3, §5.3). content_hash is sha256 of the item's JSON with sorted keys, without date_*, quantity and images[].url.",
+  "x-kx-endpoint": {
+    "method": "GET",
+    "path": "/v1/catalog/products",
+    "signed": true,
+    "pr": "M2"
+  },
+  "$defs": {
+    "query": {
+      "allOf": [{ "$ref": "../common.json#/$defs/catalog_query" }],
+      "properties": {
+        "ids": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*(,[1-9][0-9]*){0,99}$"
+        },
+        "fields": { "enum": ["basic", "full"] },
+        "active": { "enum": ["all", "1", "0"] }
+      },
+      "examples": [
+        { "limit": "100", "since": "2026-09-01T00:00:00Z" },
+        { "ids": "123,124", "fields": "basic" },
+        { "cursor": "eyJpZCI6MTIzfQ", "until_id": "25000" }
+      ]
+    },
+    "product": {
+      "type": "object",
+      "required": [
+        "external_id",
+        "kx_id",
+        "type",
+        "active",
+        "name",
+        "price",
+        "category_ids",
+        "date_upd",
+        "content_hash"
+      ],
+      "properties": {
+        "external_id": { "$ref": "../common.json#/$defs/external_id" },
+        "kx_id": { "$ref": "../common.json#/$defs/kx_id" },
+        "type": { "enum": ["simple", "variable", "pack", "virtual"] },
+        "reference": { "type": "string" },
+        "ean13": { "type": "string" },
+        "upc": { "type": "string" },
+        "mpn": { "type": "string" },
+        "isbn": { "type": "string" },
+        "supplier_reference": { "type": "string" },
+        "active": { "type": "boolean" },
+        "visibility": { "enum": ["both", "catalog", "search", "none"] },
+        "available_for_order": { "type": "boolean" },
+        "show_price": { "type": "boolean" },
+        "condition": { "enum": ["new", "used", "refurbished"] },
+        "online_only": { "type": "boolean" },
+        "brand_id": { "$ref": "../common.json#/$defs/external_id" },
+        "supplier_id": { "$ref": "../common.json#/$defs/external_id" },
+        "default_category_id": { "$ref": "../common.json#/$defs/external_id" },
+        "category_ids": {
+          "type": "array",
+          "items": { "$ref": "../common.json#/$defs/external_id" }
+        },
+        "price": { "$ref": "../common.json#/$defs/money" },
+        "wholesale_price": { "$ref": "../common.json#/$defs/money" },
+        "tax_rules_group_id": { "type": "integer" },
+        "unit_price": { "$ref": "../common.json#/$defs/money" },
+        "unity": { "type": "string" },
+        "weight": { "$ref": "../common.json#/$defs/money" },
+        "width": { "$ref": "../common.json#/$defs/money" },
+        "height": { "$ref": "../common.json#/$defs/money" },
+        "depth": { "$ref": "../common.json#/$defs/money" },
+        "name": { "$ref": "../common.json#/$defs/multilang" },
+        "description_short": { "$ref": "../common.json#/$defs/multilang" },
+        "description": { "$ref": "../common.json#/$defs/multilang" },
+        "link_rewrite": { "$ref": "../common.json#/$defs/multilang" },
+        "meta_title": { "$ref": "../common.json#/$defs/multilang" },
+        "meta_description": { "$ref": "../common.json#/$defs/multilang" },
+        "available_now": { "$ref": "../common.json#/$defs/multilang" },
+        "available_later": { "$ref": "../common.json#/$defs/multilang" },
+        "redirect": {
+          "type": "object",
+          "required": ["type", "target_id"],
+          "properties": {
+            "type": { "type": "string" },
+            "target_id": { "$ref": "../common.json#/$defs/external_id" }
+          }
+        },
+        "attributes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["feature_id", "value_id", "custom"],
+            "properties": {
+              "feature_id": { "$ref": "../common.json#/$defs/external_id" },
+              "value_id": { "$ref": "../common.json#/$defs/external_id" },
+              "custom": { "type": "boolean" }
+            }
+          }
+        },
+        "tags": { "$ref": "../common.json#/$defs/multilang_list" },
+        "suppliers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["supplier_id"],
+            "properties": {
+              "supplier_id": { "$ref": "../common.json#/$defs/external_id" },
+              "reference": { "type": "string" },
+              "price_te": { "$ref": "../common.json#/$defs/money" },
+              "currency": { "type": "string", "pattern": "^[A-Z]{3}$" }
+            }
+          }
+        },
+        "images": {
+          "type": "array",
+          "items": { "$ref": "../common.json#/$defs/image_ref" }
+        },
+        "quantity": { "type": "integer" },
+        "out_of_stock": { "enum": [0, 1, 2] },
+        "depends_on_stock": { "type": "boolean" },
+        "date_add": { "$ref": "../common.json#/$defs/datetime" },
+        "date_upd": { "$ref": "../common.json#/$defs/datetime" },
+        "content_hash": { "$ref": "../common.json#/$defs/sha256" }
+      }
+    },
+    "response": {
+      "type": "object",
+      "required": ["data", "meta"],
+      "properties": {
+        "data": { "type": "array", "items": { "$ref": "#/$defs/product" } },
+        "meta": { "$ref": "../common.json#/$defs/page_meta" }
+      },
+      "examples": [
+        {
+          "data": [
+            {
+              "external_id": "123",
+              "kx_id": null,
+              "type": "simple",
+              "reference": "ABC-1",
+              "ean13": "3800123456789",
+              "upc": "",
+              "mpn": "X1",
+              "isbn": "",
+              "supplier_reference": "S-1",
+              "active": true,
+              "visibility": "both",
+              "available_for_order": true,
+              "show_price": true,
+              "condition": "new",
+              "online_only": false,
+              "brand_id": "12",
+              "supplier_id": "3",
+              "default_category_id": "45",
+              "category_ids": ["45", "46"],
+              "price": "99.990000",
+              "wholesale_price": "0.000000",
+              "tax_rules_group_id": 53,
+              "unit_price": "0",
+              "unity": "",
+              "weight": "1.200000",
+              "width": "0",
+              "height": "0",
+              "depth": "0",
+              "name": { "bg": "SSD 512 GB", "en": "SSD 512 GB" },
+              "description_short": { "bg": "<p>NVMe</p>" },
+              "description": { "bg": "" },
+              "link_rewrite": { "bg": "ssd-512-gb" },
+              "meta_title": { "bg": "" },
+              "meta_description": { "bg": "" },
+              "available_now": { "bg": "" },
+              "available_later": { "bg": "" },
+              "redirect": { "type": "404", "target_id": "0" },
+              "attributes": [
+                { "feature_id": "7", "value_id": "310", "custom": false }
+              ],
+              "tags": { "bg": ["ssd", "nvme"] },
+              "suppliers": [
+                {
+                  "supplier_id": "3",
+                  "reference": "S-1",
+                  "price_te": "80.000000",
+                  "currency": "EUR"
+                }
+              ],
+              "images": [
+                {
+                  "external_id": "9001",
+                  "position": 1,
+                  "cover": true,
+                  "url": "https://shop.example.com/9001-large_default/ssd.jpg",
+                  "sha256": null
+                }
+              ],
+              "quantity": 7,
+              "out_of_stock": 2,
+              "depends_on_stock": false,
+              "date_add": "2026-09-01T08:00:00Z",
+              "date_upd": "2026-09-30T12:40:00Z",
+              "content_hash": "142cbfb1fbcb6e319ac89ebbb22bcd6d651ff0cba117e97f8c13338afa1f8738"
+            }
+          ],
+          "meta": {
+            "count": 1,
+            "next_cursor": "eyJpZCI6MTIzfQ",
+            "has_more": true,
+            "total": 48210,
+            "max_id": "50211",
+            "generated_at": "2026-09-30T12:40:00Z"
+          }
+        }
+      ]
+    }
+  }
+}

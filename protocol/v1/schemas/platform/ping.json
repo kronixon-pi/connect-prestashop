@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://connect.kronixon.com/protocol/v1/schemas/platform/ping.json",
+  "title": "GET /v1/stores/{store_id}/ping (platform)",
+  "description": "Signed self-check of the module right after pairing and from its health page (Spec §3.1).",
+  "x-kx-endpoint": {
+    "method": "GET",
+    "path": "/v1/stores/{store_id}/ping",
+    "signed": true,
+    "pr": "platform B2 / M1"
+  },
+  "$defs": {
+    "response": {
+      "type": "object",
+      "required": ["ok", "server_time"],
+      "properties": {
+        "ok": { "const": true },
+        "server_time": { "$ref": "../common.json#/$defs/unix_time" }
+      },
+      "examples": [{ "ok": true, "server_time": 1790772000 }]
+    }
+  }
+}

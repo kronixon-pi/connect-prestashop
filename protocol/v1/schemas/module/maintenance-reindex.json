@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://connect.kronixon.com/protocol/v1/schemas/module/maintenance-reindex.json",
+  "title": "POST maintenance/reindex",
+  "description": "Search indexation in portions of 50 products within budget_s; the platform calls again while continue is true (Spec §6.28).",
+  "x-kx-endpoint": {
+    "method": "POST",
+    "path": "/v1/maintenance/reindex",
+    "signed": true,
+    "pr": "M4"
+  },
+  "$defs": {
+    "request": {
+      "type": "object",
+      "required": ["scope"],
+      "properties": {
+        "scope": { "enum": ["pending", "products", "full"] },
+        "product_ids": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": { "$ref": "../common.json#/$defs/external_id" }
+        },
+        "budget_s": { "type": "integer", "minimum": 1, "maximum": 25 }
+      },
+      "examples": [{ "scope": "pending", "product_ids": [], "budget_s": 20 }]
+    },
+    "response": {
+      "type": "object",
+      "required": ["indexed", "remaining", "continue"],
+      "properties": {
+        "indexed": { "type": "integer", "minimum": 0 },
+        "remaining": { "type": "integer", "minimum": 0 },
+        "continue": { "type": "boolean" }
+      },
+      "examples": [{ "indexed": 350, "remaining": 1200, "continue": true }]
+    }
+  }
+}

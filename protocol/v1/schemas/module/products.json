@@ -1,0 +1,332 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://connect.kronixon.com/protocol/v1/schemas/module/products.json",
+  "title": "POST products",
+  "description": "Creates/updates up to 100 products, only the field groups listed in groups (Spec §6.14). Identity: external_id → kx_id → match_by → create; a given external_id that does not exist is error not_found.",
+  "x-kx-endpoint": {
+    "method": "POST",
+    "path": "/v1/products",
+    "signed": true,
+    "pr": "M3"
+  },
+  "$defs": {
+    "group": {
+      "enum": [
+        "identity",
+        "content",
+        "seo",
+        "categories",
+        "brand",
+        "attributes",
+        "tags",
+        "visibility",
+        "suppliers",
+        "pricing",
+        "physical"
+      ]
+    },
+    "item": {
+      "type": "object",
+      "required": ["key", "groups"],
+      "properties": {
+        "key": { "$ref": "../common.json#/$defs/key" },
+        "external_id": { "$ref": "../common.json#/$defs/external_id_or_null" },
+        "kx_id": { "$ref": "../common.json#/$defs/kx_id" },
+        "match_by": {
+          "type": "array",
+          "items": {
+            "enum": ["ean13", "reference", "mpn", "supplier_reference"]
+          },
+          "uniqueItems": true
+        },
+        "type": { "enum": ["simple", "variable"] },
+        "groups": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/group" }
+        },
+        "identity": {
+          "type": "object",
+          "properties": {
+            "reference": { "type": "string", "maxLength": 64 },
+            "ean13": { "type": "string", "pattern": "^([0-9]{0,13})$" },
+            "mpn": { "type": "string", "maxLength": 40 },
+            "upc": { "type": "string", "maxLength": 12 },
+            "isbn": { "type": "string", "maxLength": 32 },
+            "supplier_reference": { "type": "string", "maxLength": 64 }
+          }
+        },
+        "content": {
+          "type": "object",
+          "properties": {
+            "name": { "$ref": "../common.json#/$defs/multilang" },
+            "description_short": { "$ref": "../common.json#/$defs/multilang" },
+            "description": { "$ref": "../common.json#/$defs/multilang" },
+            "available_now": { "$ref": "../common.json#/$defs/multilang" },
+            "available_later": { "$ref": "../common.json#/$defs/multilang" }
+          }
+        },
+        "seo": {
+          "type": "object",
+          "properties": {
+            "link_rewrite": { "$ref": "../common.json#/$defs/multilang" },
+            "meta_title": { "$ref": "../common.json#/$defs/multilang" },
+            "meta_description": { "$ref": "../common.json#/$defs/multilang" },
+            "preserve_link_rewrite": { "type": "boolean" },
+            "redirect": {
+              "type": "object",
+              "properties": {
+                "type": { "type": "string" },
+                "target_id": { "$ref": "../common.json#/$defs/external_id" },
+                "auto": { "type": "boolean" }
+              }
+            }
+          }
+        },
+        "categories": {
+          "type": "object",
+          "properties": {
+            "default_id": { "$ref": "../common.json#/$defs/external_id" },
+            "ids": {
+              "type": "array",
+              "items": { "$ref": "../common.json#/$defs/external_id" }
+            },
+            "mode": { "$ref": "../common.json#/$defs/mode" }
+          }
+        },
+        "brand": {
+          "type": "object",
+          "required": ["id"],
+          "properties": {
+            "id": { "$ref": "../common.json#/$defs/external_id" }
+          }
+        },
+        "attributes": {
+          "type": "object",
+          "properties": {
+            "mode": { "$ref": "../common.json#/$defs/mode" },
+            "values": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["feature_id"],
+                "properties": {
+                  "feature_id": { "$ref": "../common.json#/$defs/external_id" },
+                  "value_id": { "$ref": "../common.json#/$defs/external_id" },
+                  "custom": { "$ref": "../common.json#/$defs/multilang" }
+                },
+                "oneOf": [
+                  { "required": ["value_id"] },
+                  { "required": ["custom"] }
+                ]
+              }
+            }
+          }
+        },
+        "tags": {
+          "type": "object",
+          "properties": {
+            "mode": { "const": "replace" },
+            "values": { "$ref": "../common.json#/$defs/multilang_list" }
+          }
+        },
+        "visibility": {
+          "type": "object",
+          "properties": {
+            "active": { "type": "boolean" },
+            "visibility": { "enum": ["both", "catalog", "search", "none"] },
+            "available_for_order": { "type": "boolean" },
+            "show_price": { "type": "boolean" },
+            "condition": { "enum": ["new", "used", "refurbished"] },
+            "online_only": { "type": "boolean" },
+            "indexed": { "type": "boolean" }
+          }
+        },
+        "suppliers": {
+          "type": "object",
+          "properties": {
+            "default_id": { "$ref": "../common.json#/$defs/external_id" },
+            "mode": { "$ref": "../common.json#/$defs/mode" },
+            "rows": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["supplier_id"],
+                "properties": {
+                  "supplier_id": {
+                    "$ref": "../common.json#/$defs/external_id"
+                  },
+                  "reference": { "type": "string" },
+                  "price_te": { "$ref": "../common.json#/$defs/money" },
+                  "currency": { "type": "string", "pattern": "^[A-Z]{3}$" }
+                }
+              }
+            }
+          }
+        },
+        "pricing": {
+          "type": "object",
+          "properties": {
+            "price": { "$ref": "../common.json#/$defs/money" },
+            "tax_rules_group_id": { "type": "integer", "minimum": 0 },
+            "wholesale_price": { "$ref": "../common.json#/$defs/money" },
+            "unit_price": { "$ref": "../common.json#/$defs/money" },
+            "unity": { "type": "string" }
+          }
+        },
+        "physical": {
+          "type": "object",
+          "properties": {
+            "weight": { "$ref": "../common.json#/$defs/money" },
+            "width": { "$ref": "../common.json#/$defs/money" },
+            "height": { "$ref": "../common.json#/$defs/money" },
+            "depth": { "$ref": "../common.json#/$defs/money" }
+          }
+        },
+        "stock_initial": {
+          "type": "object",
+          "properties": {
+            "quantity": { "type": "integer" },
+            "out_of_stock": { "enum": [0, 1, 2] }
+          }
+        }
+      }
+    },
+    "request": {
+      "allOf": [{ "$ref": "../common.json#/$defs/items_request" }],
+      "properties": {
+        "options": {
+          "type": "object",
+          "properties": {
+            "strict_languages": { "type": "boolean" },
+            "reindex": { "enum": ["deferred", "inline", "none"] },
+            "fire_hooks": { "type": "boolean" },
+            "suppress_events": { "type": "boolean" }
+          }
+        },
+        "items": { "items": { "$ref": "#/$defs/item" } }
+      },
+      "examples": [
+        {
+          "options": {
+            "strict_languages": false,
+            "reindex": "deferred",
+            "fire_hooks": true,
+            "suppress_events": true
+          },
+          "items": [
+            {
+              "key": "p-1",
+              "external_id": "123",
+              "kx_id": "0192b2e4-2f7a-7c5b-8a1d-3e4f5a6b7c8d",
+              "match_by": ["ean13", "reference"],
+              "type": "simple",
+              "groups": [
+                "identity",
+                "content",
+                "seo",
+                "categories",
+                "brand",
+                "attributes",
+                "tags",
+                "visibility",
+                "pricing",
+                "physical"
+              ],
+              "identity": {
+                "reference": "ABC-1",
+                "ean13": "3800123456789",
+                "mpn": "X1",
+                "upc": "",
+                "isbn": "",
+                "supplier_reference": "S-1"
+              },
+              "content": {
+                "name": { "bg": "SSD 512 GB", "en": "SSD 512 GB" },
+                "description_short": { "bg": "<p>NVMe</p>" }
+              },
+              "seo": {
+                "link_rewrite": { "bg": "abc-1" },
+                "preserve_link_rewrite": true,
+                "redirect": { "type": "404", "target_id": "0" }
+              },
+              "categories": {
+                "default_id": "45",
+                "ids": ["45", "46"],
+                "mode": "replace"
+              },
+              "brand": { "id": "12" },
+              "attributes": {
+                "mode": "replace",
+                "values": [
+                  { "feature_id": "7", "value_id": "310" },
+                  { "feature_id": "8", "custom": { "bg": "1.5 kg" } }
+                ]
+              },
+              "tags": {
+                "mode": "replace",
+                "values": { "bg": ["ssd", "nvme"] }
+              },
+              "visibility": {
+                "active": true,
+                "visibility": "both",
+                "available_for_order": true,
+                "show_price": true,
+                "condition": "new",
+                "online_only": false,
+                "indexed": true
+              },
+              "pricing": {
+                "price": "99.990000",
+                "tax_rules_group_id": 53,
+                "wholesale_price": "80.00",
+                "unit_price": "0",
+                "unity": ""
+              },
+              "physical": {
+                "weight": "1.2",
+                "width": "0",
+                "height": "0",
+                "depth": "0"
+              },
+              "stock_initial": { "quantity": 0, "out_of_stock": 2 }
+            }
+          ]
+        }
+      ]
+    },
+    "response": {
+      "allOf": [{ "$ref": "../common.json#/$defs/batch_response" }],
+      "properties": {
+        "results": {
+          "items": {
+            "properties": {
+              "link_rewrite": { "type": "string" },
+              "url": { "$ref": "../common.json#/$defs/url" }
+            }
+          }
+        }
+      },
+      "examples": [
+        {
+          "results": [
+            {
+              "key": "p-1",
+              "external_id": "123",
+              "kx_id": "0192b2e4-2f7a-7c5b-8a1d-3e4f5a6b7c8d",
+              "status": "ok",
+              "action": "updated",
+              "link_rewrite": "abc-1",
+              "url": "https://shop.example.com/bg/45-abc-1.html",
+              "warnings": []
+            }
+          ],
+          "summary": { "ok": 1, "error": 0, "skipped": 0, "time_ms": 180 },
+          "continue": false,
+          "retry_after": 0
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://connect.kronixon.com/protocol/v1/schemas/module/catalog-prices.json",
+  "title": "GET catalog/prices",
+  "description": "Net prices per product/variant; specific_prices are read-only in Phase 0 (written in Phase 2) (Spec §6.12).",
+  "x-kx-endpoint": {
+    "method": "GET",
+    "path": "/v1/catalog/prices",
+    "signed": true,
+    "pr": "M2"
+  },
+  "$defs": {
+    "query": {
+      "allOf": [{ "$ref": "../common.json#/$defs/catalog_query" }],
+      "examples": [{ "since": "2026-09-01T00:00:00Z", "limit": "1000" }]
+    },
+    "row": {
+      "type": "object",
+      "required": ["product_id", "variant_id", "price"],
+      "properties": {
+        "product_id": { "$ref": "../common.json#/$defs/external_id" },
+        "variant_id": { "$ref": "../common.json#/$defs/external_id" },
+        "price": { "$ref": "../common.json#/$defs/money" },
+        "wholesale_price": { "$ref": "../common.json#/$defs/money" },
+        "tax_rules_group_id": { "type": "integer" },
+        "unit_price": { "$ref": "../common.json#/$defs/money" },
+        "price_impact": { "$ref": "../common.json#/$defs/money" },
+        "specific_prices": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "external_id",
+              "from_quantity",
+              "price",
+              "reduction",
+              "reduction_type"
+            ],
+            "properties": {
+              "external_id": { "$ref": "../common.json#/$defs/external_id" },
+              "id_currency": { "type": "integer" },
+              "id_country": { "type": "integer" },
+              "id_group": { "type": "integer" },
+              "id_customer": { "type": "integer" },
+              "from_quantity": { "type": "integer", "minimum": 1 },
+              "price": { "$ref": "../common.json#/$defs/money" },
+              "reduction": { "$ref": "../common.json#/$defs/money" },
+              "reduction_type": { "enum": ["amount", "percentage"] },
+              "reduction_tax": { "enum": [0, 1] },
+              "from": { "type": ["string", "null"] },
+              "to": { "type": ["string", "null"] }
+            }
+          }
+        },
+        "date_upd": { "$ref": "../common.json#/$defs/datetime_or_null" }
+      }
+    },
+    "response": {
+      "type": "object",
+      "required": ["data", "meta"],
+      "properties": {
+        "data": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": { "$ref": "#/$defs/row" }
+        },
+        "meta": { "$ref": "../common.json#/$defs/page_meta" }
+      },
+      "examples": [
+        {
+          "data": [
+            {
+              "product_id": "123",
+              "variant_id": "0",
+              "price": "99.990000",
+              "wholesale_price": "80.000000",
+              "tax_rules_group_id": 53,
+              "unit_price": "0",
+              "specific_prices": [
+                {
+                  "external_id": "5001",
+                  "id_currency": 0,
+                  "id_country": 0,
+                  "id_group": 0,
+                  "id_customer": 0,
+                  "from_quantity": 1,
+                  "price": "-1",
+                  "reduction": "10.000000",
+                  "reduction_type": "amount",
+                  "reduction_tax": 1,
+                  "from": null,
+                  "to": null
+                }
+              ],
+              "date_upd": "2026-09-30T12:40:00Z"
+            }
+          ],
+          "meta": {
+            "count": 1,
+            "next_cursor": null,
+            "has_more": false,
+            "generated_at": "2026-09-30T12:40:00Z"
+          }
+        }
+      ]
+    }
+  }
+}

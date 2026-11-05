@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://connect.kronixon.com/protocol/v1/schemas/module/catalog-attributes.json",
+  "title": "GET catalog/attributes",
+  "description": "Features and attribute groups in one list, told apart by kind; facets only with the facets capability (Spec §6.6).",
+  "x-kx-endpoint": {
+    "method": "GET",
+    "path": "/v1/catalog/attributes",
+    "signed": true,
+    "pr": "M2"
+  },
+  "$defs": {
+    "query": {
+      "allOf": [{ "$ref": "../common.json#/$defs/catalog_query" }],
+      "examples": [{}]
+    },
+    "attribute": {
+      "type": "object",
+      "required": ["kind", "external_id", "name", "position"],
+      "properties": {
+        "kind": { "enum": ["feature", "attribute_group"] },
+        "external_id": { "$ref": "../common.json#/$defs/external_id" },
+        "kx_id": { "$ref": "../common.json#/$defs/kx_id" },
+        "position": { "type": "integer", "minimum": 0 },
+        "name": { "$ref": "../common.json#/$defs/multilang" },
+        "public_name": { "$ref": "../common.json#/$defs/multilang" },
+        "group_type": { "enum": ["color", "radio", "select"] },
+        "is_color_group": { "type": "boolean" },
+        "value_count": { "type": "integer", "minimum": 0 },
+        "facets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["category_id"],
+            "properties": {
+              "category_id": { "$ref": "../common.json#/$defs/external_id" },
+              "position": { "type": "integer" },
+              "filter_type": { "type": "integer" },
+              "show_limit": { "type": "integer" }
+            }
+          }
+        }
+      },
+      "if": { "properties": { "kind": { "const": "attribute_group" } } },
+      "then": { "required": ["group_type"] }
+    },
+    "response": {
+      "type": "object",
+      "required": ["data", "meta"],
+      "properties": {
+        "data": { "type": "array", "items": { "$ref": "#/$defs/attribute" } },
+        "meta": { "$ref": "../common.json#/$defs/page_meta" }
+      },
+      "examples": [
+        {
+          "data": [
+            {
+              "kind": "feature",
+              "external_id": "7",
+              "kx_id": null,
+              "position": 3,
+              "name": { "bg": "Capacity" },
+              "value_count": 40,
+              "facets": [
+                {
+                  "category_id": "45",
+                  "position": 2,
+                  "filter_type": 0,
+                  "show_limit": 0
+                }
+              ]
+            },
+            {
+              "kind": "attribute_group",
+              "external_id": "2",
+              "group_type": "color",
+              "is_color_group": true,
+              "name": { "bg": "Color" },
+              "public_name": { "bg": "Color" },
+              "position": 1,
+              "value_count": 12
+            }
+          ],
+          "meta": {
+            "count": 2,
+            "next_cursor": null,
+            "has_more": false,
+            "generated_at": "2026-09-30T12:40:00Z"
+          }
+        }
+      ]
+    }
+  }
+}

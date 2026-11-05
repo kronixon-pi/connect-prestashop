@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://connect.kronixon.com/protocol/v1/schemas/module/catalog-brands.json",
+  "title": "GET catalog/brands",
+  "description": "Manufacturers (Spec §6.8).",
+  "x-kx-endpoint": {
+    "method": "GET",
+    "path": "/v1/catalog/brands",
+    "signed": true,
+    "pr": "M2"
+  },
+  "$defs": {
+    "query": {
+      "allOf": [{ "$ref": "../common.json#/$defs/catalog_query" }],
+      "examples": [{ "limit": "100" }]
+    },
+    "brand": {
+      "type": "object",
+      "required": ["external_id", "kx_id", "name", "active"],
+      "properties": {
+        "external_id": { "$ref": "../common.json#/$defs/external_id" },
+        "kx_id": { "$ref": "../common.json#/$defs/kx_id" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "active": { "type": "boolean" },
+        "description": { "$ref": "../common.json#/$defs/multilang" },
+        "short_description": { "$ref": "../common.json#/$defs/multilang" },
+        "meta_title": { "$ref": "../common.json#/$defs/multilang" },
+        "meta_description": { "$ref": "../common.json#/$defs/multilang" },
+        "logo_url": {
+          "anyOf": [{ "$ref": "../common.json#/$defs/url" }, { "type": "null" }]
+        },
+        "product_count": { "type": "integer", "minimum": 0 },
+        "date_upd": { "$ref": "../common.json#/$defs/datetime" }
+      }
+    },
+    "response": {
+      "type": "object",
+      "required": ["data", "meta"],
+      "properties": {
+        "data": { "type": "array", "items": { "$ref": "#/$defs/brand" } },
+        "meta": { "$ref": "../common.json#/$defs/page_meta" }
+      },
+      "examples": [
+        {
+          "data": [
+            {
+              "external_id": "12",
+              "kx_id": null,
+              "name": "Samsung",
+              "active": true,
+              "description": {},
+              "short_description": {},
+              "meta_title": {},
+              "meta_description": {},
+              "logo_url": null,
+              "product_count": 310,
+              "date_upd": "2026-09-01T08:00:00Z"
+            }
+          ],
+          "meta": {
+            "count": 1,
+            "next_cursor": null,
+            "has_more": false,
+            "generated_at": "2026-09-30T12:40:00Z"
+          }
+        }
+      ]
+    }
+  }
+}

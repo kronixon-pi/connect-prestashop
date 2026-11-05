@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://connect.kronixon.com/protocol/v1/schemas/platform/unpair.json",
+  "title": "POST /v1/stores/{store_id}/unpair (platform)",
+  "description": "The shop's administrator unpairs from the module: the module sends this signed request and deletes its secrets whatever the answer (Spec §3.4).",
+  "x-kx-endpoint": {
+    "method": "POST",
+    "path": "/v1/stores/{store_id}/unpair",
+    "signed": true,
+    "pr": "platform B2 / M1"
+  },
+  "$defs": {
+    "request": {
+      "type": "object",
+      "required": ["reason"],
+      "properties": {
+        "reason": { "enum": ["user", "uninstall", "reset", "other"] }
+      },
+      "examples": [{ "reason": "uninstall" }]
+    },
+    "response": {
+      "$ref": "../common.json#/$defs/ok_response",
+      "examples": [{ "ok": true }]
+    }
+  }
+}

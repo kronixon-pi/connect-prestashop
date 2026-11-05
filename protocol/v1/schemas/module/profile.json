@@ -1,0 +1,219 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://connect.kronixon.com/protocol/v1/schemas/module/profile.json",
+  "title": "GET profile",
+  "description": "The shop: versions, languages, currencies, tax, stock settings and counts (Spec §6.2). Prices in PrestaShop are stored net (prices_stored is always excl).",
+  "x-kx-endpoint": {
+    "method": "GET",
+    "path": "/v1/profile",
+    "signed": true,
+    "pr": "M1"
+  },
+  "$defs": {
+    "response": {
+      "type": "object",
+      "required": [
+        "platform",
+        "version",
+        "php",
+        "module_version",
+        "instance_id",
+        "timezone",
+        "server_time",
+        "shop",
+        "languages",
+        "currencies",
+        "tax",
+        "stock",
+        "counts",
+        "friendly_urls",
+        "maintenance_mode",
+        "urls"
+      ],
+      "properties": {
+        "platform": { "const": "prestashop" },
+        "version": { "type": "string" },
+        "php": { "type": "string" },
+        "mysql": { "type": "string" },
+        "module_version": { "type": "string" },
+        "instance_id": { "$ref": "../common.json#/$defs/uuid" },
+        "timezone": { "type": "string" },
+        "server_time": { "$ref": "../common.json#/$defs/datetime" },
+        "shop": {
+          "type": "object",
+          "required": ["id", "name", "url", "multistore"],
+          "properties": {
+            "id": { "type": "integer", "minimum": 1 },
+            "name": { "type": "string" },
+            "url": { "$ref": "../common.json#/$defs/url" },
+            "id_shop_group": { "type": "integer" },
+            "multistore": { "type": "boolean" },
+            "shops": {
+              "type": "array",
+              "items": { "type": "object", "required": ["id", "name", "url"] }
+            }
+          }
+        },
+        "languages": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["id", "iso", "locale", "default", "active"],
+            "properties": {
+              "id": { "type": "integer" },
+              "iso": { "$ref": "../common.json#/$defs/lang_iso" },
+              "locale": { "type": "string" },
+              "name": { "type": "string" },
+              "default": { "type": "boolean" },
+              "active": { "type": "boolean" }
+            }
+          }
+        },
+        "currencies": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["id", "iso", "default", "rate", "active"],
+            "properties": {
+              "id": { "type": "integer" },
+              "iso": { "type": "string", "pattern": "^[A-Z]{3}$" },
+              "default": { "type": "boolean" },
+              "rate": { "$ref": "../common.json#/$defs/money" },
+              "active": { "type": "boolean" }
+            }
+          }
+        },
+        "tax": {
+          "type": "object",
+          "required": ["enabled", "prices_stored", "display"],
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "prices_stored": { "const": "excl" },
+            "display": { "enum": ["incl", "excl"] },
+            "default_tax_rules_group": { "type": "integer" },
+            "tax_rules_groups": {
+              "type": "array",
+              "items": { "type": "object", "required": ["id", "name"] }
+            }
+          }
+        },
+        "stock": {
+          "type": "object",
+          "required": ["advanced_stock_management", "locations"],
+          "properties": {
+            "advanced_stock_management": { "type": "boolean" },
+            "locations": {
+              "type": "array",
+              "items": { "type": "object", "required": ["key", "name"] }
+            },
+            "default_out_of_stock": { "type": "integer", "enum": [0, 1, 2] },
+            "order_out_of_stock": { "type": "boolean" }
+          }
+        },
+        "counts": {
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 0 }
+        },
+        "blog": { "type": "object" },
+        "modules": {
+          "type": "object",
+          "additionalProperties": { "type": ["string", "null"] }
+        },
+        "friendly_urls": { "type": "boolean" },
+        "maintenance_mode": { "type": "boolean" },
+        "urls": {
+          "type": "object",
+          "required": ["api"],
+          "properties": {
+            "api": { "$ref": "../common.json#/$defs/url" },
+            "cron": { "$ref": "../common.json#/$defs/url" }
+          }
+        }
+      },
+      "examples": [
+        {
+          "platform": "prestashop",
+          "version": "8.1.7",
+          "php": "8.1.29",
+          "mysql": "10.11.6-MariaDB",
+          "module_version": "1.0.0",
+          "instance_id": "0192b2e4-2f7a-4c5b-8a1d-3e4f5a6b7c8d",
+          "timezone": "Europe/Sofia",
+          "server_time": "2026-09-30T12:40:00Z",
+          "shop": {
+            "id": 1,
+            "name": "Example",
+            "url": "https://shop.example.com/",
+            "id_shop_group": 1,
+            "multistore": false,
+            "shops": [
+              { "id": 1, "name": "Example", "url": "https://shop.example.com/" }
+            ]
+          },
+          "languages": [
+            {
+              "id": 1,
+              "iso": "bg",
+              "locale": "bg-BG",
+              "name": "Bulgarian",
+              "default": true,
+              "active": true
+            },
+            {
+              "id": 2,
+              "iso": "en",
+              "locale": "en-US",
+              "name": "English",
+              "default": false,
+              "active": true
+            }
+          ],
+          "currencies": [
+            {
+              "id": 1,
+              "iso": "EUR",
+              "default": true,
+              "rate": "1.000000",
+              "active": true
+            }
+          ],
+          "tax": {
+            "enabled": true,
+            "prices_stored": "excl",
+            "display": "incl",
+            "default_tax_rules_group": 53,
+            "tax_rules_groups": [
+              { "id": 53, "name": "BG Standard (20%)", "rate_hint": "20.00" }
+            ]
+          },
+          "stock": {
+            "advanced_stock_management": false,
+            "locations": [{ "key": "default", "name": "Shop stock" }],
+            "default_out_of_stock": 2,
+            "order_out_of_stock": true
+          },
+          "counts": {
+            "products": 48210,
+            "combinations": 120,
+            "categories": 640,
+            "manufacturers": 310,
+            "suppliers": 12,
+            "features": 85,
+            "feature_values": 9200,
+            "images": 71000,
+            "tags": 5300
+          },
+          "modules": { "ps_facetedsearch": "3.13.0", "smartblog": null },
+          "friendly_urls": true,
+          "maintenance_mode": false,
+          "urls": {
+            "api": "https://shop.example.com/module/kronixonconnect/api",
+            "cron": "https://shop.example.com/module/kronixonconnect/cron"
+          }
+        }
+      ]
+    }
+  }
+}

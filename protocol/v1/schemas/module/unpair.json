@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://connect.kronixon.com/protocol/v1/schemas/module/unpair.json",
+  "title": "POST unpair",
+  "description": "The platform ends the pairing: the module deletes its secrets and answers every later signed request with 403 store_unpaired; kx_entity_map stays for a re-pair. Idempotent (Spec §3.4, §6.32).",
+  "x-kx-endpoint": {
+    "method": "POST",
+    "path": "/v1/unpair",
+    "signed": true,
+    "pr": "M1"
+  },
+  "$defs": {
+    "request": {
+      "type": "object",
+      "required": ["reason"],
+      "properties": {
+        "reason": {
+          "enum": [
+            "user",
+            "store_deleted",
+            "revoked",
+            "tenant_deleted",
+            "other"
+          ]
+        }
+      },
+      "examples": [{ "reason": "user" }]
+    },
+    "response": {
+      "$ref": "../common.json#/$defs/ok_response",
+      "examples": [{ "ok": true }]
+    }
+  }
+}

@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://connect.kronixon.com/protocol/v1/schemas/module/images.json",
+  "title": "POST images",
+  "description": "Images of one product from signed HTTPS URLs (expire ≤ 1 h), checked against sha256; an item whose kx_key and sha256 are already mapped is not downloaded again and keeps its id_image (Spec §6.24). At most 50 items.",
+  "x-kx-endpoint": {
+    "method": "POST",
+    "path": "/v1/images",
+    "signed": true,
+    "pr": "M4"
+  },
+  "$defs": {
+    "item": {
+      "type": "object",
+      "required": ["key", "kx_key", "url", "sha256"],
+      "properties": {
+        "key": { "$ref": "../common.json#/$defs/key" },
+        "kx_key": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "url": { "$ref": "../common.json#/$defs/https_url" },
+        "sha256": { "$ref": "../common.json#/$defs/sha256" },
+        "position": { "type": "integer", "minimum": 0 },
+        "cover": { "type": "boolean" },
+        "alt": { "$ref": "../common.json#/$defs/multilang" },
+        "external_id": { "$ref": "../common.json#/$defs/external_id_or_null" }
+      }
+    },
+    "request": {
+      "type": "object",
+      "required": ["product_id", "items"],
+      "properties": {
+        "product_id": { "$ref": "../common.json#/$defs/external_id" },
+        "variant_id": { "$ref": "../common.json#/$defs/external_id_or_null" },
+        "strategy": { "enum": ["sync", "append", "replace_all"] },
+        "items": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 50,
+          "items": { "$ref": "#/$defs/item" }
+        }
+      },
+      "examples": [
+        {
+          "product_id": "123",
+          "variant_id": null,
+          "strategy": "sync",
+          "items": [
+            {
+              "key": "img-1",
+              "kx_key": "0192b2e4-2f7a-7c5b-8a1d-3e4f5a6b7c8d-1",
+              "url": "https://files.example.com/p/1.jpg?X-Amz-Expires=3600&X-Amz-Signature=abc",
+              "sha256": "142cbfb1fbcb6e319ac89ebbb22bcd6d651ff0cba117e97f8c13338afa1f8738",
+              "position": 1,
+              "cover": true,
+              "alt": { "bg": "ABC-1 - 1", "en": "ABC-1 - 1" },
+              "external_id": null
+            }
+          ]
+        }
+      ]
+    },
+    "response": {
+      "allOf": [{ "$ref": "../common.json#/$defs/batch_response" }],
+      "properties": {
+        "results": {
+          "items": {
+            "properties": {
+              "urls": {
+                "type": "object",
+                "additionalProperties": { "$ref": "../common.json#/$defs/url" }
+              }
+            }
+          }
+        }
+      },
+      "examples": [
+        {
+          "results": [
+            {
+              "key": "img-1",
+              "external_id": "9001",
+              "status": "ok",
+              "action": "created",
+              "urls": {
+                "large_default": "https://shop.example.com/9001-large_default/abc-1.jpg",
+                "home_default": "https://shop.example.com/9001-home_default/abc-1.jpg"
+              },
+              "warnings": ["foreign_images_kept"]
+            }
+          ],
+          "summary": { "ok": 1, "error": 0, "skipped": 0, "time_ms": 820 },
+          "continue": false
+        }
+      ]
+    }
+  }
+}

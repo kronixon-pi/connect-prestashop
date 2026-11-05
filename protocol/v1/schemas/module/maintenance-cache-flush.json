@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://connect.kronixon.com/protocol/v1/schemas/module/maintenance-cache-flush.json",
+  "title": "POST maintenance/cache-flush",
+  "description": "Clears PrestaShop caches through its own APIs, never by deleting files globally (Spec §6.29).",
+  "x-kx-endpoint": {
+    "method": "POST",
+    "path": "/v1/maintenance/cache-flush",
+    "signed": true,
+    "pr": "M4"
+  },
+  "$defs": {
+    "request": {
+      "type": "object",
+      "required": ["scope"],
+      "properties": {
+        "scope": { "enum": ["prices", "products", "smarty", "all"] }
+      },
+      "examples": [{ "scope": "prices" }]
+    },
+    "response": {
+      "type": "object",
+      "required": ["cleared", "time_ms"],
+      "properties": {
+        "cleared": {
+          "type": "array",
+          "items": { "enum": ["prices", "products", "smarty", "all"] }
+        },
+        "time_ms": { "type": "integer", "minimum": 0 }
+      },
+      "examples": [{ "cleared": ["prices", "smarty"], "time_ms": 820 }]
+    }
+  }
+}

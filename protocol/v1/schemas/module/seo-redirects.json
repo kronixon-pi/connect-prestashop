@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://connect.kronixon.com/protocol/v1/schemas/module/seo-redirects.json",
+  "title": "POST seo/redirects",
+  "description": "Product redirects through Product::$redirect_type; categories (no native redirect) and old slugs through the module's kx_redirect table. 410 needs PrestaShop 8.0+; 1.7.8 stores 404 with warning redirect_410_unsupported (Spec §6.26).",
+  "x-kx-endpoint": {
+    "method": "POST",
+    "path": "/v1/seo/redirects",
+    "signed": true,
+    "pr": "M3"
+  },
+  "$defs": {
+    "item": {
+      "type": "object",
+      "required": ["key", "entity", "type"],
+      "properties": {
+        "key": { "$ref": "../common.json#/$defs/key" },
+        "entity": { "enum": ["product", "category"] },
+        "external_id": { "$ref": "../common.json#/$defs/external_id" },
+        "type": {
+          "enum": [
+            "301-product",
+            "302-product",
+            "301-category",
+            "302-category",
+            "404",
+            "410",
+            "slug"
+          ]
+        },
+        "target_id": { "$ref": "../common.json#/$defs/external_id" },
+        "path_from": {
+          "type": "string",
+          "pattern": "^/[^\\s]*$",
+          "maxLength": 191
+        }
+      },
+      "if": { "properties": { "type": { "const": "slug" } } },
+      "then": { "required": ["path_from", "target_id"] },
+      "else": { "required": ["external_id"] }
+    },
+    "request": {
+      "allOf": [{ "$ref": "../common.json#/$defs/items_request" }],
+      "properties": { "items": { "items": { "$ref": "#/$defs/item" } } },
+      "examples": [
+        {
+          "items": [
+            {
+              "key": "r-1",
+              "entity": "product",
+              "external_id": "123",
+              "type": "301-product",
+              "target_id": "456"
+            },
+            {
+              "key": "r-2",
+              "entity": "category",
+              "type": "slug",
+              "path_from": "/bg/45-old-slug",
+              "target_id": "45"
+            }
+          ]
+        }
+      ]
+    },
+    "response": {
+      "allOf": [{ "$ref": "../common.json#/$defs/batch_response" }],
+      "examples": [
+        {
+          "results": [
+            {
+              "key": "r-1",
+              "external_id": "123",
+              "status": "ok",
+              "action": "updated"
+            },
+            {
+              "key": "r-2",
+              "external_id": "45",
+              "status": "ok",
+              "action": "created"
+            }
+          ],
+          "summary": { "ok": 2, "error": 0, "skipped": 0, "time_ms": 21 },
+          "continue": false
+        }
+      ]
+    }
+  }
+}
