@@ -18,18 +18,32 @@ declare(strict_types=1);
 
 namespace Kronixon\Connect\Api;
 
+use Kronixon\Connect\Auth\NonceStore;
 use Kronixon\Connect\Auth\PairingState;
+use Kronixon\Connect\Auth\Signer;
+use Kronixon\Connect\Auth\Verifier;
+use Kronixon\Connect\Auth\WriteLock;
 use Kronixon\Connect\Protocol;
 use Kronixon\Connect\Support\Clock;
+use Kronixon\Connect\Support\Log;
 use Kronixon\Connect\Support\Uuid;
 use Throwable;
 
 /**
- * The single entry of the API front controller: parses the request, enforces the protocol version
- * and the pairing, dispatches, and turns every failure into the JSON error envelope. PHP notices and
- * warnings never reach the body (they are counted, the output buffer is discarded), exceptions
- * become `500 module_error` without class, message or trace, and a fatal error during the request
- * still answers JSON through the shutdown guard.
+ * The single entry of the API front controller. A request passes README §4.4 in order:
+ *
+ * 1. parse (400 / 405 / 413, the gzip guard in Request) and `X-KX-Protocol` (400);
+ * 2. paired? (`403 store_unpaired`) — nothing about any endpoint is revealed before this;
+ * 3. (the optional IP allowlist is not implemented yet);
+ * 4–6. `X-KX-Store` names this pairing, header formats, the ±300 s clock window, the HMAC against
+ *    `cur`, then a valid `prev` (`401 signature_invalid` / `timestamp_out_of_window`);
+ * 7. the nonce, stored only now (`401 nonce_reused`), then the rate limit (`429 rate_limited`);
+ * 8. the route (`404` / `405`), POST/DELETE under the write lock (`409 busy`).
+ *
+ * Every answer after step 6 is signed with the key that verified the request (README §4.3) and
+ * carries the module version and the time used; every earlier answer is unsigned and carries
+ * neither. PHP notices never reach the body, exceptions become `500 module_error` (their class is
+ * logged, never their message), and a fatal error still answers JSON through the shutdown guard.
  */
 final class Kernel
 {
@@ -44,11 +58,32 @@ final class Kernel
     /** @var Clock */
     private $clock;
 
+    /** @var NonceStore */
+    private $nonces;
+
+    /** @var WriteLock */
+    private $lock;
+
+    /** @var Log|null */
+    private $log;
+
     /** @var int */
     private $budgetSeconds;
 
+    /** @var int */
+    private $rateLimit;
+
+    /** @var (callable(int): void)|null */
+    private $onVerified;
+
     /** @var string */
     private $requestId = '';
+
+    /** @var Budget|null */
+    private $budget;
+
+    /** @var array{0: string, 1: string, 2: string}|null key id, secret, request nonce of a verified request */
+    private $signing;
 
     /** @var bool */
     private $responded = false;
@@ -56,12 +91,29 @@ final class Kernel
     /** @var int */
     private $suppressedErrors = 0;
 
-    public function __construct(Router $router, PairingState $pairing, Clock $clock, int $budgetSeconds = Protocol::TIME_BUDGET_S)
-    {
+    /**
+     * @param  (callable(int): void)|null  $onVerified  called with the time of each verified request
+     */
+    public function __construct(
+        Router $router,
+        PairingState $pairing,
+        Clock $clock,
+        NonceStore $nonces,
+        WriteLock $lock,
+        ?Log $log = null,
+        int $budgetSeconds = Protocol::TIME_BUDGET_S,
+        int $rateLimit = Protocol::RATE_LIMIT_PER_MINUTE,
+        ?callable $onVerified = null
+    ) {
         $this->router = $router;
         $this->pairing = $pairing;
         $this->clock = $clock;
+        $this->nonces = $nonces;
+        $this->lock = $lock;
+        $this->log = $log;
         $this->budgetSeconds = $budgetSeconds;
+        $this->rateLimit = max(1, $rateLimit);
+        $this->onVerified = $onVerified;
     }
 
     /**
@@ -69,7 +121,8 @@ final class Kernel
      */
     public function handle(array $server, string $rawBody): Response
     {
-        $budget = new Budget($this->clock, $this->budgetSeconds);
+        $this->budget = new Budget($this->clock, $this->budgetSeconds);
+        $this->signing = null;
         $this->requestId = self::requestIdFrom($server);
         $level = ob_get_level();
         ob_start();
@@ -79,11 +132,13 @@ final class Kernel
             return true;
         });
         try {
-            $response = $this->process($server, $rawBody, $budget);
+            $response = $this->process($server, $rawBody, $this->budget);
         } catch (ApiError $error) {
             $response = Response::fromError($error, $this->requestId, $this->serverTime());
         } catch (Throwable $unexpected) {
-            // M1 writes the exception class and the request id to kx_log (never the message: it may carry data).
+            if ($this->log !== null) {
+                $this->log->warning('api', 'Unexpected error', ['exception' => get_class($unexpected)], $this->requestId);
+            }
             $response = Response::fromError(ApiError::moduleError(), $this->requestId, $this->serverTime());
         } finally {
             restore_error_handler();
@@ -136,6 +191,11 @@ final class Kernel
         return $this->suppressedErrors;
     }
 
+    public function router(): Router
+    {
+        return $this->router;
+    }
+
     /**
      * @param  array<string, mixed>  $server
      *
@@ -147,27 +207,80 @@ final class Kernel
         if ($request->header(Protocol::HEADER_PROTOCOL) !== Protocol::VERSION) {
             throw ApiError::protocolUnsupported();
         }
-        if (! $this->pairing->isPaired()) {
+        $keys = $this->pairing->isPaired() ? $this->pairing->keys() : null;
+        $storeId = $this->pairing->storeId();
+        if ($keys === null || $storeId === null) {
             throw ApiError::unpaired();
         }
 
-        // M1 verifies the signature (Verifier), consumes the nonce (NonceStore) and signs the response here;
-        // until then nothing is dispatched without a verified signature.
-        throw ApiError::signatureInvalid();
+        $store = $request->header(Protocol::HEADER_STORE);
+        if ($store !== null && strtolower($store) !== strtolower($storeId)) {
+            throw ApiError::signatureInvalid();
+        }
+        $now = $this->serverTime();
+        $nonce = (string) $request->header(Protocol::HEADER_NONCE);
+        $keyId = (new Verifier())->verifyRequest(
+            $keys,
+            $request->method(),
+            $request->path(),
+            $request->rawQuery(),
+            (string) $request->header(Protocol::HEADER_TIMESTAMP),
+            $nonce,
+            $request->body(),
+            (string) $request->header(Protocol::HEADER_SIGNATURE),
+            $request->header(Protocol::HEADER_KEY_ID),
+            $now
+        );
+        // From here every answer is signed, with the key that verified the request: a rotation or an
+        // unpair changes the stored secrets, but its answer must verify with the secret it was sent with.
+        $this->signing = [$keyId, $keys->candidates($keyId, $now)[$keyId], $nonce];
+
+        if (! $this->nonces->claim($nonce, $now)) {
+            throw ApiError::nonceReused();
+        }
+        if ($this->nonces->countSince($now - 59) > $this->rateLimit) {
+            throw ApiError::rateLimited(60);
+        }
+        if ($this->onVerified !== null) {
+            ($this->onVerified)($now);
+        }
+
+        $handler = $this->router->resolve($request);
+        if ($request->method() === 'GET') {
+            return $handler($request, $budget);
+        }
+        if (! $this->lock->acquire()) {
+            throw ApiError::busy(Protocol::BUSY_RETRY_S);
+        }
+        try {
+            return $handler($request, $budget);
+        } finally {
+            $this->lock->release();
+        }
     }
 
     /**
-     * The one place that adds X-KX-* headers. Every M0 answer is unsigned, and an unsigned answer
-     * carries only X-KX-Protocol and X-KX-Request-Id (Response::wire() adds Cache-Control,
-     * X-Content-Type-Options and X-Robots-Tag): no module version an unauthenticated caller could
-     * use to fingerprint a release.
+     * The one place that adds X-KX-* headers. An unsigned answer carries only X-KX-Protocol and
+     * X-KX-Request-Id (Response::wire() adds Cache-Control, X-Content-Type-Options and X-Robots-Tag):
+     * no module version an unauthenticated caller could use to fingerprint a release.
      */
     private function decorate(Response $response): Response
     {
-        // M1: a signed answer may add X-KX-Module-Version and X-KX-Time-Used, only after verification.
-        return $response
+        $response = $response
             ->withHeader(Protocol::HEADER_PROTOCOL, Protocol::VERSION)
             ->withHeader(Protocol::HEADER_REQUEST_ID, $this->requestId);
+        if ($this->signing === null) {
+            return $response;
+        }
+        [$keyId, $secret, $nonce] = $this->signing;
+        $headers = (new Signer())->responseHeaders($keyId, $secret, $nonce, $this->serverTime(), $response->status(), $response->body());
+        $headers[Protocol::HEADER_MODULE_VERSION] = Protocol::MODULE_VERSION;
+        $headers[Protocol::HEADER_TIME_USED] = (string) ($this->budget === null ? 0 : $this->budget->elapsedMs());
+        foreach ($headers as $name => $value) {
+            $response = $response->withHeader($name, $value);
+        }
+
+        return $response;
     }
 
     private function serverTime(): int
@@ -188,10 +301,5 @@ final class Kernel
         }
 
         return Uuid::v4();
-    }
-
-    public function router(): Router
-    {
-        return $this->router;
     }
 }

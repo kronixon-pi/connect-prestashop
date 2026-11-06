@@ -11,6 +11,7 @@ use Kronixon\Connect\Auth\KeyRing;
 use Kronixon\Connect\Auth\PairingState;
 use Kronixon\Connect\Auth\UnpairedState;
 use Kronixon\Connect\Tests\Support\FixedClock;
+use Kronixon\Connect\Tests\Support\MemoryGuards;
 use LogicException;
 use PHPUnit\Framework\TestCase;
 
@@ -113,7 +114,7 @@ final class KernelTest extends TestCase
                 return new KeyRing('kxs_test');
             }
         };
-        $response = (new Kernel($router, $paired, new FixedClock(self::NOW)))->handle($this->server('GET', 'path=status'), '');
+        $response = (new Kernel($router, $paired, new FixedClock(self::NOW), new MemoryGuards(), new MemoryGuards()))->handle($this->server('GET', 'path=status'), '');
 
         self::assertSame(401, $response->status());
         self::assertSame('signature_invalid', $this->error($response)['code']);
@@ -141,7 +142,7 @@ final class KernelTest extends TestCase
             }
         };
         $level = ob_get_level();
-        $kernel = new Kernel(new Router(), $pairing, new FixedClock(self::NOW));
+        $kernel = new Kernel(new Router(), $pairing, new FixedClock(self::NOW), new MemoryGuards(), new MemoryGuards());
         $response = $kernel->handle($this->server('GET', 'path=status'), '');
 
         self::assertSame($level, ob_get_level());
@@ -168,7 +169,7 @@ final class KernelTest extends TestCase
                 return null;
             }
         };
-        $response = (new Kernel(new Router(), $pairing, new FixedClock(self::NOW)))->handle($this->server('GET', 'path=status'), '');
+        $response = (new Kernel(new Router(), $pairing, new FixedClock(self::NOW), new MemoryGuards(), new MemoryGuards()))->handle($this->server('GET', 'path=status'), '');
 
         self::assertSame(500, $response->status());
         self::assertSame('module_error', $this->error($response)['code']);
@@ -190,7 +191,7 @@ final class KernelTest extends TestCase
 
     private function kernel(): Kernel
     {
-        return new Kernel(new Router(), new UnpairedState(), new FixedClock(self::NOW));
+        return new Kernel(new Router(), new UnpairedState(), new FixedClock(self::NOW), new MemoryGuards(), new MemoryGuards());
     }
 
     /**

@@ -32,12 +32,13 @@ final class Steps
     }
 
     /**
-     * @param  list<array{0: callable(): bool, 1: callable(): bool}>  $steps  [do, undo] pairs
+     * @param  array<string, array{0: callable(): bool, 1: callable(): bool}>  $steps  name => [do, undo]
+     * @return string|null the name of the step that failed, null when all passed
      */
-    public static function run(array $steps): bool
+    public static function run(array $steps): ?string
     {
         $started = [];
-        foreach ($steps as [$do, $undo]) {
+        foreach ($steps as $name => [$do, $undo]) {
             $started[] = $undo;
             try {
                 $ok = $do();
@@ -53,10 +54,10 @@ final class Steps
                     }
                 }
 
-                return false;
+                return (string) $name;
             }
         }
 
-        return true;
+        return null;
     }
 }

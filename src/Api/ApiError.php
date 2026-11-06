@@ -70,6 +70,29 @@ final class ApiError extends RuntimeException
         return new self(401, 'timestamp_out_of_window', 'X-KX-Timestamp is outside the allowed clock window.');
     }
 
+    public static function nonceReused(): self
+    {
+        return new self(401, 'nonce_reused', 'X-KX-Nonce was already used.');
+    }
+
+    public static function rateLimited(int $retryAfter): self
+    {
+        return new self(429, 'rate_limited', 'Too many requests.', [], $retryAfter);
+    }
+
+    public static function busy(int $retryAfter): self
+    {
+        return new self(409, 'busy', 'Another write holds the write lock.', [], $retryAfter);
+    }
+
+    /**
+     * @param  list<string>  $members  the request members that are missing or invalid
+     */
+    public static function validationFailed(array $members): self
+    {
+        return new self(422, 'validation_failed', 'The request body does not match the schema.', ['errors' => $members]);
+    }
+
     public static function unpaired(): self
     {
         return new self(403, 'store_unpaired', 'This module is not paired with Kronixon PI.');

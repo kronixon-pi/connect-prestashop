@@ -18,12 +18,9 @@ if (! defined('_PS_VERSION_')) {
     exit;
 }
 
-use Kronixon\Connect\Api\Kernel;
-use Kronixon\Connect\Api\Router;
-use Kronixon\Connect\Auth\UnpairedState;
 use Kronixon\Connect\Protocol;
+use Kronixon\Connect\Services;
 use Kronixon\Connect\Support\Runtime;
-use Kronixon\Connect\Support\SystemClock;
 
 /**
  * The API front controller: `/module/kronixonconnect/api?path=<endpoint>` or
@@ -50,8 +47,7 @@ class KronixonConnectApiModuleFrontController extends ModuleFrontController
             $this->context->cookie->disallowWriting();
         }
 
-        $budget = (int) Configuration::getGlobalValue('KX_TIME_BUDGET');
-        $kernel = new Kernel(new Router(), new UnpairedState(), new SystemClock(), $budget > 0 ? $budget : Protocol::TIME_BUDGET_S);
+        $kernel = Services::kernel($this->context);
         $kernel->guardFatalErrors();
 
         $response = $kernel->handle($_SERVER, Runtime::readBody(Protocol::MAX_BODY_BYTES));

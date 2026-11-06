@@ -13,8 +13,178 @@ class Context
     /** @var Link */
     public $link;
 
+    /** @var Shop */
+    public $shop;
+
+    /** @var Language */
+    public $language;
+
     /** @return Context */
     public static function getContext() {}
+}
+
+class Shop
+{
+    /** @var int */
+    public $id;
+
+    /** @var string */
+    public $name;
+
+    /** @var int */
+    public $id_shop_group;
+
+    /**
+     * @param bool $auto_ssl
+     * @param bool $add_base_uri
+     * @return string|false
+     */
+    public function getBaseURL($auto_ssl = false, $add_base_uri = true) {}
+
+    /** @return bool */
+    public static function isFeatureActive() {}
+
+    /**
+     * @param bool $active
+     * @param int|null $id_shop_group
+     * @param bool $get_as_list_id
+     * @return array<int, array<string, mixed>>
+     */
+    public static function getShops($active = true, $id_shop_group = null, $get_as_list_id = false) {}
+}
+
+class Language
+{
+    /** @var string */
+    public $iso_code;
+
+    /** @var string */
+    public $date_format_full;
+
+    /**
+     * @param bool $active
+     * @param int|false $id_shop
+     * @param bool $ids_only
+     * @return list<array<string, mixed>>
+     */
+    public static function getLanguages($active = true, $id_shop = false, $ids_only = false) {}
+}
+
+class Currency
+{
+    /**
+     * @param bool $object
+     * @param bool $active
+     * @param bool $group_by
+     * @return list<array<string, mixed>>
+     */
+    public static function getCurrencies($object = false, $active = true, $group_by = false) {}
+}
+
+class Group
+{
+    /** @return int */
+    public static function getDefaultPriceDisplayMethod() {}
+}
+
+class TaxRulesGroup
+{
+    /**
+     * @param bool $only_active
+     * @return list<array<string, mixed>>
+     */
+    public static function getTaxRulesGroups($only_active = true) {}
+}
+
+class PhpEncryption
+{
+    /** @param string $hexString */
+    public function __construct($hexString) {}
+
+    /**
+     * @param string $plaintext
+     * @return string
+     */
+    public function encrypt($plaintext) {}
+
+    /**
+     * @param string $cipherText
+     * @return string|false
+     */
+    public function decrypt($cipherText) {}
+}
+
+abstract class ObjectModel
+{
+    /** @var int|null */
+    public $id;
+
+    /**
+     * @param int|null $id
+     */
+    public function __construct($id = null) {}
+
+    /**
+     * @param bool $auto_date
+     * @param bool $null_values
+     * @return bool
+     */
+    public function add($auto_date = true, $null_values = false) {}
+
+    /** @return bool */
+    public function delete() {}
+}
+
+class Profile extends ObjectModel
+{
+    /** @var array<int, string>|string */
+    public $name;
+}
+
+class Employee extends ObjectModel
+{
+    /** @var string */
+    public $firstname;
+
+    /** @var string */
+    public $lastname;
+
+    /** @var string */
+    public $email;
+
+    /** @var string */
+    public $passwd;
+
+    /** @var int */
+    public $id_profile;
+
+    /** @var int */
+    public $id_lang;
+
+    /** @var bool */
+    public $active;
+}
+
+class Tools
+{
+    /**
+     * @param string $submit
+     * @return bool
+     */
+    public static function isSubmit($submit) {}
+
+    /**
+     * @param string $key
+     * @param mixed $default_value
+     * @return mixed
+     */
+    public static function getValue($key, $default_value = false) {}
+
+    /**
+     * @param string $url
+     * @return void
+     */
+    public static function redirectAdmin($url) {}
 }
 
 class Cookie
@@ -47,6 +217,15 @@ class Link
      * @return string
      */
     public function getModuleLink($module, $controller = 'default', array $params = [], $ssl = null, $idLang = null, $idShop = null, $relativeProtocol = false) {}
+
+    /**
+     * @param string $controller
+     * @param bool $withToken
+     * @param array<string, mixed> $sfRouteParams
+     * @param array<string, mixed> $params
+     * @return string
+     */
+    public function getAdminLink($controller, $withToken = true, $sfRouteParams = [], $params = []) {}
 }
 
 class Db
@@ -63,6 +242,34 @@ class Db
      * @return bool
      */
     public function execute($sql, $use_cache = true) {}
+
+    /**
+     * @param string $sql
+     * @param bool $use_cache
+     * @return string|false|null
+     */
+    public function getValue($sql, $use_cache = true) {}
+
+    /**
+     * @param string $sql
+     * @param bool $array
+     * @param bool $use_cache
+     * @return array<int, array<string, mixed>>|false
+     */
+    public function executeS($sql, $array = true, $use_cache = true) {}
+
+    /** @return int */
+    public function Affected_Rows() {}
+
+    /**
+     * @param string $string
+     * @param bool $html_ok
+     * @return string
+     */
+    public function escape($string, $html_ok = false) {}
+
+    /** @return string */
+    public function getVersion() {}
 }
 
 class Configuration
@@ -144,6 +351,9 @@ abstract class Module
     /** @var list<string> */
     protected $_errors = [];
 
+    /** @var list<array<string, mixed>> */
+    public $tabs = [];
+
     /** @var Context */
     protected $context;
 
@@ -203,4 +413,13 @@ class ModuleFrontController extends FrontController
 {
     /** @var Module */
     public $module;
+}
+
+class ModuleAdminController
+{
+    /** @var Context */
+    protected $context;
+
+    /** @return void */
+    public function init() {}
 }

@@ -27,7 +27,26 @@ final class Protocol
 
     public const MODULE_NAME = 'kronixonconnect';
 
-    public const MODULE_VERSION = '0.1.0';
+    public const MODULE_VERSION = '0.2.0';
+
+    /** The Connect service the module pairs with unless the administrator enters another (README §1). */
+    public const DEFAULT_PLATFORM_URL = 'https://connect.kronixon.com';
+
+    /**
+     * The base64 Ed25519 release key of the platform channel this build belongs to. When set, a pair
+     * answer whose `platform_public_key` differs is refused; empty until signed releases exist (the
+     * key is then built into the release zip).
+     */
+    public const PINNED_PLATFORM_KEY = '';
+
+    /** Nonce memory of the receiver, seconds (README §4.4 step 7). */
+    public const NONCE_TTL_S = 600;
+
+    /** Verified requests per minute (README §9), unless KX_RATE_LIMIT says otherwise. */
+    public const RATE_LIMIT_PER_MINUTE = 120;
+
+    /** Seconds a `409 busy` asks the caller to wait for the write lock. */
+    public const BUSY_RETRY_S = 5;
 
     /** Clock window of a signed message, seconds either side of the receiver's clock. */
     public const CLOCK_WINDOW_S = 300;

@@ -31,9 +31,9 @@ final class InstallRollbackTest extends TestCase
     {
         $this->failingTable = 'ps_kx_entity_map'; // the 4th of 7 CREATE statements
 
-        $ok = $this->installer()->install($this->addModule(), $this->removeModule(), $this->hooks(true));
+        $failed = $this->install($this->addModule());
 
-        self::assertFalse($ok);
+        self::assertSame('tables', $failed, 'the failed step is named (the module shows it in _errors)');
         self::assertSame([], $this->moduleRows, 'no module row');
         self::assertSame([], array_keys($this->tables), 'no table');
         self::assertNotContains('module:add', $this->log, 'the module row is added only after the tables');
@@ -42,15 +42,27 @@ final class InstallRollbackTest extends TestCase
 
     public function test_a_failing_module_install_drops_the_tables(): void
     {
-        $ok = $this->installer()->install(function (): bool {
+        $failed = $this->install(function (): bool {
             $this->moduleRows[] = 'kronixonconnect'; // PrestaShop may fail after inserting the row
 
             return false;
-        }, $this->removeModule(), $this->hooks(true));
+        });
 
-        self::assertFalse($ok);
+        self::assertSame('module', $failed);
         self::assertSame([], $this->moduleRows);
         self::assertSame([], array_keys($this->tables));
+    }
+
+    public function test_a_failing_later_step_also_removes_the_service_account(): void
+    {
+        // The configuration step needs PrestaShop's Configuration class, which is absent here: it
+        // throws, so every earlier step and the account undo run (live check: scripts/ps-smoke.sh).
+        $failed = $this->install($this->addModule());
+
+        self::assertSame('configuration', $failed);
+        self::assertSame([], $this->moduleRows);
+        self::assertSame([], array_keys($this->tables));
+        self::assertNotContains('account:create', $this->log, 'the account is created after the configuration');
     }
 
     public function test_a_successful_install_keeps_everything(): void
@@ -58,11 +70,11 @@ final class InstallRollbackTest extends TestCase
         // writeDefaults() needs PrestaShop's Configuration, so the defaults step is checked live
         // (scripts/ps-smoke.sh); here the order up to the module row is what matters.
         $steps = [
-            [[$this->installer(), 'createTables'], [$this->installer(), 'dropTables']],
-            [$this->addModule(), $this->removeModule()],
+            'tables' => [[$this->installer(), 'createTables'], [$this->installer(), 'dropTables']],
+            'module' => [$this->addModule(), $this->removeModule()],
         ];
 
-        self::assertTrue(Steps::run($steps));
+        self::assertNull(Steps::run($steps));
         self::assertSame(['kronixonconnect'], $this->moduleRows);
         self::assertCount(7, $this->tables);
         self::assertSame('CREATE ps_kx_nonce', $this->log[0]);
@@ -87,8 +99,22 @@ final class InstallRollbackTest extends TestCase
             }];
         };
 
-        self::assertFalse(Steps::run([$step('a', true), $step('b', true), $step('c', false), $step('d', true)]));
+        self::assertSame('c', Steps::run(['a' => $step('a', true), 'b' => $step('b', true), 'c' => $step('c', false), 'd' => $step('d', true)]));
         self::assertSame(['do a', 'do b', 'do c', 'undo c', 'undo b', 'undo a'], $log);
+    }
+
+    /** @param callable(): bool $addModule */
+    private function install(callable $addModule): ?string
+    {
+        return $this->installer()->install($addModule, $this->removeModule(), $this->hooks(true), $this->hooks(true), function (): bool {
+            $this->log[] = 'account:create';
+
+            return true;
+        }, function (): bool {
+            $this->log[] = 'account:remove';
+
+            return true;
+        });
     }
 
     private function installer(): Installer
