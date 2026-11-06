@@ -9,6 +9,8 @@ use Kronixon\Connect\Api\Kernel;
 use Kronixon\Connect\Api\Router;
 use Kronixon\Connect\Auth\UnpairedState;
 use Kronixon\Connect\Tests\Support\FixedClock;
+use Kronixon\Connect\Tests\Support\MemoryGuards;
+use Kronixon\Connect\Tests\Support\TestModule;
 use Opis\JsonSchema\Errors\ErrorFormatter;
 use Opis\JsonSchema\Validator;
 use PHPUnit\Framework\TestCase;
@@ -183,7 +185,7 @@ final class SchemasTest extends TestCase
 
     public function test_the_modules_unpaired_answer_matches_the_error_schema(): void
     {
-        $kernel = new Kernel(new Router(), new UnpairedState(), new FixedClock(1790772000.0));
+        $kernel = new Kernel(new Router(), new UnpairedState(), new FixedClock(1790772000.0), new MemoryGuards(), new MemoryGuards());
         $validator = $this->validator();
         $cases = [
             ['REQUEST_METHOD' => 'GET', 'QUERY_STRING' => 'path=/v1/status', 'HTTP_X_KX_PROTOCOL' => 'v1'],
@@ -195,6 +197,46 @@ final class SchemasTest extends TestCase
             $result = $validator->validate($body, self::PREFIX.'common.json#/$defs/error_response');
             self::assertTrue($result->isValid(), $this->explain($result->error()));
         }
+    }
+
+    public function test_the_modules_answers_and_its_pair_request_match_their_schemas(): void
+    {
+        $module = new TestModule();
+        $module->pair();
+        $module->settings->set('KX_INSTANCE_ID', '0192b2e4-2f7a-4c5b-8a1d-3e4f5a6b7c8d');
+        $secret = (string) $module->platform->secret;
+        $validator = $this->validator();
+        $check = function (string $schema, string $json) use ($validator): void {
+            $result = $validator->validate(json_decode($json, false, 512, JSON_THROW_ON_ERROR), self::PREFIX.$schema);
+            self::assertTrue($result->isValid(), $schema.': '.$this->explain($result->error()));
+        };
+
+        $check('platform/pair.json#/$defs/request', $module->platform->requests[0]['body']);
+        foreach (['capabilities', 'profile', 'health'] as $endpoint) {
+            $response = $module->kernel()->handle($module->signedServer($secret, 'GET', $endpoint), '');
+            self::assertSame(200, $response->status(), $endpoint);
+            $check('module/'.$endpoint.'.json#/$defs/response', $response->body());
+        }
+        $rotate = $module->rotateBody('kxs_9Qm3vT7bLp2XcR8fWn4zHd6KyE1sAu5G', 1790858400);
+        $check('module/rotate.json#/$defs/request', $rotate);
+        $check('module/rotate.json#/$defs/response', $module->kernel()->handle($module->signedServer($secret, 'POST', 'rotate', [], $rotate), $rotate)->body());
+        $secret = 'kxs_9Qm3vT7bLp2XcR8fWn4zHd6KyE1sAu5G';
+
+        $nonce = '0192b2e4-7c1a-7d3e-9f4b-2a6c8e0d1f35';
+        $module->kernel()->handle($module->signedServer($secret, 'GET', 'health', [], '', $nonce), '');
+        $errors = [
+            $module->kernel()->handle($module->signedServer($secret, 'GET', 'health', [], '', $nonce), ''),
+            $module->kernel()->handle($module->signedServer($secret, 'GET', 'nope'), ''),
+            $module->kernel()->handle($module->signedServer($secret, 'POST', 'unpair', [], '{}'), '{}'),
+        ];
+        $module->guards->heldElsewhere = true;
+        $errors[] = $module->kernel()->handle($module->signedServer($secret, 'POST', 'unpair', [], '{"reason":"user"}'), '{"reason":"user"}');
+        $module->guards->heldElsewhere = false;
+        foreach ($errors as $error) {
+            $check('common.json#/$defs/error_response', $error->body());
+        }
+
+        $check('module/unpair.json#/$defs/response', $module->kernel()->handle($module->signedServer($secret, 'POST', 'unpair', [], '{"reason":"user"}'), '{"reason":"user"}')->body());
     }
 
     private function validator(): Validator

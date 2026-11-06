@@ -24,8 +24,8 @@ use Kronixon\Connect\Protocol;
 use Kronixon\Connect\Support\Uuid;
 
 /**
- * Tables and Configuration keys of the module. The keypair, the cron token and the zero-right
- * Employee/Profile are created by M1/M5 (pairing, cron), not here.
+ * Tables, Configuration keys, the X25519 key pair and the service account of the module (the cron
+ * token arrives with the outbox).
  */
 final class Installer
 {
@@ -38,9 +38,18 @@ final class Installer
         'KX_SECRET_PREV',
         'KX_SECRET_PREV_UNTIL',
         'KX_PRIVATE_KEY',
+        'KX_PUBLIC_KEY',
         'KX_STORE_ID',
         'KX_API_BASE',
         'KX_PAIRED_AT',
+        'KX_PLATFORM_KEY',
+        'KX_TENANT_NAME',
+        'KX_PLATFORM_URL',
+        'KX_PLATFORM_ALLOW_HTTP',
+        'KX_PAIR_STATE',
+        'KX_LAST_REQUEST_AT',
+        'KX_PROFILE_ID',
+        'KX_EMPLOYEE_ID',
         'KX_CRON_TOKEN',
         'KX_OUTBOX_LAST_FLUSH',
         'KX_PROFILE_CACHE',
@@ -80,21 +89,28 @@ final class Installer
     }
 
     /**
-     * The install order: tables, the module row (Module::install), defaults, hooks. A failing step
-     * undoes itself and every earlier one (Steps), so a failed install leaves no module row, no table
-     * and no KX_* key behind.
+     * The install order: tables, the module row (Module::install), defaults and the key pair, the
+     * service account, hooks. A failing step undoes itself and every earlier one (Steps), so a failed
+     * install leaves no module row, no table, no account and no KX_* key behind.
      *
      * @param  callable(): bool  $addModule  Module::install() (the module row, tabs)
      * @param  callable(): bool  $removeModule  Module::uninstall() (also drops the hook registrations)
      * @param  callable(): bool  $registerHooks
+     * @param  callable(): bool  $createKeys  the X25519 key pair (true without ext-sodium: pairing then explains)
+     * @param  callable(): bool  $createAccount  ServiceAccount::create()
+     * @param  callable(): bool  $removeAccount  ServiceAccount::remove()
+     * @return string|null the step that failed (tables, module, configuration, service_account, hooks)
      */
-    public function install(callable $addModule, callable $removeModule, callable $registerHooks): bool
+    public function install(callable $addModule, callable $removeModule, callable $registerHooks, callable $createKeys, callable $createAccount, callable $removeAccount): ?string
     {
         return Steps::run([
-            [[$this, 'createTables'], [$this, 'dropTables']],
-            [$addModule, $removeModule],
-            [[$this, 'writeDefaults'], [$this, 'deleteConfiguration']],
-            [$registerHooks, static function (): bool {
+            'tables' => [[$this, 'createTables'], [$this, 'dropTables']],
+            'module' => [$addModule, $removeModule],
+            'configuration' => [function () use ($createKeys): bool {
+                return $this->writeDefaults() && $createKeys();
+            }, [$this, 'deleteConfiguration']],
+            'service_account' => [$createAccount, $removeAccount],
+            'hooks' => [$registerHooks, static function (): bool {
                 return true;
             }],
         ]);

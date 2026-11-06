@@ -6,3 +6,4 @@ declare(strict_types=1);
 define('_PS_VERSION_', '9.1.5');
 define('_DB_PREFIX_', 'ps_');
 define('_MYSQL_ENGINE_', 'InnoDB');
+define('_DB_NAME_', 'prestashop');

@@ -72,10 +72,11 @@ wait_web "$id-ps"
 install_s=$(elapsed)
 step "PrestaShop $tag installed"
 
-# The module as the zip will hold it, plus the two test tools (removed before the commit).
+# The module as the zip will hold it — only tracked files, the same list scripts/fixture-sha.sh hashes —
+# plus the two test tools (removed before the commit).
 mkdir -p "$tmp/kronixonconnect/tests/fixtures" "$tmp/kronixonconnect/scripts/ps"
-cp -R "$root/kronixonconnect.php" "$root/config.xml" "$root/index.php" "$root/LICENSE" \
-    "$root/controllers" "$root/src" "$root/sql" "$root/views" "$tmp/kronixonconnect/"
+git -C "$root" ls-files -z -- kronixonconnect.php config.xml index.php LICENSE controllers src sql translations views \
+    | tar -C "$root" --null -T - -cf - | tar -C "$tmp/kronixonconnect" -xf -
 cp "$root/tests/fixtures/generate.php" "$tmp/kronixonconnect/tests/fixtures/"
 cp "$root/scripts/ps/prepare-shop.php" "$tmp/kronixonconnect/scripts/ps/"
 docker cp "$tmp/kronixonconnect" "$id-ps:/var/www/html/modules/"
