@@ -75,8 +75,8 @@ final class PairingTest extends TestCase
         self::assertSame([], $module->platform->requests);
 
         $module->settings->set(Pairing::ALLOW_HTTP, '1');
-        self::assertTrue($pairing->setPlatformUrl('http://connect.kronixon.test:8080/v1/'));
-        self::assertSame('http://connect.kronixon.test:8080', $pairing->platformUrl());
+        self::assertTrue($pairing->setPlatformUrl('http://connect.example.test:8080/v1/'));
+        self::assertSame('http://connect.example.test:8080', $pairing->platformUrl());
     }
 
     /**
