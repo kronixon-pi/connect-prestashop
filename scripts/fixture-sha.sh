@@ -13,7 +13,7 @@ inputs=(
     tests/fixtures/generate.php scripts/bake-fixture.sh scripts/fixture-sha.sh scripts/image-ref.sh
     scripts/ps/prepare-shop.php docker/fixture docker/images.lock
     # the module as bake-fixture.sh copies and installs it
-    kronixonconnect.php config.xml index.php LICENSE controllers src sql views
+    kronixonconnect.php config.xml index.php LICENSE controllers src sql translations views
 )
 
 if ! git diff --quiet -- "${inputs[@]}" || [ -n "$(git ls-files --others --exclude-standard -- "${inputs[@]}")" ]; then

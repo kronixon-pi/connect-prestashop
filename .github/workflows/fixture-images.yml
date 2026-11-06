@@ -23,9 +23,11 @@ on:
       - kronixonconnect.php
       - config.xml
       - index.php
+      - LICENSE
       - controllers/**
       - src/**
       - sql/**
+      - translations/**
       - views/**
 concurrency: { group: "fixture-images-${{ github.ref }}", cancel-in-progress: false }
 permissions: { contents: read }
