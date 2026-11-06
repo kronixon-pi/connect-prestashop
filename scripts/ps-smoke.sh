@@ -62,16 +62,27 @@ expect_eq() { # name expected actual
     if [ "$2" = "$3" ]; then echo "  ok   $1 = $3"; else echo "  FAIL $1: expected '$2', got '$3'"; failures=$((failures + 1)); fi
 }
 
-expect_eq "module row (name active version)" "kronixonconnect	1	0.1.0" "$(sql "SELECT name, active, version FROM ps_module WHERE name = 'kronixonconnect'")"
+module_version="$(sed -n 's/.*<version><!\[CDATA\[\(.*\)\]\]><\/version>.*/\1/p' "$root/config.xml")"
+cfg() { sql "SELECT COUNT(*) FROM ps_configuration WHERE name = '$1' AND $2"; }
+account() { # employees + profiles + access rows of the service account, tab rows
+    sql "SELECT (SELECT COUNT(*) FROM ps_employee WHERE email LIKE 'connect-%@kronixon.invalid'), (SELECT COUNT(*) FROM ps_profile_lang WHERE name = 'Kronixon Connect' AND id_lang = (SELECT MIN(id_lang) FROM ps_lang)), (SELECT COUNT(*) FROM ps_access a JOIN ps_profile_lang pl ON pl.id_profile = a.id_profile WHERE pl.name = 'Kronixon Connect'), (SELECT COUNT(*) FROM ps_tab WHERE class_name = 'AdminKronixonConnect')"
+}
+expect_eq "module row (name active version)" "kronixonconnect	1	$module_version" "$(sql "SELECT name, active, version FROM ps_module WHERE name = 'kronixonconnect'")"
 expect_eq "kx_ tables" "7" "$(sql "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'prestashop' AND table_name LIKE 'ps\_kx\_%'")"
 expect_eq "registered hooks" "19" "$(sql "SELECT COUNT(*) FROM ps_hook_module hm JOIN ps_module m ON m.id_module = hm.id_module WHERE m.name = 'kronixonconnect'")"
-expect_eq "KX_INSTANCE_ID is a UUID" "1" "$(sql "SELECT COUNT(*) FROM ps_configuration WHERE name = 'KX_INSTANCE_ID' AND value REGEXP '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'")"
+expect_eq "KX_INSTANCE_ID is a UUID" "1" "$(cfg KX_INSTANCE_ID "value REGEXP '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'")"
+expect_eq "X25519 public key (base64 of 32 bytes)" "1" "$(cfg KX_PUBLIC_KEY "value REGEXP '^[A-Za-z0-9+/]{43}=$'")"
+expect_eq "key pair stored encrypted (PhpEncryption, not base64 of 64 bytes)" "1" "$(cfg KX_PRIVATE_KEY "LENGTH(value) > 200 AND value NOT REGEXP '^[A-Za-z0-9+/]{86}==$'")"
+expect_eq "service account: employee, profile, access rows, BO tab" "1	1	0	1" "$(account)"
+expect_eq "the employee cannot log in (inactive)" "0" "$(sql "SELECT active FROM ps_employee WHERE email LIKE 'connect-%@kronixon.invalid'")"
 
 console prestashop:module uninstall kronixonconnect
 expect_eq "kx_ tables after uninstall" "0" "$(sql "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'prestashop' AND table_name LIKE 'ps\_kx\_%'")"
 expect_eq "KX_ keys after uninstall" "0" "$(sql "SELECT COUNT(*) FROM ps_configuration WHERE name LIKE 'KX\_%'")"
+expect_eq "service account and tab after uninstall" "0	0	0	0" "$(account)"
 console prestashop:module install kronixonconnect
 expect_eq "kx_ tables after reinstall" "7" "$(sql "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'prestashop' AND table_name LIKE 'ps\_kx\_%'")"
+expect_eq "service account after reinstall" "1	1	0	1" "$(account)"
 step "uninstall + reinstall checked"
 
 check() { # name expected-status expected-error-code curl-args...
@@ -103,6 +114,32 @@ check "without X-KX-Protocol" 400 protocol_version_unsupported "$base/module/kro
 check "path=/v2/status" 400 protocol_version_unsupported "${h[@]}" "$base/module/kronixonconnect/api?path=/v2/status"
 check "PUT" 405 method_not_allowed "${h[@]}" -X PUT "$base/module/kronixonconnect/api?path=/v1/status"
 check "missing path" 400 bad_request "${h[@]}" "$base/module/kronixonconnect/api"
+
+# Pairing end to end against tests/Integration/platform-stub.php (the merged platform's pair and store
+# routes, run by the shop's own PHP on 127.0.0.1:8099 inside the container), then the platform's side
+# played by tests/Integration/platform-driver.php: reverse check, refusals, rotation, unpair.
+stub=http://127.0.0.1:8099
+psphp() { dc exec -T -u www-data -e PS_DOMAIN="localhost:$port" ps php "$@" </dev/null; }
+dc exec -d -u www-data ps php -S 127.0.0.1:8099 modules/kronixonconnect/tests/Integration/platform-stub.php
+for _ in $(seq 1 20); do
+    if psphp -r 'exit(strpos((string) @file_get_contents("http://127.0.0.1:8099/v1/status", false, stream_context_create(["http" => ["header" => "X-KX-Protocol: v1"]])), "\"v1\"") === false ? 1 : 0);'; then break; fi
+    sleep 0.5
+done
+paired="$(psphp modules/kronixonconnect/scripts/ps/pair.php "$stub" K7PM-3XQ9 || true)"
+expect_eq "pair with the stub (state, no warning)" "paired -" "$(printf '%s' "$paired" | jq -r '"\(.state) \(.warning // "-")"' 2>/dev/null || echo "$paired")"
+expect_eq "the shared secret is stored encrypted" "1" "$(cfg KX_SECRET "LENGTH(value) > 100 AND value NOT LIKE '%kxs\\_%'")"
+if psphp modules/kronixonconnect/tests/Integration/platform-driver.php "$base" 127.0.0.1:80; then
+    echo "  ok   platform driver"
+else
+    echo "  FAIL platform driver"; failures=$((failures + 1))
+fi
+expect_eq "kx_log holds rows but no secret" "1 0" "$(sql "SELECT COUNT(*) > 0, SUM(message LIKE '%kxs\\_%' OR context LIKE '%kxs\\_%') FROM ps_kx_log" | tr '\t' ' ')"
+psphp modules/kronixonconnect/scripts/ps/pair.php "$stub" K7PM-3XQ9 >/dev/null
+console prestashop:module uninstall kronixonconnect
+expect_eq "uninstall told the platform (reason)" "uninstall" "$(dc exec -T ps cat /tmp/kx-stub/state.json </dev/null | jq -r '.unpaired')"
+expect_eq "service account after uninstall of a paired shop" "0	0	0	0" "$(account)"
+console prestashop:module install kronixonconnect
+step "pairing, signed calls, rotation and unpair checked"
 
 total_s=$(elapsed)
 front="$(curl -s -o /dev/null -w '%{http_code}' "$base/")"
