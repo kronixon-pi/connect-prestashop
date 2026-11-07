@@ -50,6 +50,9 @@ final class Request
     /** @var string */
     private $body;
 
+    /** @var string|null `cur` or `prev`: the key the Kernel verified the request with, null before that */
+    private $verifiedKeyId;
+
     /**
      * @param  array<string, string>  $headers
      */
@@ -152,6 +155,21 @@ final class Request
     public function body(): string
     {
         return $this->body;
+    }
+
+    /** A copy that records the key id the signature verified with (KeyRing::CURRENT or ::PREVIOUS). */
+    public function withVerifiedKeyId(string $keyId): self
+    {
+        $copy = clone $this;
+        $copy->verifiedKeyId = $keyId;
+
+        return $copy;
+    }
+
+    /** The key id the request verified with; null when it has not been verified. */
+    public function verifiedKeyId(): ?string
+    {
+        return $this->verifiedKeyId;
     }
 
     /** The first value of an endpoint query parameter (transport parameters are not visible here). */

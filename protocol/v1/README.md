@@ -134,7 +134,10 @@ Headers of a module answer:
 
 The platform sends `POST rotate {secret_sealed, prev_valid_until}` signed with the current secret.
 From the module's `200` on, the new secret is `cur`; the old one is `prev` until `prev_valid_until`
-(24 h) and both verify. Outgoing messages are signed with `cur`. A revocation drops the secret at once
+(24 h) and both verify. A rotation that verifies with `prev` is a retry whose first answer was lost
+(the platform still holds the secret that is `prev` on the module): the module replaces only `cur` and
+keeps `prev` with its original expiry, so the secret the platform never confirmed stops verifying.
+Outgoing messages are signed with `cur`. A revocation drops the secret at once
 without a `prev` period; later requests answer `403 store_revoked`. Scheduled rotation: every 180 days.
 
 ### 4.6 Vectors

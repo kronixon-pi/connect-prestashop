@@ -149,8 +149,14 @@ final class SecretStore implements PairingState
             && $this->settings->set(self::STORE_ID, $storeId);
     }
 
-    /** `cur` becomes `prev` until $prevUntil; $secret becomes `cur`. Repeating it with the same secret changes nothing. */
-    public function rotated(string $secret, int $prevUntil): bool
+    /**
+     * $secret becomes `cur`. Verified with `cur` ($verifiedWith), the old `cur` becomes `prev` until
+     * $prevUntil. Verified with `prev` (a retry whose first answer was lost: the platform never
+     * switched and still signs with the secret that is `prev` here), `prev` and its expiry stay and
+     * only `cur` is replaced, so the never-confirmed secret stops verifying. Repeating it with the
+     * same secret changes nothing.
+     */
+    public function rotated(string $secret, int $prevUntil, string $verifiedWith = KeyRing::CURRENT): bool
     {
         $current = $this->current();
         if ($current === null) {
@@ -158,6 +164,9 @@ final class SecretStore implements PairingState
         }
         if (hash_equals($current, $secret)) {
             return true;
+        }
+        if ($verifiedWith === KeyRing::PREVIOUS) {
+            return $this->settings->set(self::SECRET, $this->cipher->encrypt($secret));
         }
 
         return $this->settings->set(self::SECRET_PREV, $this->cipher->encrypt($current))

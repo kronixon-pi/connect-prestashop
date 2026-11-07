@@ -8,6 +8,7 @@ use Kronixon\Connect\Api\Kernel;
 use Kronixon\Connect\Api\Response;
 use Kronixon\Connect\Api\Router;
 use Kronixon\Connect\Auth\SecretStore;
+use Kronixon\Connect\Support\Uuid;
 use Kronixon\Connect\Tests\Support\FixedClock;
 use Kronixon\Connect\Tests\Support\MemoryGuards;
 use Kronixon\Connect\Tests\Support\MemorySettings;
@@ -204,6 +205,88 @@ final class SignedKernelTest extends TestCase
         self::assertSame(401, $withoutKeyId->status(), 'cur then prev: prev is no candidate any more');
     }
 
+    public function test_a_rotation_verified_with_cur_moves_cur_to_prev(): void
+    {
+        $module = new TestModule();
+        $module->pair();
+        $t0 = (int) $module->clock->now();
+        $old = (string) $module->platform->secret;
+        $new1 = 'kxs_9Qm3vT7bLp2XcR8fWn4zHd6KyE1sAu5G';
+        $new2 = 'kxs_4Hd6KyE1sAu5G9Qm3vT7bLp2XcR8fWnZ';
+
+        $first = $module->rotateBody($new1, $t0 + 86400);
+        self::assertSame(200, $module->kernel()->handle($module->signedServer($old, 'POST', 'rotate', [], $first), $first)->status());
+        self::assertSame($new1, $module->secrets->current());
+        self::assertSame((string) ($t0 + 86400), $module->settings->get(SecretStore::SECRET_PREV_UNTIL));
+
+        $module->clock->advance(3600);
+        $second = $module->rotateBody($new2, $t0 + 3600 + 86400);
+        $nonce = Uuid::v4();
+        $response = $module->kernel()->handle($module->signedServer($new1, 'POST', 'rotate', [], $second, $nonce), $second);
+
+        self::assertSame(200, $response->status(), $response->body());
+        self::assertTrue(TestModule::signedWith($response, $nonce, $new1));
+        self::assertSame($new2, $module->secrets->current());
+        self::assertSame((string) ($t0 + 3600 + 86400), $module->settings->get(SecretStore::SECRET_PREV_UNTIL), 'a new prev period');
+        self::assertSame(200, $this->health($module, $new2, 'cur'));
+        self::assertSame(200, $this->health($module, $new1, 'prev'), 'the old cur is prev');
+        self::assertSame(401, $this->health($module, $old, 'prev'), 'the secret before it is gone');
+        self::assertSame(401, $this->health($module, $old, ''));
+    }
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public function retryKeyIds(): iterable
+    {
+        yield 'no key id (cur, then prev)' => [''];
+        yield 'key id prev' => ['prev'];
+    }
+
+    /**
+     * Rotate old → new1, the answer is lost, the platform still holds `old` and repeats with a fresh
+     * new2 signed with `old` (the module's `prev` by now).
+     *
+     * @dataProvider retryKeyIds
+     */
+    public function test_a_retried_rotation_verified_with_prev_keeps_prev_and_its_expiry_and_replaces_only_cur(string $keyId): void
+    {
+        $module = new TestModule();
+        $module->pair();
+        $t0 = (int) $module->clock->now();
+        $old = (string) $module->platform->secret;
+        $new1 = 'kxs_9Qm3vT7bLp2XcR8fWn4zHd6KyE1sAu5G';
+        $new2 = 'kxs_4Hd6KyE1sAu5G9Qm3vT7bLp2XcR8fWnZ';
+
+        $first = $module->rotateBody($new1, $t0 + 86400);
+        self::assertSame(200, $module->kernel()->handle($module->signedServer($old, 'POST', 'rotate', [], $first), $first)->status());
+
+        $module->clock->advance(600);
+        $retry = $module->rotateBody($new2, $t0 + 600 + 86400);
+        $nonce = Uuid::v4();
+        $response = $module->kernel()->handle($module->signedServer($old, 'POST', 'rotate', [], $retry, $nonce, null, $keyId), $retry);
+
+        self::assertSame(200, $response->status(), $response->body());
+        self::assertSame('prev', $response->header('X-KX-Key-Id'));
+        self::assertTrue(TestModule::signedWith($response, $nonce, $old), 'the answer is signed with the secret the platform holds');
+        self::assertSame($new2, $module->secrets->current(), 'new2 is cur');
+        self::assertSame((string) ($t0 + 86400), $module->settings->get(SecretStore::SECRET_PREV_UNTIL), 'prev keeps its original expiry');
+
+        self::assertSame(200, $this->health($module, $new2, 'cur'));
+        self::assertSame(200, $this->health($module, $old, 'prev'), 'old is prev');
+        self::assertSame(200, $this->health($module, $old, ''));
+        foreach (['cur', 'prev', ''] as $id) {
+            self::assertSame(401, $this->health($module, $new1, $id), 'new1 was never confirmed by the platform: key id "'.$id.'"');
+        }
+
+        $module->clock->advance($t0 + 86400 - (int) $module->clock->now());
+        self::assertSame(200, $this->health($module, $old, 'prev'), 'old verifies until its original expiry');
+        $module->clock->advance(1);
+        self::assertSame(401, $this->health($module, $old, 'prev'), 'and not after it');
+        self::assertSame(200, $this->health($module, $new2, 'cur'));
+        self::assertSame(401, $this->health($module, $new1, ''), 'new1 never verifies');
+    }
+
     public function test_the_rate_limit_counts_verified_requests_of_the_last_minute(): void
     {
         $module = $this->pairedModule();
@@ -299,6 +382,11 @@ final class SignedKernelTest extends TestCase
         $module->settings->set(SecretStore::SECRET_PREV_UNTIL, (string) $doc['prev_valid_until']);
 
         return $module;
+    }
+
+    private function health(TestModule $module, string $secret, string $keyId): int
+    {
+        return $module->kernel()->handle($module->signedServer($secret, 'GET', 'health', [], '', null, null, $keyId), '')->status();
     }
 
     private static function code(Response $response): string

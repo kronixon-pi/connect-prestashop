@@ -234,6 +234,7 @@ final class Kernel
         // From here every answer is signed, with the key that verified the request: a rotation or an
         // unpair changes the stored secrets, but its answer must verify with the secret it was sent with.
         $this->signing = [$keyId, $keys->candidates($keyId, $now)[$keyId], $nonce];
+        $request = $request->withVerifiedKeyId($keyId);
 
         if (! $this->nonces->claim($nonce, $now)) {
             throw ApiError::nonceReused();
