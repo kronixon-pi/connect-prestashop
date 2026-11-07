@@ -32,7 +32,7 @@ use Kronixon\Connect\Support\Log;
  */
 final class Endpoints
 {
-    public const LAST_REQUEST_AT = 'KX_LAST_REQUEST_AT';
+    public const LAST_REQUEST_AT = SecretStore::LAST_REQUEST_AT;
 
     /** module/unpair.json `reason`. */
     private const UNPAIR_REASONS = ['user', 'store_deleted', 'revoked', 'tenant_deleted', 'other'];
