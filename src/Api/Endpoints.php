@@ -18,6 +18,7 @@ declare(strict_types=1);
 
 namespace Kronixon\Connect\Api;
 
+use Kronixon\Connect\Auth\KeyRing;
 use Kronixon\Connect\Auth\SecretStore;
 use Kronixon\Connect\Compat\CompatInterface;
 use Kronixon\Connect\Protocol;
@@ -31,7 +32,7 @@ use Kronixon\Connect\Support\Log;
  */
 final class Endpoints
 {
-    public const LAST_REQUEST_AT = 'KX_LAST_REQUEST_AT';
+    public const LAST_REQUEST_AT = SecretStore::LAST_REQUEST_AT;
 
     /** module/unpair.json `reason`. */
     private const UNPAIR_REASONS = ['user', 'store_deleted', 'revoked', 'tenant_deleted', 'other'];
@@ -160,6 +161,9 @@ final class Endpoints
      * POST rotate (README §4.5): the new secret sealed to this module's key becomes `cur`, the old one
      * `prev` until `prev_valid_until` (at most 24 h from now). The answer is still signed with the old
      * secret, the one the request was verified with (Kernel). Repeating it is harmless.
+     *
+     * A rotation verified with `prev` is a retry after a lost answer: the platform still holds the
+     * secret that is `prev` here, so only `cur` is replaced and `prev` keeps its expiry.
      */
     private function rotate(Request $request): Response
     {
@@ -180,7 +184,8 @@ final class Endpoints
         if ($errors !== [] || $secret === null || ! is_int($until)) {
             throw ApiError::validationFailed($errors);
         }
-        if (! $this->secrets->rotated($secret, min($until, $this->now() + 86400))) {
+        $keyId = $request->verifiedKeyId() ?? KeyRing::CURRENT;
+        if (! $this->secrets->rotated($secret, min($until, $this->now() + 86400), $keyId)) {
             throw ApiError::moduleError();
         }
         $this->log->info('auth', 'Shared secret rotated', ['prev_valid_until' => $until]);

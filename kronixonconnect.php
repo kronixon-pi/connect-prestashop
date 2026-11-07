@@ -27,6 +27,7 @@ use Kronixon\Connect\Crypto\SealedBox;
 use Kronixon\Connect\Install\Hooks;
 use Kronixon\Connect\Install\Installer;
 use Kronixon\Connect\Install\ServiceAccount;
+use Kronixon\Connect\Install\TabRoles;
 use Kronixon\Connect\Platform\Pairing;
 use Kronixon\Connect\Protocol;
 use Kronixon\Connect\Services;
@@ -112,10 +113,14 @@ class KronixonConnect extends Module
         }
         $installer = $this->installer();
         $accountRemoved = ServiceAccount::remove();
+        // PrestaShop deletes the tab's roles with the tab but not their `access` rows: read the ids now.
+        $tabRoles = TabRoles::forShop();
+        $roleIds = $tabRoles->roleIds(array_column($this->tabs, 'class_name'));
 
         return $installer->dropTables()
             && $installer->deleteConfiguration()
             && parent::uninstall()
+            && $tabRoles->deleteAccess($roleIds)
             && $accountRemoved;
     }
 

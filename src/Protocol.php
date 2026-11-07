@@ -27,7 +27,7 @@ final class Protocol
 
     public const MODULE_NAME = 'kronixonconnect';
 
-    public const MODULE_VERSION = '0.2.0';
+    public const MODULE_VERSION = '0.2.1';
 
     /** The Connect service the module pairs with unless the administrator enters another (README §1). */
     public const DEFAULT_PLATFORM_URL = 'https://connect.kronixon.com';

@@ -55,11 +55,22 @@ final class SecretStore implements PairingState
 
     public const TENANT_NAME = 'KX_TENANT_NAME';
 
+    /** The settings page's last pairing outcome (Pairing::STATE). */
+    public const PAIR_STATE = 'KX_PAIR_STATE';
+
+    /** The time of the last verified platform request (Endpoints::LAST_REQUEST_AT). */
+    public const LAST_REQUEST_AT = 'KX_LAST_REQUEST_AT';
+
     /** `kxs_` + 32 base62 characters (README §4.1). */
     public const SECRET_PATTERN = '/\Akxs_[0-9A-Za-z]{32}\z/';
 
-    /** The keys a pairing writes; forget() deletes them (the key pair and the platform URL stay). */
-    private const PAIRING_KEYS = [self::SECRET, self::SECRET_PREV, self::SECRET_PREV_UNTIL, self::API_BASE, self::PAIRED_AT, self::PLATFORM_KEY, self::TENANT_NAME];
+    /**
+     * The keys that describe a pairing; forget() deletes them, besides STORE_ID, whoever ends the
+     * pairing (the settings page or the platform's `POST unpair`). What stays belongs to the
+     * installation, not to a pairing: the key pair (KEY_PAIR, PUBLIC_KEY), the platform URL and its
+     * HTTP switch, the instance id, the service account, the limits and the later-version settings.
+     */
+    public const PAIRING_KEYS = [self::SECRET, self::SECRET_PREV, self::SECRET_PREV_UNTIL, self::API_BASE, self::PAIRED_AT, self::PLATFORM_KEY, self::TENANT_NAME, self::PAIR_STATE, self::LAST_REQUEST_AT];
 
     /** @var Settings */
     private $settings;
@@ -149,8 +160,14 @@ final class SecretStore implements PairingState
             && $this->settings->set(self::STORE_ID, $storeId);
     }
 
-    /** `cur` becomes `prev` until $prevUntil; $secret becomes `cur`. Repeating it with the same secret changes nothing. */
-    public function rotated(string $secret, int $prevUntil): bool
+    /**
+     * $secret becomes `cur`. Verified with `cur` ($verifiedWith), the old `cur` becomes `prev` until
+     * $prevUntil. Verified with `prev` (a retry whose first answer was lost: the platform never
+     * switched and still signs with the secret that is `prev` here), `prev` and its expiry stay and
+     * only `cur` is replaced, so the never-confirmed secret stops verifying. Repeating it with the
+     * same secret changes nothing.
+     */
+    public function rotated(string $secret, int $prevUntil, string $verifiedWith = KeyRing::CURRENT): bool
     {
         $current = $this->current();
         if ($current === null) {
@@ -158,6 +175,9 @@ final class SecretStore implements PairingState
         }
         if (hash_equals($current, $secret)) {
             return true;
+        }
+        if ($verifiedWith === KeyRing::PREVIOUS) {
+            return $this->settings->set(self::SECRET, $this->cipher->encrypt($secret));
         }
 
         return $this->settings->set(self::SECRET_PREV, $this->cipher->encrypt($current))

@@ -4,6 +4,15 @@ All notable changes of the module are listed here; versions follow [Semantic Ver
 
 ## [Unreleased]
 
+### Fixed
+
+- 0.2.1: a rotation retried after a lost answer (verified with `prev`) replaces only `cur` and keeps
+  `prev` with its original expiry, so the platform's secret keeps verifying and the unconfirmed one
+  does not.
+- An unpair by the platform also forgets the last pairing outcome (`KX_PAIR_STATE`) and the time of the
+  last platform request (`KX_LAST_REQUEST_AT`).
+- Uninstall deletes the `access` rows of the back-office tab's roles, which PrestaShop leaves behind.
+
 ### Added
 
 - 0.2.0 pairing: the settings page (also *Advanced Parameters → Kronixon Connect*) pairs the shop with a
