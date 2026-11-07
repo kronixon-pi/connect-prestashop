@@ -53,6 +53,13 @@ install_s=$(elapsed)
 read -r version php_version < <(dc exec -T -u www-data -e PS_DOMAIN="localhost:$port" ps php modules/kronixonconnect/scripts/ps/prepare-shop.php </dev/null)
 step "PrestaShop $version on PHP $php_version installed, friendly URLs on"
 
+# `access` / `module_access` rows whose authorization role no longer exists. A stock shop may already
+# hold some; the module must not add any (PrestaShop deletes a tab's roles but not their access rows).
+orphans() {
+    sql "SELECT (SELECT COUNT(*) FROM ps_access a LEFT JOIN ps_authorization_role r ON r.id_authorization_role = a.id_authorization_role WHERE r.id_authorization_role IS NULL), (SELECT COUNT(*) FROM ps_module_access a LEFT JOIN ps_authorization_role r ON r.id_authorization_role = a.id_authorization_role WHERE r.id_authorization_role IS NULL)"
+}
+orphans_before="$(orphans)"
+
 m0=$(date +%s)
 console prestashop:module install kronixonconnect
 module_s=$(( $(date +%s) - m0 ))
@@ -80,6 +87,7 @@ console prestashop:module uninstall kronixonconnect
 expect_eq "kx_ tables after uninstall" "0" "$(sql "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'prestashop' AND table_name LIKE 'ps\_kx\_%'")"
 expect_eq "KX_ keys after uninstall" "0" "$(sql "SELECT COUNT(*) FROM ps_configuration WHERE name LIKE 'KX\_%'")"
 expect_eq "service account and tab after uninstall" "0	0	0	0" "$(account)"
+expect_eq "access rows of deleted roles after uninstall (stock shop: $orphans_before)" "$orphans_before" "$(orphans)"
 console prestashop:module install kronixonconnect
 expect_eq "kx_ tables after reinstall" "7" "$(sql "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'prestashop' AND table_name LIKE 'ps\_kx\_%'")"
 expect_eq "service account after reinstall" "1	1	0	1" "$(account)"
@@ -138,6 +146,7 @@ psphp modules/kronixonconnect/scripts/ps/pair.php "$stub" K7PM-3XQ9 >/dev/null
 console prestashop:module uninstall kronixonconnect
 expect_eq "uninstall told the platform (reason)" "uninstall" "$(dc exec -T ps cat /tmp/kx-stub/state.json </dev/null | jq -r '.unpaired')"
 expect_eq "service account after uninstall of a paired shop" "0	0	0	0" "$(account)"
+expect_eq "access rows of deleted roles after the second uninstall (stock shop: $orphans_before)" "$orphans_before" "$(orphans)"
 console prestashop:module install kronixonconnect
 step "pairing, signed calls, rotation and unpair checked"
 
