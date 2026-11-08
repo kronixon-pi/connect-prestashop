@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Kronixon\Connect\Tests\Unit\Api;
 
 use Kronixon\Connect\Api\Response;
+use Kronixon\Connect\Auth\SecretStore;
+use Kronixon\Connect\Platform\Pairing;
 use Kronixon\Connect\Support\Log;
 use Kronixon\Connect\Support\Uuid;
 use Kronixon\Connect\Tests\Support\TestModule;
@@ -154,6 +156,32 @@ final class SessionEndpointsTest extends TestCase
         $body = '{"reason":"because"}';
         self::assertSame(422, $bad->kernel()->handle($bad->signedServer((string) $bad->platform->secret, 'POST', 'unpair', [], $body), $body)->status());
         self::assertTrue($bad->secrets->isPaired());
+    }
+
+    public function test_an_unpair_by_the_platform_leaves_no_pairing_setting_behind(): void
+    {
+        $module = new TestModule();
+        $module->settings->set('KX_INSTANCE_ID', '0192b2e4-2f7a-4c5b-8a1d-3e4f5a6b7c8d');
+        $module->pair();
+        $module->settings->set(SecretStore::LAST_REQUEST_AT, '1790772000'); // written by the front controller's onVerified
+        $new = 'kxs_9Qm3vT7bLp2XcR8fWn4zHd6KyE1sAu5G';
+        $rotate = $module->rotateBody($new, 1790772000 + 86400);
+        self::assertSame(200, $module->kernel()->handle($module->signedServer((string) $module->platform->secret, 'POST', 'rotate', [], $rotate), $rotate)->status());
+        $installation = ['KX_INSTANCE_ID', SecretStore::KEY_PAIR, SecretStore::PUBLIC_KEY, Pairing::PLATFORM_URL];
+        self::assertSame('paired', $module->pairing()->state()['state'] ?? null);
+        foreach (array_merge([SecretStore::STORE_ID], SecretStore::PAIRING_KEYS) as $key) {
+            self::assertNotNull($module->settings->get($key), $key.' is written by a pairing or a rotation');
+        }
+
+        $body = '{"reason":"revoked"}';
+        $response = $module->kernel()->handle($module->signedServer($new, 'POST', 'unpair', [], $body), $body);
+
+        self::assertSame(200, $response->status());
+        $left = array_keys($module->settings->values);
+        sort($left);
+        sort($installation);
+        self::assertSame($installation, $left, 'only the installation settings stay');
+        self::assertSame([], $module->pairing()->state(), 'the settings page shows no pairing outcome');
     }
 
     public function test_the_log_masks_secret_shaped_values_and_sensitive_names(): void

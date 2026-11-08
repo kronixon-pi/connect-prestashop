@@ -41,7 +41,7 @@ final class Pairing
     /** '1' allows a plain http:// platform URL (a development platform only, README §2). */
     public const ALLOW_HTTP = 'KX_PLATFORM_ALLOW_HTTP';
 
-    public const STATE = 'KX_PAIR_STATE';
+    public const STATE = SecretStore::PAIR_STATE;
 
     /** The platform's code alphabet (README §5): no 0/O, 1/I. */
     private const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
