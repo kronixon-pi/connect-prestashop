@@ -22,7 +22,7 @@ namespace Kronixon\Connect\Catalog;
  * `GET catalog/variants` (module/catalog-variants.json): the combinations of the paired shop by
  * combination id, all or of one `product_id`, with their shop values (impacts, default, minimal
  * quantity), option values, images and the default stock row. `since` is the product's `date_upd`
- * (a combination has none). Five queries a page.
+ * (a combination has none). Six queries a page.
  */
 final class VariantReader implements Reader
 {
@@ -81,10 +81,23 @@ final class VariantReader implements Reader
         }, $rows);
         $in = Rows::in($ids);
 
+        // Two queries, not a join: MySQL drives a join from the small `attribute` table and reads every
+        // combination row of the shop through the (id_attribute, id_product_attribute) primary key.
+        $pairs = $this->sql->rows('SELECT id_product_attribute, id_attribute FROM '.$this->sql->table('product_attribute_combination')
+            .' WHERE id_product_attribute IN ('.$in.')');
+        $attributes = array_values(array_unique(array_map(static function (array $row): int {
+            return (int) $row['id_attribute'];
+        }, $pairs)));
+        $groups = [];
+        foreach ($this->sql->rows('SELECT id_attribute, id_attribute_group FROM '.$this->sql->table('attribute').' WHERE id_attribute IN ('.Rows::in($attributes).')') as $row) {
+            $groups[(int) $row['id_attribute']] = (int) $row['id_attribute_group'];
+        }
         $options = [];
-        foreach ($this->sql->rows('SELECT pac.id_product_attribute, pac.id_attribute, a.id_attribute_group FROM '.$this->sql->table('product_attribute_combination')
-            .' pac INNER JOIN '.$this->sql->table('attribute').' a ON a.id_attribute = pac.id_attribute WHERE pac.id_product_attribute IN ('.$in.')') as $row) {
-            $options[(int) $row['id_product_attribute']][] = [(int) $row['id_attribute_group'], (int) $row['id_attribute']];
+        foreach ($pairs as $row) {
+            $attribute = (int) $row['id_attribute'];
+            if (isset($groups[$attribute])) {  // a combination row of a deleted value: skipped, as the join did
+                $options[(int) $row['id_product_attribute']][] = [$groups[$attribute], $attribute];
+            }
         }
         $images = [];
         // Only images the shop has (a shared combination may also point at another shop's images); read

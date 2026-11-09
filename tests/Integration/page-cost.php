@@ -13,8 +13,8 @@ declare(strict_types=1);
  * PrestaShop's one-time work (on 9.x about 3 000 rows of image type and link lookups), which is not a
  * cost of the page.
  * Prints one JSON line per reader; exit 1 when a page of an --enforce reader reads more rows per item
- * than its limit (`name:limit`, or --max, default 60). By default products (60) and prices (20)
- * are enforced; the other readers are measured and printed only.
+ * than its limit (`name:limit`, or --max, default 60). By default products (60), prices (20) and
+ * variants (20) are enforced; the other readers are measured and printed only.
  * Run inside the shop container as www-data, after catalog-walk.php has generated the products
  * (scripts/ps-smoke.sh does).
  *
@@ -59,7 +59,7 @@ $scope = PrestaShopScope::of($context, Version::select(_PS_VERSION_));
 $readers = CatalogEndpoints::readers(new PrestaShopSql($db, _DB_PREFIX_), new PrestaShopImageUrls($context->link));
 $endpoints = isset($options['endpoints']) ? explode(',', (string) $options['endpoints']) : array_keys($readers);
 $enforce = [];
-foreach (explode(',', (string) ($options['enforce'] ?? 'products:60,prices:20')) as $limit) {
+foreach (explode(',', (string) ($options['enforce'] ?? 'products:60,prices:20,variants:20')) as $limit) {
     [$name, $most] = explode(':', $limit, 2) + [1 => $options['max'] ?? 60];
     $enforce[$name] = (int) $most;
 }

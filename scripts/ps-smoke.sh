@@ -171,10 +171,10 @@ elif psphp modules/kronixonconnect/tests/Integration/validate-answers.php /tmp/k
 else
     echo "  FAIL catalog answers against their schemas"; failures=$((failures + 1))
 fi
-# Rows MySQL reads for a page (tests/Integration/page-cost.php): bounded per item for products and
-# prices, printed for every reader.
+# Rows MySQL reads for a page (tests/Integration/page-cost.php): bounded per item for products, prices
+# and variants, printed for every reader.
 if psphp modules/kronixonconnect/tests/Integration/page-cost.php >"$tmp/cost"; then
-    echo "  ok   products and prices pages read a bounded number of rows per item"
+    echo "  ok   products, prices and variants pages read a bounded number of rows per item"
 else
     echo "  FAIL rows read per catalog page"; failures=$((failures + 1))
 fi
