@@ -281,12 +281,16 @@ foreach ($endpoints as $endpoint) {
         if (! $mutating && $rows !== count($want)) {
             $fail("$endpoint K=$k: read $rows rows, the shop has ".count($want));
         }
+        // An entity the shop has none of (max_id 0) has no range and no page.
+        $pages = count($times);
+        $times = $times === [] ? [0.0] : $times;
+        $baseline = $baseline === [] ? [0] : $baseline;
         sort($times);
         $pct = static function (float $q) use ($times): float {
             return round($times[(int) min(count($times) - 1, floor($q * count($times)))], 1);
         };
         echo json_encode([
-            'endpoint' => $endpoint, 'k' => $k, 'limit' => $limit, 'rows' => $rows, 'pages' => count($times),
+            'endpoint' => $endpoint, 'k' => $k, 'limit' => $limit, 'rows' => $rows, 'pages' => $pages,
             'ms_page_p50' => $pct(0.5), 'ms_page_p95' => $pct(0.95), 'ms_page_max' => round(end($times), 1),
             'seconds' => round(array_sum($times) / 1000, 1),
             // memory before each page relative to the walk's start (flat = nothing kept between pages)
