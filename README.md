@@ -4,10 +4,10 @@ The free, open-source companion module that links a PrestaShop store to **Kronix
 platform never touches the shop's database, files or the PrestaShop Webservice: it talks only to
 this module, over the signed [Connect protocol v1](protocol/v1/README.md).
 
-> **Status: 0.2.1, pairing.** The module pairs with Kronixon PI from its settings page, verifies the
-> signature of every protocol request, signs every answer and serves `capabilities`, `profile`,
-> `health`, `rotate` and `unpair`. Catalog reads, writes, webhooks and self-update arrive in the next
-> versions. Do not install it on a production shop yet.
+> **Status: 0.3.0, pairing and catalog reads.** The module pairs with Kronixon PI from its settings page,
+> verifies the signature of every protocol request, signs every answer and serves `capabilities`,
+> `profile`, `health`, `rotate`, `unpair` and the eleven `GET catalog/*` reads. Writes, webhooks and
+> self-update arrive in the next versions. Do not install it on a production shop yet.
 
 ## Supported versions
 
@@ -60,17 +60,20 @@ The API front controller answers at `https://<shop>/module/kronixonconnect/api?p
 
 The signed `GET catalog/*` endpoints ([protocol §6.1](protocol/v1/README.md#61-module-endpoints)) read
 the paired shop (Context shop) and never write. Each answer is exactly its `module/catalog-*.json`
-schema. Endpoints so far: `products`, `variants`, `images`, `prices`, `stock`.
+schema: `products`, `variants`, `images`, `prices`, `stock`, `categories`, `brands`, `suppliers`,
+`attributes` (features and attribute groups, told apart by `kind`), `attribute-values` (`kind` required) and
+`tags`.
 
-- **Order and paging.** Items come in ascending id order (prices and stock: product id, then variant id);
+- **Order and paging.** Items come in ascending id order (prices and stock: product id, then variant id;
+  attributes: id, then kind — a feature before the attribute group with the same id);
   `limit` is 1–500 (1–1 000 for prices and stock), 100 by default; an invalid parameter answers
   `400 bad_request` with `details.errors`. An answer stays under 8 MB: items past that move to the next page.
 - **Cursor.** base64url without padding of the JSON `{"id":<last id>}`, or `{"id":<product id>,"v":<variant
-  id>}` for prices and stock. A page starts after the cursor's position; `{"id":N}` without `v` starts
-  after every row of id N. Only that exact form is accepted (no padding, no other member, integers only);
+  id>}` for prices and stock, `{"id":<id>,"v":0|1}` for attributes (0 a feature, 1 an attribute group). A
+  page starts after the cursor's position; `{"id":N}` without `v` starts after every row of id N. Only that exact form is accepted (no padding, no other member, integers only);
   anything else is `400`. The cursor carries no signature of its own: the request that carries it is signed.
-- **Id ranges.** `meta.max_id` is the highest id of the entity (prices and stock: of products), on every
-  page. `until_id` is an **inclusive** upper bound of the same id. A client splits `(0, max_id]` into K
+- **Id ranges.** `meta.max_id` is the highest id of the entity (prices and stock: of products; attributes:
+  of features and attribute groups; attribute values: of the kind asked), on every page. `until_id` is an **inclusive** upper bound of the same id. A client splits `(0, max_id]` into K
   ranges `(a, b]` and reads each from the cursor `{"id":a}` with `until_id=b`, in parallel.
 - **Guarantee of a range walk.** Pages are keyset reads by id (no offsets, no snapshot), so: every row that
   exists for the whole walk comes exactly once, in exactly one range; no row comes twice; a row deleted
@@ -79,14 +82,22 @@ schema. Endpoints so far: `products`, `variants`, `images`, `prices`, `stock`.
   from, so they are outside every range and arrive through events or a later `since` read. Tested in
   PHPUnit (K = 1, 3, 8 over ids with gaps, rows created and deleted between pages) and on real shops.
 - **`since`** (UTC, compared in the shop's time zone) filters on `date_upd`: the product's for products,
-  variants, images and prices; `stock_available` has no change date, so stock ignores it and reads every row.
+  variants, images and prices; the entity's own for categories, brands and suppliers. Stock, attributes,
+  attribute values and tags have no change date, so they ignore it and read every row.
+- **Categories.** PrestaShop's Root (no parent) and the shop's Home category are `root: true`, Home also
+  `is_home: true`. Pages follow ids, not the tree: parents first is an order by `level`.
 - **Values.** Translated fields per shop language by iso (`{}` when a field has no row); prices net, as
   PrestaShop stores them, in the shop default currency (a combination's `price` is the product price plus
   its `price_impact`); stock is the shop's `stock_available` row (its group's when the group shares stock),
-  location `default`; dates in UTC; `kx_id` from `kx_entity_map`; image `sha256`/`kx_key` from
-  `kx_image_map`. Image URLs come from the shop's own `Link` (friendly URLs, media servers, overrides).
-- **`content_hash`** (products): sha256 of the canonical JSON of the item without `date_add`, `date_upd`,
-  `quantity`, `content_hash` and `images[].url`. Canonical as the platform's sync engine: maps sorted by key
+  location `default`; dates in UTC; image `sha256`/`kx_key` from `kx_image_map`. Image and brand logo URLs
+  come from the shop's own `Link` (friendly URLs, media servers, overrides). `kx_id` comes from
+  `kx_entity_map` with the entity types `product`, `variant`, `category`, `brand`, `supplier`, `feature`,
+  `attribute_group`, `feature_value` and `attribute`. A feature value with `custom: true` is a per-product
+  text value. `value_count` of a feature counts its predefined values; `facets` are not read (no `facets`
+  capability).
+- **`content_hash`** (products and categories, as v1 declares it): sha256 of the canonical JSON of the item
+  without `date_add`, `date_upd`, `content_hash`, and for products `quantity` and `images[].url`, for
+  categories `product_count` (a counter, not content). Canonical as the platform's sync engine: maps sorted by key
   (byte order) at every depth, lists in their order (the module sorts every list whose order means
   nothing: category ids, features, tags, suppliers; images by position), strings in Unicode NFC, no floats,
   amounts as decimals without trailing zeros (`"99.990000"` → `"99.99"`), an empty map `{}`, JSON without
@@ -94,8 +105,9 @@ schema. Endpoints so far: `products`, `variants`, `images`, `prices`, `stock`.
   `fields=basic` hashes the members a basic item carries. The same data gives the same hash on PHP
   7.4–8.5 and PrestaShop 1.7.8–9.x; a value PrestaShop stores differently (a new 9.x product's
   `redirect_type` is `default`, 1.7.8's `404`) is different data.
-- **Cost.** A page is a fixed number of queries whatever its size (products 9, `fields=basic` 5, variants 5,
-  images 3, prices ≤ 6, stock ≤ 2): base rows by id, then one query per related table for the page's ids.
+- **Cost.** A page is a bounded number of queries whatever its size (products 9, `fields=basic` 5, variants 5,
+  images 3, prices ≤ 6, stock ≤ 2, categories, brands, suppliers and attribute values 4, attributes ≤ 8,
+  tags 2): base rows by id, then one query per related table for the page's ids.
   Measured on 100 000 generated products, limit 500, in process (`tests/Integration/catalog-walk.php`):
   ≈ 105–110 ms per products page on 1.7.8.11 and 9.1.5, memory flat between pages.
 
