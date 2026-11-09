@@ -6,7 +6,7 @@ declare(strict_types=1);
  *
  * @license   https://opensource.org/licenses/AFL-3.0 Academic Free License version 3.0
  *
- * Walks GET catalog/* on a real shop the way the platform's import does: reads meta.max_id, splits
+ * Walks every GET catalog/* reader (attribute values of both kinds) on a real shop the way the platform's import does: reads meta.max_id, splits
  * (0, max_id] into K ranges (its IdRange::split()) and reads each range page by page from the cursor
  * {"id":<after>} with until_id, in process (the readers without the HTTP kernel), K = 1, 3 and 8.
  * Checks that every row of the shop comes exactly once; with --mutate a K = 3 walk deletes one product
@@ -126,6 +126,14 @@ $expected = [
     'images' => "SELECT i.id_image FROM {$p}image i INNER JOIN {$p}image_shop ish ON ish.id_image = i.id_image AND ish.id_shop = $shopId",
     'prices' => "SELECT CONCAT(id_product, ':0') FROM {$p}product_shop WHERE id_shop = $shopId UNION ALL SELECT CONCAT(pa.id_product, ':', pa.id_product_attribute) FROM {$p}product_attribute pa INNER JOIN {$p}product_attribute_shop pas ON pas.id_product_attribute = pa.id_product_attribute AND pas.id_shop = $shopId",
     'stock' => "SELECT CONCAT(sa.id_product, ':', sa.id_product_attribute) FROM {$p}stock_available sa WHERE ".PrestaShopScope::of($context, Version::select(_PS_VERSION_))->stockWhere('sa'),
+    'categories' => "SELECT c.id_category FROM {$p}category c INNER JOIN {$p}category_shop s ON s.id_category = c.id_category AND s.id_shop = $shopId",
+    'brands' => "SELECT m.id_manufacturer FROM {$p}manufacturer m INNER JOIN {$p}manufacturer_shop s ON s.id_manufacturer = m.id_manufacturer AND s.id_shop = $shopId",
+    'suppliers' => "SELECT t.id_supplier FROM {$p}supplier t INNER JOIN {$p}supplier_shop s ON s.id_supplier = t.id_supplier AND s.id_shop = $shopId",
+    'attributes' => "SELECT CONCAT('feature:', f.id_feature) FROM {$p}feature f INNER JOIN {$p}feature_shop s ON s.id_feature = f.id_feature AND s.id_shop = $shopId"
+        ." UNION ALL SELECT CONCAT('attribute_group:', g.id_attribute_group) FROM {$p}attribute_group g INNER JOIN {$p}attribute_group_shop s ON s.id_attribute_group = g.id_attribute_group AND s.id_shop = $shopId",
+    'attribute-values?kind=feature' => "SELECT v.id_feature_value FROM {$p}feature_value v INNER JOIN {$p}feature_shop s ON s.id_feature = v.id_feature AND s.id_shop = $shopId",
+    'attribute-values?kind=attribute_group' => "SELECT a.id_attribute FROM {$p}attribute a INNER JOIN {$p}attribute_shop s ON s.id_attribute = a.id_attribute AND s.id_shop = $shopId",
+    'tags' => "SELECT id_tag FROM {$p}tag WHERE name <> '' AND id_lang IN (".implode(',', array_keys(PrestaShopScope::of($context, Version::select(_PS_VERSION_))->languages)).')',
 ];
 $byId = static function (array $item): string {
     return $item['external_id'];
@@ -133,10 +141,16 @@ $byId = static function (array $item): string {
 $byRow = static function (array $item): string {
     return $item['product_id'].':'.$item['variant_id'];
 };
-$keys = ['products' => $byId, 'variants' => $byId, 'images' => $byId, 'prices' => $byRow, 'stock' => $byRow];
-// A row key as a bit: an id, or product:variant (variant 0 → the product's bit, else the combination's).
+$keys = ['products' => $byId, 'variants' => $byId, 'images' => $byId, 'prices' => $byRow, 'stock' => $byRow, 'categories' => $byId,
+    'brands' => $byId, 'suppliers' => $byId, 'attribute-values' => $byId, 'tags' => $byId, 'attributes' => static function (array $item): string {
+        return $item['kind'].':'.$item['external_id'];
+    }, ];
+// A row key as a bit: an id; product:variant (variant 0 → the product's bit, else the combination's); kind:id.
 $slotOf = static function (string $key): array {
     $parts = explode(':', $key);
+    if (isset($parts[1]) && ! ctype_digit($parts[0])) {
+        return [$parts[0], (int) $parts[1]];
+    }
 
     return isset($parts[1]) && $parts[1] !== '0' ? ['v', (int) $parts[1]] : ['p', (int) $parts[0]];
 };
@@ -176,7 +190,10 @@ if ($out !== null && ! is_dir($out)) {
 }
 
 foreach ($endpoints as $endpoint) {
-    $reader = $readers[$endpoint]($scope);
+    // `attribute-values?kind=feature`: the endpoint and its own parameters.
+    [$name, $extra] = explode('?', $endpoint, 2) + [1 => ''];
+    $extra = $extra === '' ? '' : $extra.'&';
+    $reader = $readers[$name]($scope);
     $limit = min((int) ($options['limit'] ?? 500), $reader->maxLimit());
     $want = $ids($expected[$endpoint]);
     $walks = [1, 3, 8];
@@ -204,7 +221,7 @@ foreach ($endpoints as $endpoint) {
                 $before = memory_get_usage();
                 $baseline[] = $before - $start;
                 $t = hrtime(true);
-                $query = PageQuery::from(Request::fromServer(['REQUEST_METHOD' => 'GET', 'QUERY_STRING' => "path=catalog/$endpoint&limit=$limit&until_id=$until&cursor=$cursor"], ''), $scope, $reader->maxLimit());
+                $query = PageQuery::from(Request::fromServer(['REQUEST_METHOD' => 'GET', 'QUERY_STRING' => "path=catalog/$name&{$extra}limit=$limit&until_id=$until&cursor=$cursor"], ''), $scope, $reader->maxLimit());
                 $answer = $reader->read($query)->answer((string) $reader->maxId(), gmdate('Y-m-d\TH:i:s\Z'));
                 $json = json_encode($answer, Kronixon\Connect\Api\Response::JSON_FLAGS);
                 $times[] = (hrtime(true) - $t) / 1e6;
@@ -213,11 +230,14 @@ foreach ($endpoints as $endpoint) {
                     break 2;
                 }
                 if ($out !== null && $k === 1 && count($times) === 1) {
-                    file_put_contents("$out/catalog-$endpoint.json--walk.json", $json);
+                    file_put_contents("$out/catalog-$name.json--walk".($extra === '' ? '' : '-'.preg_replace('/[^a-z_]+/', '-', $extra)).'.json', $json);
                 }
                 $pageKb = max($pageKb, (int) ((memory_get_usage() - $before) / 1024));
                 foreach ($answer['data'] as $item) {
-                    [$slot, $bit] = $slotOf($keys[$endpoint]($item));
+                    [$slot, $bit] = $slotOf($keys[$name]($item));
+                    if (! isset($bits[$slot])) {
+                        $bits[$slot] = '';
+                    }
                     if (! $mark($bits[$slot], $bit)) {
                         $twice++;
                     }
@@ -251,7 +271,7 @@ foreach ($endpoints as $endpoint) {
         $missing = [];
         foreach ($want as $key) {
             [$slot, $bit] = $slotOf($key);
-            if (! isset($deleted[explode(':', $key)[0]]) && ! $isSet($bits[$slot], $bit)) {
+            if (! isset($deleted[explode(':', $key)[0]]) && ! $isSet($bits[$slot] ?? '', $bit)) {
                 $missing[] = $key;
             }
         }
