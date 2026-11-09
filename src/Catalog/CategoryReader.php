@@ -56,6 +56,11 @@ final class CategoryReader implements Reader
         return Rows::id($this->sql->rows('SELECT MAX(id_category) AS m FROM '.$this->sql->table('category'))[0]['m'] ?? null);
     }
 
+    public function maxCursorVariant(): ?int
+    {
+        return null;
+    }
+
     public function read(PageQuery $query): Page
     {
         [$rows, $more] = Rows::byId(

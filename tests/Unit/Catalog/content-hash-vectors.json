@@ -1,12 +1,11 @@
 {
-  "description": "content_hash vectors (README.md, Catalog reads): each item (already without date_*, quantity, images[].url and content_hash) must give this canonical JSON and sha256. decompose: the same item with every string in Unicode NFD must give the same hash. The platform's CanonicalPayload, with decimal() on the amount members, gives the same sha256 for each.",
+  "description": "content_hash vectors (README.md, Catalog reads): each item (already without kx_id, date_*, quantity, images[].url and content_hash) must give this canonical JSON and sha256. decompose: the same item with every string in Unicode NFD must give the same hash. The platform's CanonicalPayload, with decimal() on the amount members, gives the same sha256 for each.",
   "vectors": [
     {
       "name": "keys sorted at every depth, lists keep their order",
       "item": {
         "type": "simple",
         "external_id": "123",
-        "kx_id": null,
         "active": true,
         "category_ids": ["45", "46"],
         "attributes": [{ "value_id": "310", "feature_id": "7", "custom": false }],
@@ -15,8 +14,8 @@
         "tax_rules_group_id": 53,
         "out_of_stock": 2
       },
-      "json": "{\"active\":true,\"attributes\":[{\"custom\":false,\"feature_id\":\"7\",\"value_id\":\"310\"}],\"category_ids\":[\"45\",\"46\"],\"external_id\":\"123\",\"kx_id\":null,\"name\":{\"bg\":\"SSD 512 GB\",\"en\":\"SSD 512 GB\"},\"out_of_stock\":2,\"redirect\":{\"target_id\":\"0\",\"type\":\"404\"},\"tax_rules_group_id\":53,\"type\":\"simple\"}",
-      "sha256": "b7509073a9984c92b3615a9b410850db83fde3d10ddb642b4742425e343393d3"
+      "json": "{\"active\":true,\"attributes\":[{\"custom\":false,\"feature_id\":\"7\",\"value_id\":\"310\"}],\"category_ids\":[\"45\",\"46\"],\"external_id\":\"123\",\"name\":{\"bg\":\"SSD 512 GB\",\"en\":\"SSD 512 GB\"},\"out_of_stock\":2,\"redirect\":{\"target_id\":\"0\",\"type\":\"404\"},\"tax_rules_group_id\":53,\"type\":\"simple\"}",
+      "sha256": "26088a54756461b35572d0c9f80a356445acc984d471ccca2ac399ef404c0a03"
     },
     {
       "name": "amounts are decimals without trailing zeros, at any depth",
@@ -63,7 +62,6 @@
       "name": "a category",
       "item": {
         "external_id": "45",
-        "kx_id": null,
         "parent_id": "2",
         "root": false,
         "level": 2,
@@ -75,8 +73,8 @@
         "meta_title": {},
         "meta_description": {}
       },
-      "json": "{\"active\":true,\"description\":{},\"external_id\":\"45\",\"kx_id\":null,\"level\":2,\"link_rewrite\":{\"bg\":\"ssd\",\"en\":\"ssd\"},\"meta_description\":{},\"meta_title\":{},\"name\":{\"bg\":\"SSD\",\"en\":\"SSD\"},\"parent_id\":\"2\",\"position\":3,\"root\":false}",
-      "sha256": "0f5fa990ce57737eaafb53c011e30cbd128fba6da3f63aabfd35fdb7dfd6ac04"
+      "json": "{\"active\":true,\"description\":{},\"external_id\":\"45\",\"level\":2,\"link_rewrite\":{\"bg\":\"ssd\",\"en\":\"ssd\"},\"meta_description\":{},\"meta_title\":{},\"name\":{\"bg\":\"SSD\",\"en\":\"SSD\"},\"parent_id\":\"2\",\"position\":3,\"root\":false}",
+      "sha256": "05194b8922564945bd94560de1e72abb79e1a11a4c2297d27666017f883e2247"
     }
   ]
 }

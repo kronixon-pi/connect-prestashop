@@ -99,7 +99,7 @@ final class CatalogEndpoints
             $router->add('GET', '/v1/catalog/'.$endpoint, function (Request $request) use ($factory): Response {
                 $scope = ($this->scope)();
                 $reader = $factory($scope);
-                $page = $reader->read(PageQuery::from($request, $scope, $reader->maxLimit()));
+                $page = $reader->read(PageQuery::from($request, $scope, $reader->maxLimit(), $reader->maxCursorVariant()));
 
                 return Response::json(200, $page->answer($reader->maxId(), gmdate('Y-m-d\TH:i:s\Z', (int) floor($this->clock->now()))));
             });

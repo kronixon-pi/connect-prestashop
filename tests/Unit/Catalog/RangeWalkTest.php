@@ -122,7 +122,7 @@ final class RangeWalkTest extends TestCase
                 'seed' => static function (CatalogDb $db, int $n) use ($table, $shopTable, $id, $row): void {
                     $db->insert($table, $row + [$id => $n]);
                     if ($shopTable !== '') {
-                        $db->insert($shopTable, [$id => $n, 'id_shop' => 1]);
+                        $db->link($shopTable, $id, $n);
                     }
                 },
                 'delete' => static function (CatalogDb $db, int $n) use ($table, $shopTable, $id): void {

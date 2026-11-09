@@ -66,6 +66,11 @@ final class ProductReader implements Reader
         return Rows::id($this->sql->rows('SELECT MAX(id_product) AS m FROM '.$this->sql->table('product'))[0]['m'] ?? null);
     }
 
+    public function maxCursorVariant(): ?int
+    {
+        return null;
+    }
+
     /**
      * @throws ApiError 400 for an invalid `ids`, `active` or `fields`
      */
@@ -91,7 +96,8 @@ final class ProductReader implements Reader
         if ($ids !== null) {
             $where .= ' AND p.id_product IN ('.Rows::in(array_map('intval', explode(',', $ids))).')';
         }
-        $rows = $this->sql->rows('SELECT p.id_product, p.id_supplier, p.id_manufacturer, p.reference, p.ean13, p.upc, p.mpn,'
+        // The brand and the default supplier only when the shop has them (else "0", like no brand).
+        $rows = $this->sql->rows('SELECT p.id_product, ss.id_supplier, ms.id_manufacturer, p.reference, p.ean13, p.upc, p.mpn,'
             .' p.isbn, p.supplier_reference, p.weight, p.width, p.height, p.depth, p.is_virtual, p.cache_is_pack, p.product_type,'
             .' ps.cache_default_attribute, ps.active, ps.visibility, ps.available_for_order, ps.show_price, ps.`condition`,'
             .' ps.online_only, ps.id_category_default, ps.price, ps.wholesale_price, ps.id_tax_rules_group, ps.unity,'
@@ -99,6 +105,8 @@ final class ProductReader implements Reader
             .' ps.redirect_type, ps.id_type_redirected, ps.date_add, ps.date_upd'
             .' FROM '.$this->sql->table('product').' p INNER JOIN '.$this->sql->table('product_shop')
             .' ps ON ps.id_product = p.id_product AND ps.id_shop = '.$this->scope->shopId
+            .' LEFT JOIN '.$this->sql->table('manufacturer_shop').' ms ON ms.id_manufacturer = p.id_manufacturer AND ms.id_shop = '.$this->scope->shopId
+            .' LEFT JOIN '.$this->sql->table('supplier_shop').' ss ON ss.id_supplier = p.id_supplier AND ss.id_shop = '.$this->scope->shopId
             .' WHERE '.$where.' ORDER BY p.id_product LIMIT '.($query->limit + 1));
         $more = count($rows) > $query->limit;
         $rows = array_slice($rows, 0, $query->limit);
@@ -133,7 +141,10 @@ final class ProductReader implements Reader
             'kx' => Rows::kxIds($this->sql, self::ENTITY, $ids),
             'categories' => [], 'stock' => [], 'features' => [], 'tags' => [], 'suppliers' => [], 'images' => [],
         ];
-        foreach ($this->sql->rows('SELECT id_product, id_category FROM '.$this->sql->table('category_product').' WHERE id_product IN ('.$in.')') as $row) {
+        // Relations to other entities only where the shop has that entity (a multistore shop shares
+        // products, not its category tree, features or suppliers).
+        foreach ($this->sql->rows('SELECT cp.id_product, cp.id_category FROM '.$this->sql->table('category_product').' cp INNER JOIN '
+            .$this->sql->table('category_shop').' cs ON cs.id_category = cp.id_category AND cs.id_shop = '.$this->scope->shopId.' WHERE cp.id_product IN ('.$in.')') as $row) {
             $related['categories'][(int) $row['id_product']][] = (int) $row['id_category'];
         }
         foreach ($this->sql->rows('SELECT id_product, quantity, out_of_stock, depends_on_stock FROM '.$this->sql->table('stock_available')
@@ -144,7 +155,8 @@ final class ProductReader implements Reader
             return $related;
         }
         foreach ($this->sql->rows('SELECT fp.id_product, fp.id_feature, fp.id_feature_value, fv.custom FROM '.$this->sql->table('feature_product')
-            .' fp LEFT JOIN '.$this->sql->table('feature_value').' fv ON fv.id_feature_value = fp.id_feature_value WHERE fp.id_product IN ('.$in.')') as $row) {
+            .' fp INNER JOIN '.$this->sql->table('feature_shop').' fs ON fs.id_feature = fp.id_feature AND fs.id_shop = '.$this->scope->shopId
+            .' LEFT JOIN '.$this->sql->table('feature_value').' fv ON fv.id_feature_value = fp.id_feature_value WHERE fp.id_product IN ('.$in.')') as $row) {
             $related['features'][(int) $row['id_product']][] = [(int) $row['id_feature'], (int) $row['id_feature_value'], Rows::bool($row['custom'])];
         }
         foreach ($this->sql->rows('SELECT pt.id_product, pt.id_lang, t.name FROM '.$this->sql->table('product_tag').' pt INNER JOIN '
@@ -154,8 +166,9 @@ final class ProductReader implements Reader
                 $related['tags'][(int) $row['id_product']][(int) $row['id_lang']][] = Rows::text($row['name']);
             }
         }
-        foreach ($this->sql->rows('SELECT id_product, id_supplier, product_supplier_reference, product_supplier_price_te, id_currency FROM '
-            .$this->sql->table('product_supplier').' WHERE id_product_attribute = 0 AND id_product IN ('.$in.')') as $row) {
+        foreach ($this->sql->rows('SELECT psu.id_product, psu.id_supplier, psu.product_supplier_reference, psu.product_supplier_price_te, psu.id_currency FROM '
+            .$this->sql->table('product_supplier').' psu INNER JOIN '.$this->sql->table('supplier_shop').' ss ON ss.id_supplier = psu.id_supplier AND ss.id_shop = '
+            .$this->scope->shopId.' WHERE psu.id_product_attribute = 0 AND psu.id_product IN ('.$in.')') as $row) {
             $related['suppliers'][(int) $row['id_product']][(int) $row['id_supplier']] = $row;
         }
         foreach ($this->sql->rows('SELECT i.id_product, i.id_image, i.position, ish.cover, m.sha256 FROM '.$this->sql->table('image').' i INNER JOIN '
@@ -227,7 +240,9 @@ final class ProductReader implements Reader
                 'depends_on_stock' => $stock !== null && Rows::bool($stock['depends_on_stock']),
             ];
         }
+        // kx_id links the product to the platform; it is not content of the shop.
         $hashed = $item;
+        unset($hashed['kx_id']);
         if (isset($hashed['images'])) {
             foreach ($hashed['images'] as $i => $image) {
                 unset($hashed['images'][$i]['url']);

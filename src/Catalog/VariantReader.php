@@ -50,6 +50,11 @@ final class VariantReader implements Reader
         return Rows::id($this->sql->rows('SELECT MAX(id_product_attribute) AS m FROM '.$this->sql->table('product_attribute'))[0]['m'] ?? null);
     }
 
+    public function maxCursorVariant(): ?int
+    {
+        return null;
+    }
+
     public function read(PageQuery $query): Page
     {
         $productId = $query->idParam('product_id');
@@ -82,7 +87,10 @@ final class VariantReader implements Reader
             $options[(int) $row['id_product_attribute']][] = [(int) $row['id_attribute_group'], (int) $row['id_attribute']];
         }
         $images = [];
-        foreach ($this->sql->rows('SELECT id_product_attribute, id_image FROM '.$this->sql->table('product_attribute_image').' WHERE id_product_attribute IN ('.$in.')') as $row) {
+        // Only images the shop has (a shared combination may also point at another shop's images).
+        foreach ($this->sql->rows('SELECT pai.id_product_attribute, pai.id_image FROM '.$this->sql->table('product_attribute_image').' pai INNER JOIN '
+            .$this->sql->table('image_shop').' ish ON ish.id_image = pai.id_image AND ish.id_shop = '.$this->scope->shopId
+            .' WHERE pai.id_product_attribute IN ('.$in.')') as $row) {
             $images[(int) $row['id_product_attribute']][] = (int) $row['id_image'];
         }
         $stock = [];

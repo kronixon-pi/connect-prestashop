@@ -55,6 +55,11 @@ final class BrandReader implements Reader
         return Rows::id($this->sql->rows('SELECT MAX(id_manufacturer) AS m FROM '.$this->sql->table('manufacturer'))[0]['m'] ?? null);
     }
 
+    public function maxCursorVariant(): ?int
+    {
+        return null;
+    }
+
     public function read(PageQuery $query): Page
     {
         [$rows, $more] = Rows::byId(

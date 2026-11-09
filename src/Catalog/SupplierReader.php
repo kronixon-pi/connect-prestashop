@@ -51,6 +51,11 @@ final class SupplierReader implements Reader
         return Rows::id($this->sql->rows('SELECT MAX(id_supplier) AS m FROM '.$this->sql->table('supplier'))[0]['m'] ?? null);
     }
 
+    public function maxCursorVariant(): ?int
+    {
+        return null;
+    }
+
     public function read(PageQuery $query): Page
     {
         [$rows, $more] = Rows::byId(

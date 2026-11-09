@@ -50,6 +50,12 @@ final class PriceReader implements Reader
         return Rows::id($this->sql->rows('SELECT MAX(id_product) AS m FROM '.$this->sql->table('product'))[0]['m'] ?? null);
     }
 
+    /** Rows are keyed by (product, variant): `v` is the variant id. */
+    public function maxCursorVariant(): int
+    {
+        return PHP_INT_MAX;
+    }
+
     public function read(PageQuery $query): Page
     {
         $n = $query->limit + 1;

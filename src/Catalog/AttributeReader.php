@@ -60,6 +60,12 @@ final class AttributeReader implements Reader
         return (string) max((int) ($row['f'] ?? 0), (int) ($row['g'] ?? 0));
     }
 
+    /** Features and attribute groups share ids: `v` is the kind (0 a feature, 1 an attribute group). */
+    public function maxCursorVariant(): int
+    {
+        return PHP_INT_MAX;
+    }
+
     public function read(PageQuery $query): Page
     {
         $rows = [];

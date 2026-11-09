@@ -52,6 +52,11 @@ final class AttributeValueReader implements Reader
         return (string) max((int) $this->max('feature_value', 'id_feature_value'), (int) $this->max('attribute', 'id_attribute'));
     }
 
+    public function maxCursorVariant(): ?int
+    {
+        return null;
+    }
+
     public function read(PageQuery $query): Page
     {
         $kind = $query->param('kind');
