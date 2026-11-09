@@ -4,7 +4,7 @@ The free, open-source companion module that links a PrestaShop store to **Kronix
 platform never touches the shop's database, files or the PrestaShop Webservice: it talks only to
 this module, over the signed [Connect protocol v1](protocol/v1/README.md).
 
-> **Status: 0.3.0, pairing and catalog reads.** The module pairs with Kronixon PI from its settings page,
+> **Status: 0.3.1, pairing and catalog reads.** The module pairs with Kronixon PI from its settings page,
 > verifies the signature of every protocol request, signs every answer and serves `capabilities`,
 > `profile`, `health`, `rotate`, `unpair` and the eleven `GET catalog/*` reads. Writes, webhooks and
 > self-update arrive in the next versions. Do not install it on a production shop yet.
