@@ -57,13 +57,27 @@ final class Scope
     /** @var bool `product_shop.unit_price` exists (PrestaShop 8.0+); before, price / unit_price_ratio */
     public $unitPriceColumn;
 
+    /** @var int the shop's Home category (its `id_category`) */
+    public $homeCategoryId;
+
+    /** @var bool `feature_value.position` exists (PrestaShop 9.0+) */
+    public $featureValuePosition;
+
+    /**
+     * @var bool the install has more than one shop; with one, every product and value is that shop's,
+     *           so the counters need no `*_shop` join (it costs a lookup per counted row)
+     */
+    public $multistore = true;
+
     /**
      * @param  array<int, string>  $languages
      * @param  array<int, string>  $currencies
      * @param  list<string>  $imageTypes
      */
-    public function __construct(int $shopId, int $shopGroupId, bool $shareStock, array $languages, int $defaultLangId, DateTimeZone $timezone, array $currencies, array $imageTypes, bool $unitPriceColumn)
+    public function __construct(int $shopId, int $shopGroupId, bool $shareStock, array $languages, int $defaultLangId, DateTimeZone $timezone, array $currencies, array $imageTypes, bool $unitPriceColumn, int $homeCategoryId = 2, bool $featureValuePosition = false)
     {
+        $this->homeCategoryId = $homeCategoryId;
+        $this->featureValuePosition = $featureValuePosition;
         ksort($languages);
         $this->shopId = $shopId;
         $this->shopGroupId = $shopGroupId;

@@ -38,6 +38,20 @@ final class PrestaShopImageUrls implements ImageUrls
     {
         $url = (string) $this->link->getImageLink($slug !== '' ? $slug : 'image', (string) $imageId, $type);
 
+        return self::absolute($url);
+    }
+
+    public function brandLogo(int $brandId): ?string
+    {
+        if (! is_file(_PS_MANU_IMG_DIR_.$brandId.'.jpg')) {
+            return null;
+        }
+
+        return self::absolute((string) $this->link->getManufacturerImageLink($brandId));
+    }
+
+    private static function absolute(string $url): string
+    {
         return strpos($url, '://') === false ? 'http://'.ltrim($url, '/') : $url;
     }
 }

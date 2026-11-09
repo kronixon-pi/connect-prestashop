@@ -28,4 +28,7 @@ interface ImageUrls
      * @param  string|null  $type  an image type (`large_default`), null for the original image
      */
     public function url(int $imageId, string $slug, ?string $type): string;
+
+    /** The URL of a brand's (manufacturer's) logo, null when it has none. */
+    public function brandLogo(int $brandId): ?string;
 }

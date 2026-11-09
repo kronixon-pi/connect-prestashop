@@ -53,4 +53,9 @@ class Ps178 implements CompatInterface
     {
         return false;
     }
+
+    public function hasFeatureValuePosition(): bool
+    {
+        return false;
+    }
 }

@@ -40,6 +40,63 @@ final class Rows
         return $ids === [] ? '0' : implode(',', array_map('intval', $ids));
     }
 
+    /**
+     * One page of base rows by id: `$id` above the cursor and at most `until_id`, plus `$where`, in id
+     * order, at most `limit` rows and whether more follow.
+     *
+     * @return array{0: list<array<string, string|null>>, 1: bool}
+     */
+    public static function byId(Sql $sql, PageQuery $query, string $select, string $from, string $id, string $where = ''): array
+    {
+        if ($query->afterId >= $query->untilId) {
+            return [[], false];
+        }
+        $rows = $sql->rows('SELECT '.$select.' FROM '.$from.' WHERE '.$id.' > '.$query->afterId.' AND '.$id.' <= '.$query->untilId
+            .($where === '' ? '' : ' AND '.$where).' ORDER BY '.$id.' LIMIT '.($query->limit + 1));
+
+        return [array_slice($rows, 0, $query->limit), count($rows) > $query->limit];
+    }
+
+    /**
+     * The integer values of one column.
+     *
+     * @param  list<array<string, string|null>>  $rows
+     * @return list<int>
+     */
+    public static function ints(array $rows, string $column): array
+    {
+        return array_map(static function (array $row) use ($column): int {
+            return (int) $row[$column];
+        }, $rows);
+    }
+
+    /**
+     * `COUNT(*)` per id of a page: `SELECT $id, COUNT(…) FROM … GROUP BY $id` as id => count.
+     *
+     * @param  list<int>  $ids
+     * @return array<int, int>
+     */
+    public static function counts(Sql $sql, string $from, string $id, array $ids, string $count = 'COUNT(*)'): array
+    {
+        $counts = [];
+        foreach ($sql->rows('SELECT '.$id.' AS id, '.$count.' AS n FROM '.$from.' WHERE '.$id.' IN ('.self::in($ids).') GROUP BY '.$id) as $row) {
+            $counts[(int) $row['id']] = (int) $row['n'];
+        }
+
+        return $counts;
+    }
+
+    /**
+     * The join that keeps a counter to the shop's products: `$alias.id_product` in the shop's `product_shop`.
+     * None on an install with one shop, whose products are all that shop's.
+     */
+    public static function inShop(Sql $sql, Scope $scope, string $alias): string
+    {
+        return $scope->multistore
+            ? ' INNER JOIN '.$sql->table('product_shop').' cps ON cps.id_product = '.$alias.'.id_product AND cps.id_shop = '.$scope->shopId
+            : '';
+    }
+
     /** Database text as valid UTF-8 (a broken byte becomes `?`), so an answer always encodes. */
     public static function text(?string $value): string
     {
@@ -55,6 +112,20 @@ final class Rows
         mb_substitute_character($previous);
 
         return $clean;
+    }
+
+    /**
+     * A required name (the schemas want at least one character): the text, cut to $max characters when
+     * $max > 0, `-` when PrestaShop holds none.
+     */
+    public static function name(?string $value, int $max): string
+    {
+        $text = self::text($value);
+        if ($max > 0 && mb_strlen($text, 'UTF-8') > $max) {
+            $text = mb_substr($text, 0, $max, 'UTF-8');
+        }
+
+        return $text === '' ? '-' : $text;
     }
 
     public static function bool(?string $value): bool

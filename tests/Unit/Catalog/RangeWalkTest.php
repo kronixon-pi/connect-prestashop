@@ -4,12 +4,18 @@ declare(strict_types=1);
 
 namespace Kronixon\Connect\Tests\Unit\Catalog;
 
+use Kronixon\Connect\Catalog\AttributeReader;
+use Kronixon\Connect\Catalog\AttributeValueReader;
+use Kronixon\Connect\Catalog\BrandReader;
+use Kronixon\Connect\Catalog\CategoryReader;
 use Kronixon\Connect\Catalog\Cursor;
 use Kronixon\Connect\Catalog\ImageReader;
 use Kronixon\Connect\Catalog\PriceReader;
 use Kronixon\Connect\Catalog\ProductReader;
 use Kronixon\Connect\Catalog\Reader;
 use Kronixon\Connect\Catalog\StockReader;
+use Kronixon\Connect\Catalog\SupplierReader;
+use Kronixon\Connect\Catalog\TagReader;
 use Kronixon\Connect\Catalog\VariantReader;
 use Kronixon\Connect\Tests\Support\CatalogDb;
 use Kronixon\Connect\Tests\Support\ProtocolSchemas;
@@ -106,6 +112,70 @@ final class RangeWalkTest extends TestCase
                 return new StockReader($db, $db->scope());
             },
             'key' => $rowKey, 'range' => $productRow, 'seed' => $seed, 'delete' => $delete,
+        ]];
+        // Taxonomy: one row (and its shop row) per id.
+        $simple = static function (string $schema, string $table, string $shopTable, callable $reader, array $row = []) use ($externalId): array {
+            $id = 'id_'.$table;
+
+            return [[
+                'schema' => $schema, 'reader' => $reader, 'key' => $externalId, 'range' => $externalId,
+                'seed' => static function (CatalogDb $db, int $n) use ($table, $shopTable, $id, $row): void {
+                    $db->insert($table, $row + [$id => $n]);
+                    if ($shopTable !== '') {
+                        $db->link($shopTable, $id, $n);
+                    }
+                },
+                'delete' => static function (CatalogDb $db, int $n) use ($table, $shopTable, $id): void {
+                    $db->delete($table, $id.' = '.$n);
+                    if ($shopTable !== '') {
+                        $db->delete($shopTable, $id.' = '.$n);
+                    }
+                },
+            ]];
+        };
+        yield 'categories' => $simple('catalog-categories.json', 'category', 'category_shop', static function (CatalogDb $db): Reader {
+            return new CategoryReader($db, $db->scope());
+        }, ['id_parent' => 2]);
+        yield 'brands' => $simple('catalog-brands.json', 'manufacturer', 'manufacturer_shop', static function (CatalogDb $db): Reader {
+            return new BrandReader($db, $db->scope(), $db);
+        }, ['name' => 'B']);
+        yield 'suppliers' => $simple('catalog-suppliers.json', 'supplier', 'supplier_shop', static function (CatalogDb $db): Reader {
+            return new SupplierReader($db, $db->scope());
+        }, ['name' => 'S']);
+        yield 'tags' => $simple('catalog-tags.json', 'tag', '', static function (CatalogDb $db): Reader {
+            return new TagReader($db, $db->scope());
+        }, ['id_lang' => 1, 'name' => 't']);
+        yield 'attribute values of a feature' => [['extra' => 'kind=feature&'] + $simple('catalog-attribute-values.json', 'feature_value', '', static function (CatalogDb $db): Reader {
+            $db->pdo->exec('INSERT OR IGNORE INTO ps_feature_shop (id_feature, id_shop) VALUES (7, 1)');
+
+            return new AttributeValueReader($db, $db->scope());
+        }, ['id_feature' => 7])[0]];
+        // Features and attribute groups: both kinds share ids, ordered by (id, kind).
+        yield 'attributes' => [[
+            'schema' => 'catalog-attributes.json',
+            'reader' => static function (CatalogDb $db): Reader {
+                return new AttributeReader($db, $db->scope());
+            },
+            'key' => static function (array $item): string {
+                return $item['kind'].':'.$item['external_id'];
+            },
+            'range' => $externalId,
+            'seed' => static function (CatalogDb $db, int $id): void {
+                $db->insert('feature', ['id_feature' => $id]);
+                $db->insert('feature_shop', ['id_feature' => $id, 'id_shop' => 1]);
+                if ($id % 2 === 0) {
+                    $db->insert('attribute_group', ['id_attribute_group' => $id]);
+                    $db->insert('attribute_group_shop', ['id_attribute_group' => $id, 'id_shop' => 1]);
+                }
+            },
+            'delete' => static function (CatalogDb $db, int $id): void {
+                foreach (['feature', 'feature_shop'] as $table) {
+                    $db->delete($table, 'id_feature = '.$id);
+                }
+                foreach (['attribute_group', 'attribute_group_shop'] as $table) {
+                    $db->delete($table, 'id_attribute_group = '.$id);
+                }
+            },
         ]];
     }
 
@@ -220,7 +290,7 @@ final class RangeWalkTest extends TestCase
         $reader = $case['reader']($db);
         $cursor = Cursor::encode($after);
         for ($guard = 0; $guard < 10000; $guard++) {
-            $answer = ProductReaderTest::decode($reader->read(ProductReaderTest::query($db, 'limit=37&until_id='.$until.'&cursor='.$cursor, $reader->maxLimit())), $reader->maxId());
+            $answer = ProductReaderTest::decode($reader->read(ProductReaderTest::query($db, ($case['extra'] ?? '').'limit=37&until_id='.$until.'&cursor='.$cursor, $reader->maxLimit())), $reader->maxId());
             self::assertSame([], ProtocolSchemas::errors($case['schema'], $answer));
             foreach ($answer['data'] as $item) {
                 $range = $case['range']($item);
@@ -260,7 +330,7 @@ final class RangeWalkTest extends TestCase
         $reader = $case['reader']($db);
         $cursor = Cursor::encode(0);
         do {
-            $answer = ProductReaderTest::decode($reader->read(ProductReaderTest::query($db, 'limit='.$reader->maxLimit().'&cursor='.$cursor, $reader->maxLimit())), '0');
+            $answer = ProductReaderTest::decode($reader->read(ProductReaderTest::query($db, ($case['extra'] ?? '').'limit='.$reader->maxLimit().'&cursor='.$cursor, $reader->maxLimit())), '0');
             foreach ($answer['data'] as $item) {
                 $rows[(string) $case['key']($item)] = $case['range']($item);
             }

@@ -28,6 +28,7 @@ final class CatalogEndpointsTest extends TestCase
     {
         $this->db = new CatalogDb();
         $this->db->demo();
+        $this->db->taxonomy();
         $this->module = new TestModule();
         $this->module->pair();
         $db = $this->db;
@@ -38,7 +39,7 @@ final class CatalogEndpointsTest extends TestCase
     }
 
     /**
-     * @return iterable<string, array{string, string}>
+     * @return iterable<string, array{0: string, 1: string, 2?: array<string, string>}>
      */
     public function endpoints(): iterable
     {
@@ -47,14 +48,21 @@ final class CatalogEndpointsTest extends TestCase
         yield 'images' => ['catalog/images', 'catalog-images.json'];
         yield 'prices' => ['catalog/prices', 'catalog-prices.json'];
         yield 'stock' => ['catalog/stock', 'catalog-stock.json'];
+        yield 'categories' => ['catalog/categories', 'catalog-categories.json'];
+        yield 'brands' => ['catalog/brands', 'catalog-brands.json'];
+        yield 'suppliers' => ['catalog/suppliers', 'catalog-suppliers.json'];
+        yield 'attributes' => ['catalog/attributes', 'catalog-attributes.json'];
+        yield 'attribute values of features' => ['catalog/attribute-values', 'catalog-attribute-values.json', ['kind' => 'feature']];
+        yield 'attribute values of groups' => ['catalog/attribute-values', 'catalog-attribute-values.json', ['kind' => 'attribute_group']];
+        yield 'tags' => ['catalog/tags', 'catalog-tags.json'];
     }
 
     /**
      * @dataProvider endpoints
      */
-    public function test_a_walk_by_next_cursor_through_the_kernel(string $endpoint, string $schema): void
+    public function test_a_walk_by_next_cursor_through_the_kernel(string $endpoint, string $schema, array $parameters = []): void
     {
-        $query = ['limit' => '1'];
+        $query = $parameters + ['limit' => '1'];
         $pages = 0;
         do {
             $nonce = '4056df7f-8d8a-445a-9102-1e318c62'.sprintf('%04d', ++$pages);
@@ -100,7 +108,33 @@ final class CatalogEndpointsTest extends TestCase
             }
         }
 
-        self::assertSame(['prices', 'stock'], $accepted, 'rows keyed by product and variant');
+        self::assertSame(['prices', 'stock', 'attributes'], $accepted, 'rows keyed by product and variant, by id and kind');
+    }
+
+    public function test_the_attributes_cursor_carries_a_kind_0_or_1(): void
+    {
+        $statuses = [];
+        foreach ([0, 1, 2, 7] as $i => $v) {
+            $statuses[$v] = $this->get('catalog/attributes', ['cursor' => Cursor::encode(2, $v)], 'b056df7f-8d8a-445a-9102-1e318c62000'.$i)->status();
+        }
+
+        self::assertSame([0 => 200, 1 => 200, 2 => 400, 7 => 400], $statuses);
+    }
+
+    public function test_an_endpoint_reads_max_id_once(): void
+    {
+        $i = 0;
+        foreach ([['catalog/products', [], '5'], ['catalog/attribute-values', ['kind' => 'feature'], '312'], ['catalog/attribute-values', ['kind' => 'attribute_group'], '3']] as [$endpoint, $query, $maxId]) {
+            $this->db->queries = 0;
+            $response = $this->get($endpoint, $query, 'a056df7f-8d8a-445a-9102-1e318c62'.sprintf('%04d', ++$i));
+            $queries = $this->db->queries;
+            $reader = CatalogEndpoints::readers($this->db, $this->db)[substr($endpoint, 8)]($this->db->scope());
+            $this->db->queries = 0;
+            $reader->read(ProductReaderTest::query($this->db, http_build_query($query)));
+
+            self::assertSame($maxId, json_decode($response->body(), true)['meta']['max_id'], $endpoint);
+            self::assertSame($this->db->queries + ($endpoint === 'catalog/products' ? 1 : 0), $queries, $endpoint.': the page, and MAX() only when the page has no max_id');
+        }
     }
 
     /**

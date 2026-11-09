@@ -40,6 +40,9 @@ final class Page
     /** @var string|null */
     public $nextCursor;
 
+    /** @var string|null `meta.max_id` when it depends on the request (attribute-values: per kind) */
+    public $maxId;
+
     /**
      * @param  list<array<string, mixed>>  $items  at most the page's limit, in cursor order
      * @param  bool  $more  rows exist past the last item (in the range)
@@ -80,7 +83,7 @@ final class Page
                 'count' => count($this->items),
                 'next_cursor' => $this->nextCursor,
                 'has_more' => $this->hasMore,
-                'max_id' => $maxId,
+                'max_id' => $this->maxId ?? $maxId,
                 'generated_at' => $generatedAt,
             ],
         ];

@@ -4,8 +4,13 @@ declare(strict_types=1);
 
 namespace Kronixon\Connect\Tests\Unit\Catalog;
 
+use Kronixon\Connect\Catalog\AttributeReader;
+use Kronixon\Connect\Catalog\AttributeValueReader;
+use Kronixon\Connect\Catalog\BrandReader;
+use Kronixon\Connect\Catalog\CategoryReader;
 use Kronixon\Connect\Catalog\ProductReader;
 use Kronixon\Connect\Catalog\Reader;
+use Kronixon\Connect\Catalog\SupplierReader;
 use Kronixon\Connect\Catalog\VariantReader;
 use Kronixon\Connect\Tests\Support\CatalogDb;
 use Kronixon\Connect\Tests\Support\ProtocolSchemas;
@@ -56,6 +61,53 @@ final class MultistoreTest extends TestCase
         self::assertSame(['903'], array_column($two['images'], 'external_id'));
         self::assertSame(['10'], array_column($variants, 'external_id'));
         self::assertSame(['903'], $variants[0]['image_ids']);
+    }
+
+    /**
+     * The taxonomy readers of each shop: only the shop's own entities, and a value only when its parent
+     * (feature, attribute group) is the shop's too, so that no answer names an entity the shop lacks.
+     */
+    public function test_the_taxonomy_of_each_shop(): void
+    {
+        $db = new CatalogDb();
+        $db->demo();
+        $db->taxonomy();
+        $db->secondShop();
+        // Shop 2's own: category 990, supplier 4, feature 9 (value 390), attribute group 3 with value 4
+        // that both shops list in attribute_shop; brand 14 is taxonomy()'s brand outside shop 1.
+        $db->insert('category', ['id_category' => 990, 'id_parent' => 2, 'level_depth' => 2]);
+        $db->insert('supplier', ['id_supplier' => 4, 'name' => 'Shop 2 supplier']);
+        $db->insert('feature', ['id_feature' => 9]);
+        $db->insert('attribute_group', ['id_attribute_group' => 3]);
+        $db->link('attribute_group_shop', 'id_attribute_group', 3, 2);
+        $db->insert('attribute', ['id_attribute' => 4, 'id_attribute_group' => 3]);
+        foreach ([1, 2] as $shop) {
+            $db->link('attribute_shop', 'id_attribute', 4, $shop);
+        }
+        $ids = static function (CatalogDb $db, int $shop): array {
+            $key = static function (array $item): string {
+                return $item['kind'].':'.$item['external_id'];
+            };
+
+            return [
+                'categories' => array_column(self::data($db, new CategoryReader($db, $db->scope($shop))), 'external_id'),
+                'brands' => array_column(self::data($db, new BrandReader($db, $db->scope($shop), $db)), 'external_id'),
+                'suppliers' => array_column(self::data($db, new SupplierReader($db, $db->scope($shop))), 'external_id'),
+                'attributes' => array_map($key, self::data($db, new AttributeReader($db, $db->scope($shop)))),
+                'feature values' => array_column(self::data($db, new AttributeValueReader($db, $db->scope($shop)), 'kind=feature'), 'external_id'),
+                'attribute values' => array_column(self::data($db, new AttributeValueReader($db, $db->scope($shop)), 'kind=attribute_group'), 'external_id'),
+            ];
+        };
+
+        self::assertSame([
+            'categories' => ['1', '2', '45', '46'], 'brands' => ['12', '13'], 'suppliers' => ['2', '3'],
+            'attributes' => ['attribute_group:1', 'feature:2', 'attribute_group:2', 'feature:7', 'feature:8'],
+            'feature values' => ['310', '311', '312'], 'attribute values' => ['1', '2', '3'],
+        ], $ids($db, 1), 'value 4 is in shop 1, its group 3 is not');
+        self::assertSame([
+            'categories' => ['990'], 'brands' => ['14'], 'suppliers' => ['4'], 'attributes' => ['attribute_group:3', 'feature:9'],
+            'feature values' => ['390'], 'attribute values' => ['4'],
+        ], $ids($db, 2));
     }
 
     /**

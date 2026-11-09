@@ -72,6 +72,24 @@ final class CatalogEndpoints
             'stock' => static function (Scope $scope) use ($sql): Reader {
                 return new StockReader($sql, $scope);
             },
+            'categories' => static function (Scope $scope) use ($sql): Reader {
+                return new CategoryReader($sql, $scope);
+            },
+            'brands' => static function (Scope $scope) use ($sql, $urls): Reader {
+                return new BrandReader($sql, $scope, $urls);
+            },
+            'suppliers' => static function (Scope $scope) use ($sql): Reader {
+                return new SupplierReader($sql, $scope);
+            },
+            'attributes' => static function (Scope $scope) use ($sql): Reader {
+                return new AttributeReader($sql, $scope);
+            },
+            'attribute-values' => static function (Scope $scope) use ($sql): Reader {
+                return new AttributeValueReader($sql, $scope);
+            },
+            'tags' => static function (Scope $scope) use ($sql): Reader {
+                return new TagReader($sql, $scope);
+            },
         ];
     }
 
@@ -83,7 +101,8 @@ final class CatalogEndpoints
                 $reader = $factory($scope);
                 $page = $reader->read(PageQuery::from($request, $scope, $reader->maxLimit(), $reader->maxCursorVariant()));
 
-                return Response::json(200, $page->answer($reader->maxId(), gmdate('Y-m-d\TH:i:s\Z', (int) floor($this->clock->now()))));
+                // A page that knows its max_id (attribute values: of the kind asked) saves the reader's query.
+                return Response::json(200, $page->answer($page->maxId ?? $reader->maxId(), gmdate('Y-m-d\TH:i:s\Z', (int) floor($this->clock->now()))));
             });
         }
 

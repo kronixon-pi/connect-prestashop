@@ -50,4 +50,7 @@ interface CompatInterface
 
     /** Whether `product_shop.unit_price` exists (PrestaShop 8.0+); 1.7.8 has only `unit_price_ratio`. */
     public function hasUnitPriceColumn(): bool;
+
+    /** Whether `feature_value.position` exists (PrestaShop 9.0+). */
+    public function hasFeatureValuePosition(): bool;
 }

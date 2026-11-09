@@ -161,12 +161,19 @@ if (! is_dir($answers)) {
 $cursorFor = static function (int $after): string {
     return rtrim(strtr(base64_encode('{"id":'.$after.'}'), '+/', '-_'), '=');
 };
-foreach (['products', 'variants', 'images', 'prices', 'stock'] as $kind) {
-    $page = $call('GET', 'catalog/'.$kind, $cur, '', ['query' => ['limit' => '20']]);
+$reads = ['products' => [], 'variants' => [], 'images' => [], 'prices' => [], 'stock' => [], 'categories' => [], 'brands' => [],
+    'suppliers' => [], 'attributes' => [], 'attribute-values' => ['kind' => 'feature'], 'tags' => []];
+foreach ($reads as $kind => $parameters) {
+    $page = $call('GET', 'catalog/'.$kind, $cur, '', ['query' => $parameters + ['limit' => '20']]);
     $data = json_decode($page['body'], true);
     file_put_contents("$answers/catalog-$kind.json--signed.json", $page['body']);
     $check("GET catalog/$kind → 200 signed, data and meta.max_id", $page['status'] === 200 && $signedBy($page, $cur) && is_array($data['data'] ?? null) && isset($data['meta']['max_id']), $page['status'].' '.substr($page['body'], 0, 300));
 }
+$values = $call('GET', 'catalog/attribute-values', $cur, '', ['query' => ['kind' => 'attribute_group']]);
+file_put_contents("$answers/catalog-attribute-values.json--signed-groups.json", $values['body']);
+$check('GET catalog/attribute-values?kind=attribute_group → 200 signed', $values['status'] === 200 && $signedBy($values, $cur), $values['status'].' '.substr($values['body'], 0, 300));
+$noKind = $call('GET', 'catalog/attribute-values', $cur);
+$check('attribute-values without kind → 400 bad_request', $noKind['status'] === 400 && $code($noKind) === 'bad_request', $noKind['status'].' '.$noKind['body']);
 $ids = [];
 $query = ['limit' => '3', 'fields' => 'basic'];
 for ($i = 1; $i <= 3; $i++) {
