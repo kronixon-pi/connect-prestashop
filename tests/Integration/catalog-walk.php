@@ -223,7 +223,8 @@ foreach ($endpoints as $endpoint) {
                 $baseline[] = $before - $start;
                 $t = hrtime(true);
                 $query = PageQuery::from(Request::fromServer(['REQUEST_METHOD' => 'GET', 'QUERY_STRING' => "path=catalog/$name&{$extra}limit=$limit&until_id=$until&cursor=$cursor"], ''), $scope, $reader->maxLimit(), $reader->maxCursorVariant());
-                $answer = $reader->read($query)->answer((string) $reader->maxId(), gmdate('Y-m-d\TH:i:s\Z'));
+                $page = $reader->read($query);
+                $answer = $page->answer($page->maxId ?? $reader->maxId(), gmdate('Y-m-d\TH:i:s\Z'));
                 $json = json_encode($answer, Kronixon\Connect\Api\Response::JSON_FLAGS);
                 $times[] = (hrtime(true) - $t) / 1e6;
                 if ($json === false) {
@@ -263,7 +264,7 @@ foreach ($endpoints as $endpoint) {
                     $copy('product_shop', 't.id_product = '.(int) $want[0].' AND t.id_shop = '.$shopId, 1, ['id_product' => (string) $next]);
                     $next++;
                 }
-                unset($answer, $json, $query);
+                unset($answer, $json, $query, $page);
             } while ($cursor !== '');
         }
         if ($twice > 0) {

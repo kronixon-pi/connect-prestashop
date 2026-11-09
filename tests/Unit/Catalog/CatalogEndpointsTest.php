@@ -111,6 +111,22 @@ final class CatalogEndpointsTest extends TestCase
         self::assertSame(['prices', 'stock', 'attributes'], $accepted, 'rows keyed by product and variant, by id and kind');
     }
 
+    public function test_an_endpoint_reads_max_id_once(): void
+    {
+        $i = 0;
+        foreach ([['catalog/products', [], '5'], ['catalog/attribute-values', ['kind' => 'feature'], '312'], ['catalog/attribute-values', ['kind' => 'attribute_group'], '3']] as [$endpoint, $query, $maxId]) {
+            $this->db->queries = 0;
+            $response = $this->get($endpoint, $query, 'a056df7f-8d8a-445a-9102-1e318c62'.sprintf('%04d', ++$i));
+            $queries = $this->db->queries;
+            $reader = CatalogEndpoints::readers($this->db, $this->db)[substr($endpoint, 8)]($this->db->scope());
+            $this->db->queries = 0;
+            $reader->read(ProductReaderTest::query($this->db, http_build_query($query)));
+
+            self::assertSame($maxId, json_decode($response->body(), true)['meta']['max_id'], $endpoint);
+            self::assertSame($this->db->queries + ($endpoint === 'catalog/products' ? 1 : 0), $queries, $endpoint.': the page, and MAX() only when the page has no max_id');
+        }
+    }
+
     /**
      * @param  array<string, string>  $query
      */

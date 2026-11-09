@@ -101,7 +101,8 @@ final class CatalogEndpoints
                 $reader = $factory($scope);
                 $page = $reader->read(PageQuery::from($request, $scope, $reader->maxLimit(), $reader->maxCursorVariant()));
 
-                return Response::json(200, $page->answer($reader->maxId(), gmdate('Y-m-d\TH:i:s\Z', (int) floor($this->clock->now()))));
+                // A page that knows its max_id (attribute values: of the kind asked) saves the reader's query.
+                return Response::json(200, $page->answer($page->maxId ?? $reader->maxId(), gmdate('Y-m-d\TH:i:s\Z', (int) floor($this->clock->now()))));
             });
         }
 
