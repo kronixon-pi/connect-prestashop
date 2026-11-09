@@ -47,4 +47,7 @@ interface CompatInterface
 
     /** Whether the shop has the PS_IMAGE_FORMAT setting (webp/avif), PrestaShop 8.1+. */
     public function hasImageFormatSetting(): bool;
+
+    /** Whether `product_shop.unit_price` exists (PrestaShop 8.0+); 1.7.8 has only `unit_price_ratio`. */
+    public function hasUnitPriceColumn(): bool;
 }

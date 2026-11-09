@@ -48,4 +48,9 @@ class Ps178 implements CompatInterface
     {
         return false;
     }
+
+    public function hasUnitPriceColumn(): bool
+    {
+        return false;
+    }
 }
