@@ -204,7 +204,7 @@ foreach ($endpoints as $endpoint) {
                 $before = memory_get_usage();
                 $baseline[] = $before - $start;
                 $t = hrtime(true);
-                $query = PageQuery::from(Request::fromServer(['REQUEST_METHOD' => 'GET', 'QUERY_STRING' => "path=catalog/$endpoint&limit=$limit&until_id=$until&cursor=$cursor"], ''), $scope, $reader->maxLimit());
+                $query = PageQuery::from(Request::fromServer(['REQUEST_METHOD' => 'GET', 'QUERY_STRING' => "path=catalog/$endpoint&limit=$limit&until_id=$until&cursor=$cursor"], ''), $scope, $reader->maxLimit(), $reader->maxCursorVariant());
                 $answer = $reader->read($query)->answer((string) $reader->maxId(), gmdate('Y-m-d\TH:i:s\Z'));
                 $json = json_encode($answer, Kronixon\Connect\Api\Response::JSON_FLAGS);
                 $times[] = (hrtime(true) - $t) / 1e6;

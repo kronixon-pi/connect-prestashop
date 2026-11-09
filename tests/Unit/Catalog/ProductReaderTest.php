@@ -180,8 +180,9 @@ final class ProductReaderTest extends TestCase
         return $answer;
     }
 
+    /** A reader's query as it would come; a cursor may carry any `v` (the endpoint limits it: CatalogEndpointsTest). */
     public static function query(CatalogDb $db, string $query, int $max = 500): PageQuery
     {
-        return PageQuery::from(Request::fromServer(['REQUEST_METHOD' => 'GET', 'QUERY_STRING' => 'path=catalog/x'.($query === '' ? '' : '&'.$query)], ''), $db->scope(), $max);
+        return PageQuery::from(Request::fromServer(['REQUEST_METHOD' => 'GET', 'QUERY_STRING' => 'path=catalog/x'.($query === '' ? '' : '&'.$query)], ''), $db->scope(), $max, PHP_INT_MAX);
     }
 }

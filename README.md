@@ -67,8 +67,8 @@ schema. Endpoints so far: `products`, `variants`, `images`, `prices`, `stock`.
   `400 bad_request` with `details.errors`. An answer stays under 8 MB: items past that move to the next page.
 - **Cursor.** base64url without padding of the JSON `{"id":<last id>}`, or `{"id":<product id>,"v":<variant
   id>}` for prices and stock. A page starts after the cursor's position; `{"id":N}` without `v` starts
-  after every row of id N. Only that exact form is accepted (no padding, no other member, integers only);
-  anything else is `400`. The cursor carries no signature of its own: the request that carries it is signed.
+  after every row of id N. Only that exact form is accepted (no padding, no other member, integers only,
+  `v` only on the endpoints that write it); anything else is `400`. The cursor carries no signature of its own: the request that carries it is signed.
 - **Id ranges.** `meta.max_id` is the highest id of the entity (prices and stock: of products), on every
   page. `until_id` is an **inclusive** upper bound of the same id. A client splits `(0, max_id]` into K
   ranges `(a, b]` and reads each from the cursor `{"id":a}` with `until_id=b`, in parallel.

@@ -86,6 +86,23 @@ final class CatalogEndpointsTest extends TestCase
         self::assertSame(405, $this->get('catalog/products', [], '8056df7f-8d8a-445a-9102-1e318c620000', 'POST')->status());
     }
 
+    public function test_only_the_endpoints_that_write_v_accept_it_in_a_cursor(): void
+    {
+        $accepted = [];
+        $i = 0;
+        foreach (array_keys(CatalogEndpoints::readers($this->db, $this->db)) as $endpoint) {
+            $nonce = '9056df7f-8d8a-445a-9102-1e318c62'.sprintf('%04d', ++$i);
+            $response = $this->get('catalog/'.$endpoint, ['cursor' => Cursor::encode(1, 0)], $nonce);
+            if ($response->status() === 200) {
+                $accepted[] = $endpoint;
+            } else {
+                self::assertSame([400, ['cursor']], [$response->status(), json_decode($response->body(), true)['error']['details']['errors']], $endpoint);
+            }
+        }
+
+        self::assertSame(['prices', 'stock'], $accepted, 'rows keyed by product and variant');
+    }
+
     /**
      * @param  array<string, string>  $query
      */

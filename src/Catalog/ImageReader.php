@@ -52,6 +52,11 @@ final class ImageReader implements Reader
         return Rows::id($this->sql->rows('SELECT MAX(id_image) AS m FROM '.$this->sql->table('image'))[0]['m'] ?? null);
     }
 
+    public function maxCursorVariant(): ?int
+    {
+        return null;
+    }
+
     public function read(PageQuery $query): Page
     {
         $productId = $query->idParam('product_id');

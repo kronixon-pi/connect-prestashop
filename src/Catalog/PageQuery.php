@@ -57,9 +57,11 @@ final class PageQuery
     }
 
     /**
+     * @param  int|null  $maxVariant  the largest `v` of the endpoint's cursor (Reader::maxCursorVariant()); null: no `v`
+     *
      * @throws ApiError 400 bad_request
      */
-    public static function from(Request $request, Scope $scope, int $maxLimit): self
+    public static function from(Request $request, Scope $scope, int $maxLimit, ?int $maxVariant = null): self
     {
         $query = new self(min(self::DEFAULT_LIMIT, $maxLimit));
         $query->request = $request;
@@ -78,6 +80,9 @@ final class PageQuery
         if ($cursor !== null) {
             try {
                 [$query->afterId, $query->afterVariant] = Cursor::decode($cursor);
+                if ($query->afterVariant !== null && ($maxVariant === null || $query->afterVariant > $maxVariant)) {
+                    $errors[] = 'cursor';
+                }
             } catch (ApiError $e) {
                 $errors[] = 'cursor';
             }

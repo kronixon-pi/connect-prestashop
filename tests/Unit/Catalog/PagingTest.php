@@ -121,7 +121,23 @@ final class PagingTest extends TestCase
 
         self::assertFalse(PageQuery::from(self::request('cursor='.Cursor::encode(9).'&until_id=10'), $scope, 500)->exhausted());
         self::assertTrue(PageQuery::from(self::request('cursor='.Cursor::encode(10).'&until_id=10'), $scope, 500)->exhausted());
-        self::assertFalse(PageQuery::from(self::request('cursor='.Cursor::encode(10, 3).'&until_id=10'), $scope, 500)->exhausted(), 'variants of id 10 remain');
+        self::assertFalse(PageQuery::from(self::request('cursor='.Cursor::encode(10, 3).'&until_id=10'), $scope, 500, PHP_INT_MAX)->exhausted(), 'variants of id 10 remain');
+    }
+
+    public function test_a_cursor_carries_v_only_up_to_the_endpoints_largest(): void
+    {
+        $scope = (new CatalogDb())->scope();
+        foreach ([[null, 0], [1, 2], [0, 1]] as [$max, $v]) {
+            try {
+                PageQuery::from(self::request('cursor='.Cursor::encode(10, $v)), $scope, 500, $max);
+                self::fail('accepted v = '.$v.' with the largest '.json_encode($max));
+            } catch (ApiError $e) {
+                self::assertSame(['errors' => ['cursor']], $e->details());
+            }
+        }
+        $query = PageQuery::from(self::request('cursor='.Cursor::encode(10, 1)), $scope, 500, 1);
+        self::assertSame([10, 1], [$query->afterId, $query->afterVariant]);
+        self::assertNull(PageQuery::from(self::request('cursor='.Cursor::encode(10)), $scope, 500)->afterVariant, '{"id":N} everywhere');
     }
 
     public function test_the_page_envelope(): void

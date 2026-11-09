@@ -32,6 +32,12 @@ interface Reader
     public function maxId(): string;
 
     /**
+     * The largest `v` of this endpoint's cursor (rows keyed by an id and a second key); null when its
+     * cursor is `{"id":N}` only, so that a cursor with `v` is a bad request.
+     */
+    public function maxCursorVariant(): ?int;
+
+    /**
      * @throws ApiError 400 for an invalid parameter of the endpoint
      */
     public function read(PageQuery $query): Page;

@@ -66,6 +66,11 @@ final class ProductReader implements Reader
         return Rows::id($this->sql->rows('SELECT MAX(id_product) AS m FROM '.$this->sql->table('product'))[0]['m'] ?? null);
     }
 
+    public function maxCursorVariant(): ?int
+    {
+        return null;
+    }
+
     /**
      * @throws ApiError 400 for an invalid `ids`, `active` or `fields`
      */
