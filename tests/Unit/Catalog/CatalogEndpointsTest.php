@@ -111,6 +111,16 @@ final class CatalogEndpointsTest extends TestCase
         self::assertSame(['prices', 'stock', 'attributes'], $accepted, 'rows keyed by product and variant, by id and kind');
     }
 
+    public function test_the_attributes_cursor_carries_a_kind_0_or_1(): void
+    {
+        $statuses = [];
+        foreach ([0, 1, 2, 7] as $i => $v) {
+            $statuses[$v] = $this->get('catalog/attributes', ['cursor' => Cursor::encode(2, $v)], 'b056df7f-8d8a-445a-9102-1e318c62000'.$i)->status();
+        }
+
+        self::assertSame([0 => 200, 1 => 200, 2 => 400, 7 => 400], $statuses);
+    }
+
     public function test_an_endpoint_reads_max_id_once(): void
     {
         $i = 0;

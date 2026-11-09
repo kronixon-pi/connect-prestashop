@@ -63,7 +63,7 @@ final class AttributeReader implements Reader
     /** Features and attribute groups share ids: `v` is the kind (0 a feature, 1 an attribute group). */
     public function maxCursorVariant(): int
     {
-        return PHP_INT_MAX;
+        return 1;
     }
 
     public function read(PageQuery $query): Page
