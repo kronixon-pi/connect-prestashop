@@ -99,7 +99,9 @@ schema: `products`, `variants`, `images`, `prices`, `stock`, `categories`, `bran
 - **Multistore.** Everything is the paired shop's: a product shared by several shops names only the
   categories, features, suppliers and images that shop has (`*_shop`), and its `brand_id`/`supplier_id`
   are `"0"` when the brand or supplier is not in the shop. What another shop links to a shared product
-  changes neither the item nor its `content_hash`.
+  changes neither the item nor its `content_hash`. The taxonomy readers answer the shop's own categories,
+  brands, suppliers, features and attribute groups, and a value only when its feature or group is the
+  shop's too; tags have no shop table and follow the shop's languages.
 - **`content_hash`** (products and categories, as v1 declares it): sha256 of the canonical JSON of the item
   without `date_add`, `date_upd`, `content_hash`, and for products `kx_id`, `quantity` and `images[].url`, for
   categories `product_count` (a counter, not content). `kx_id` links the item to the platform; it is not

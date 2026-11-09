@@ -132,7 +132,8 @@ $expected = [
     'attributes' => "SELECT CONCAT('feature:', f.id_feature) FROM {$p}feature f INNER JOIN {$p}feature_shop s ON s.id_feature = f.id_feature AND s.id_shop = $shopId"
         ." UNION ALL SELECT CONCAT('attribute_group:', g.id_attribute_group) FROM {$p}attribute_group g INNER JOIN {$p}attribute_group_shop s ON s.id_attribute_group = g.id_attribute_group AND s.id_shop = $shopId",
     'attribute-values?kind=feature' => "SELECT v.id_feature_value FROM {$p}feature_value v INNER JOIN {$p}feature_shop s ON s.id_feature = v.id_feature AND s.id_shop = $shopId",
-    'attribute-values?kind=attribute_group' => "SELECT a.id_attribute FROM {$p}attribute a INNER JOIN {$p}attribute_shop s ON s.id_attribute = a.id_attribute AND s.id_shop = $shopId",
+    'attribute-values?kind=attribute_group' => "SELECT a.id_attribute FROM {$p}attribute a INNER JOIN {$p}attribute_shop s ON s.id_attribute = a.id_attribute AND s.id_shop = $shopId"
+        ." INNER JOIN {$p}attribute_group_shop gs ON gs.id_attribute_group = a.id_attribute_group AND gs.id_shop = $shopId",
     'tags' => "SELECT id_tag FROM {$p}tag WHERE name <> '' AND id_lang IN (".implode(',', array_keys(PrestaShopScope::of($context, Version::select(_PS_VERSION_))->languages)).')',
 ];
 $byId = static function (array $item): string {

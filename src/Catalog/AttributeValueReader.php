@@ -109,7 +109,9 @@ final class AttributeValueReader implements Reader
             $this->sql,
             $query,
             'a.id_attribute, a.id_attribute_group, a.color, a.position',
-            $this->sql->table('attribute').' a INNER JOIN '.$this->sql->table('attribute_shop').' s ON s.id_attribute = a.id_attribute AND s.id_shop = '.$this->scope->shopId,
+            // The value and its group in the shop (a value in the shop under another shop's group names a group the shop lacks).
+            $this->sql->table('attribute').' a INNER JOIN '.$this->sql->table('attribute_shop').' s ON s.id_attribute = a.id_attribute AND s.id_shop = '.$this->scope->shopId
+                .' INNER JOIN '.$this->sql->table('attribute_group_shop').' gs ON gs.id_attribute_group = a.id_attribute_group AND gs.id_shop = '.$this->scope->shopId,
             'a.id_attribute',
             $parent === null ? '' : 'a.id_attribute_group = '.$parent
         );

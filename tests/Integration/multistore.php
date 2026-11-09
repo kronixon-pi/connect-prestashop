@@ -13,7 +13,10 @@ declare(strict_types=1);
  *  - after shop 2 links the shared product to its category, feature value, supplier and (one of
  *    its combinations) to its image, shop 1's product and variant items, content_hash included,
  *    are unchanged and name none of them;
- *  - shop 2 reads them.
+ *  - shop 2 reads them;
+ *  - the taxonomy readers (categories, brands, suppliers, attributes, attribute values of both kinds)
+ *    answer shop 2's entities only to shop 2, and an attribute value only when its group is the
+ *    shop's too (shop 2's group has a value that both shops list in attribute_shop).
  * Changes the shop for good: run it last (scripts/ps-smoke.sh does). Run inside the shop container as
  * www-data. Prints one JSON line; exit 1 on any failed check.
  */
@@ -133,6 +136,13 @@ $run("INSERT INTO {$p}manufacturer_shop (id_manufacturer, id_shop) VALUES ($bran
 $image = $value("SELECT MAX(id_image) FROM {$p}image") + 1;
 $run("INSERT INTO {$p}image (id_image, id_product, position, cover) VALUES ($image, $product, 99, NULL)");
 $run("INSERT INTO {$p}image_shop (id_product, id_image, id_shop, cover) VALUES ($product, $image, $shop2, NULL)");
+// An attribute group of shop 2 whose value both shops list in attribute_shop.
+$group2 = $value("SELECT MAX(id_attribute_group) FROM {$p}attribute_group") + 1;
+$attribute = $value("SELECT MAX(id_attribute) FROM {$p}attribute") + 1;
+$run("INSERT INTO {$p}attribute_group (id_attribute_group, is_color_group, group_type, position) VALUES ($group2, 0, 'select', 99)");
+$run("INSERT INTO {$p}attribute_group_shop (id_attribute_group, id_shop) VALUES ($group2, $shop2)");
+$run("INSERT INTO {$p}attribute (id_attribute, id_attribute_group, color, position) VALUES ($attribute, $group2, '', 0)");
+$run("INSERT INTO {$p}attribute_shop (id_attribute, id_shop) VALUES ($attribute, 1), ($attribute, $shop2)");
 Shop::cacheShops(true);
 
 // The brand and the default supplier are product columns, shared by every shop: set them to shop 2's.
@@ -171,6 +181,30 @@ $check('shop 2: its brand and default supplier', [(string) $brand, (string) $sup
 $byId = array_column($variants, 'image_ids', 'external_id');
 $check("shop 2: its image on combination $combination", [(string) $image], $byId[(string) $combination] ?? null);
 
+// The taxonomy readers: shop 2's entities only in shop 2's answers, a value only with its parent.
+$taxonomy = static function (Context $context) use ($read): array {
+    $ids = static function (array $items): array {
+        return array_map(static function (array $item): string {
+            return (isset($item['kind']) ? $item['kind'].':' : '').$item['external_id'];
+        }, $items);
+    };
+
+    return [
+        'categories' => $ids($read($context, 'categories', '')), 'brands' => $ids($read($context, 'brands', '')),
+        'suppliers' => $ids($read($context, 'suppliers', '')), 'attributes' => $ids($read($context, 'attributes', '')),
+        'feature values' => $ids($read($context, 'attribute-values', 'kind=feature')),
+        'attribute values' => $ids($read($context, 'attribute-values', 'kind=attribute_group')),
+    ];
+};
+$own = ['categories' => (string) $category, 'brands' => (string) $brand, 'suppliers' => (string) $supplier, 'attributes' => "feature:$feature",
+    'feature values' => (string) $featureValue, 'attribute values' => (string) $attribute, ];
+$inShop = [1 => $taxonomy($shop1), $shop2 => $taxonomy($shop2Context)];
+foreach ($own + ['attribute groups' => "attribute_group:$group2"] as $reader => $id) {
+    $reader = $reader === 'attribute groups' ? 'attributes' : $reader;
+    $check("shop 1: $reader without shop 2's $id", false, in_array($id, $inShop[1][$reader], true));
+    $check("shop 2: $reader with its $id", true, in_array($id, $inShop[$shop2][$reader], true));
+}
+
 echo json_encode(['multistore' => $failures === [] ? 'ok' : 'failed', 'shop' => $shop2, 'product' => $product, 'combination' => $combination,
-    'category' => $category, 'feature' => $feature, 'supplier' => $supplier, 'brand' => $brand, 'image' => $image, 'failures' => $failures, ]), "\n";
+    'category' => $category, 'feature' => $feature, 'supplier' => $supplier, 'brand' => $brand, 'image' => $image, 'attribute_group' => $group2, 'attribute' => $attribute, 'failures' => $failures, ]), "\n";
 exit($failures === [] ? 0 : 1);
