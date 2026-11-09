@@ -69,8 +69,12 @@ final class PriceReader implements Reader
                 .' WHERE '.$window.$since.' ORDER BY pa.id_product, pa.id_product_attribute LIMIT '.$n);
             $products = [];
             if ($kind === 'range') {
-                $products = $this->sql->rows('SELECT ps.id_product, 0 AS id_product_attribute FROM '.$this->sql->table('product_shop').' ps WHERE '
-                    .str_replace('pa.', 'ps.', $window).$shop.$since.' ORDER BY ps.id_product LIMIT '.$n);
+                // Driven from `product` by its primary key, as ProductReader is: `product_shop` alone lets
+                // MySQL take its (id_shop, id_tax_rules_group) index on PrestaShop 8.2+ and sort every
+                // product of the shop for each page.
+                $products = $this->sql->rows('SELECT p.id_product, 0 AS id_product_attribute FROM '.$this->sql->table('product').' p INNER JOIN '
+                    .$this->sql->table('product_shop').' ps ON ps.id_product = p.id_product'.$shop.' WHERE '
+                    .str_replace('pa.', 'p.', $window).$since.' ORDER BY p.id_product LIMIT '.$n);
             }
             $window = array_merge($products, $variants);
             usort($window, static function (array $a, array $b): int {
