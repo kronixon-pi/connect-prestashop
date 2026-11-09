@@ -89,8 +89,9 @@ schema. Endpoints so far: `products`, `variants`, `images`, `prices`, `stock`.
   categories, features, suppliers and images that shop has (`*_shop`), and its `brand_id`/`supplier_id`
   are `"0"` when the brand or supplier is not in the shop. What another shop links to a shared product
   changes neither the item nor its `content_hash`.
-- **`content_hash`** (products): sha256 of the canonical JSON of the item without `date_add`, `date_upd`,
-  `quantity`, `content_hash` and `images[].url`. Canonical as the platform's sync engine: maps sorted by key
+- **`content_hash`** (products): sha256 of the canonical JSON of the item without `kx_id`, `date_add`,
+  `date_upd`, `quantity`, `content_hash` and `images[].url` (`kx_id` links the item to the platform; it is
+  not content, so linking or unlinking does not change the hash). Canonical as the platform's sync engine: maps sorted by key
   (byte order) at every depth, lists in their order (the module sorts every list whose order means
   nothing: category ids, features, tags, suppliers; images by position), strings in Unicode NFC, no floats,
   amounts as decimals without trailing zeros (`"99.990000"` → `"99.99"`), an empty map `{}`, JSON without

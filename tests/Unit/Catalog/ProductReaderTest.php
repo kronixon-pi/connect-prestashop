@@ -143,6 +143,20 @@ final class ProductReaderTest extends TestCase
         self::assertNotSame($hash, self::answer($db)['data'][0]['content_hash']);
     }
 
+    public function test_the_platform_link_is_not_content(): void
+    {
+        $db = new CatalogDb();
+        $db->demo();
+        $before = self::answer($db)['data'];
+
+        $db->insert('kx_entity_map', ['entity_type' => 'product', 'external_id' => '2', 'kx_id' => '0192b2e4-2f7a-7c5b-8a1d-3e4f5a6b7c90']);
+        $db->delete('kx_entity_map', "external_id = '1'");
+        $after = self::answer($db)['data'];
+
+        self::assertSame([null, '0192b2e4-2f7a-7c5b-8a1d-3e4f5a6b7c90'], [$after[0]['kx_id'], $after[1]['kx_id']], 'the link is answered');
+        self::assertSame(array_column($before, 'content_hash'), array_column($after, 'content_hash'), 'adding or removing a kx_entity_map row');
+    }
+
     /**
      * @return array<string, mixed>
      */

@@ -235,7 +235,9 @@ final class ProductReader implements Reader
                 'depends_on_stock' => $stock !== null && Rows::bool($stock['depends_on_stock']),
             ];
         }
+        // kx_id links the product to the platform; it is not content of the shop.
         $hashed = $item;
+        unset($hashed['kx_id']);
         if (isset($hashed['images'])) {
             foreach ($hashed['images'] as $i => $image) {
                 unset($hashed['images'][$i]['url']);
