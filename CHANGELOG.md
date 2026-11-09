@@ -4,6 +4,14 @@ All notable changes of the module are listed here; versions follow [Semantic Ver
 
 ## [Unreleased]
 
+### Added
+
+- Catalog reads (part 1, released as 0.3.0 with the taxonomy readers): `GET catalog/products`, `variants`,
+  `images`, `prices` and `stock`, ordered by id, with a checked cursor, `until_id` (inclusive) and
+  `meta.max_id` for parallel id ranges, `since`, multilang fields by iso, net prices in the shop default
+  currency, the default stock location and `content_hash` on products in the platform's canonical form.
+  A page costs a fixed number of queries; memory is flat over a walk.
+
 ### Fixed
 
 - 0.2.1: a rotation retried after a lost answer (verified with `prev`) replaces only `cur` and keeps

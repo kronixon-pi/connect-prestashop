@@ -56,6 +56,58 @@ The API front controller answers at `https://<shop>/module/kronixonconnect/api?p
   A plain `http://` URL is refused unless the Configuration key `KX_PLATFORM_ALLOW_HTTP` is `1` — for a
   development platform only; it is not on the settings page.
 
+## Catalog reads
+
+The signed `GET catalog/*` endpoints ([protocol §6.1](protocol/v1/README.md#61-module-endpoints)) read
+the paired shop (Context shop) and never write. Each answer is exactly its `module/catalog-*.json`
+schema. Endpoints so far: `products`, `variants`, `images`, `prices`, `stock`.
+
+- **Order and paging.** Items come in ascending id order (prices and stock: product id, then variant id);
+  `limit` is 1–500 (1–1 000 for prices and stock), 100 by default; an invalid parameter answers
+  `400 bad_request` with `details.errors`. An answer stays under 8 MB: items past that move to the next page.
+- **Cursor.** base64url without padding of the JSON `{"id":<last id>}`, or `{"id":<product id>,"v":<variant
+  id>}` for prices and stock. A page starts after the cursor's position; `{"id":N}` without `v` starts
+  after every row of id N. Only that exact form is accepted (no padding, no other member, integers only,
+  `v` only on the endpoints that write it); anything else is `400`. The cursor carries no signature of its own: the request that carries it is signed.
+- **Id ranges.** `meta.max_id` is the highest id of the entity (prices and stock: of products), on every
+  page. `until_id` is an **inclusive** upper bound of the same id. A client splits `(0, max_id]` into K
+  ranges `(a, b]` and reads each from the cursor `{"id":a}` with `until_id=b`, in parallel.
+- **Guarantee of a range walk.** Pages are keyset reads by id (no offsets, no snapshot), so: every row that
+  exists for the whole walk comes exactly once, in exactly one range; no row comes twice; a row deleted
+  during the walk comes at most once; a row created during the walk comes only if its id is above the
+  walk's position in its range and within it — new PrestaShop ids are above the `max_id` the walk started
+  from, so they are outside every range and arrive through events or a later `since` read. Tested in
+  PHPUnit (K = 1, 3, 8 over ids with gaps, rows created and deleted between pages) and on real shops.
+- **`since`** (UTC, compared in the shop's time zone) filters on `date_upd`: the product's for products,
+  variants, images and prices; `stock_available` has no change date, so stock ignores it and reads every row.
+- **Values.** Translated fields per shop language by iso (`{}` when a field has no row); prices net, as
+  PrestaShop stores them, in the shop default currency (a combination's `price` is the product price plus
+  its `price_impact`); stock is the shop's `stock_available` row (its group's when the group shares stock),
+  location `default`; dates in UTC; `kx_id` from `kx_entity_map`; image `sha256`/`kx_key` from
+  `kx_image_map`. Image URLs come from the shop's own `Link` (friendly URLs, media servers, overrides).
+- **Multistore.** Everything is the paired shop's: a product shared by several shops names only the
+  categories, features, suppliers and images that shop has (`*_shop`), and its `brand_id`/`supplier_id`
+  are `"0"` when the brand or supplier is not in the shop. What another shop links to a shared product
+  changes neither the item nor its `content_hash`.
+- **`content_hash`** (products): sha256 of the canonical JSON of the item without `kx_id`, `date_add`,
+  `date_upd`, `quantity`, `content_hash` and `images[].url` (`kx_id` links the item to the platform; it is
+  not content, so linking or unlinking does not change the hash). Canonical as the platform's sync engine: maps sorted by key
+  (byte order) at every depth, lists in their order (the module sorts every list whose order means
+  nothing: category ids, features, tags, suppliers; images by position), strings in Unicode NFC, no floats,
+  amounts as decimals without trailing zeros (`"99.990000"` → `"99.99"`), an empty map `{}`, JSON without
+  escaped slashes or Unicode. Vectors: [tests/Unit/Catalog/content-hash-vectors.json](tests/Unit/Catalog/content-hash-vectors.json).
+  `fields=basic` hashes the members a basic item carries. The same data gives the same hash on PHP
+  7.4–8.5 and PrestaShop 1.7.8–9.x; a value PrestaShop stores differently (a new 9.x product's
+  `redirect_type` is `default`, 1.7.8's `404`) is different data.
+- **Cost.** A page is a fixed number of queries whatever its size (products 9, `fields=basic` 5, variants 5,
+  images 3, prices ≤ 6, stock ≤ 2): base rows by id, then one query per related table for the page's ids.
+  A products page reads about 20–30 rows per item in MySQL wherever it starts
+  ([tests/Integration/page-cost.php](tests/Integration/page-cost.php), checked by the smoke run). Measured on 100 000 generated products, limit 500, in process (`tests/Integration/catalog-walk.php`):
+  memory flat between pages; the time per products page depends on the machine more than on the
+  version: a median of 27–81 ms on GitHub's runners (two matrix runs, every version, the same version up
+  to 2× apart between runs) and 105–110 ms on a slower development machine. The matrix prints the
+  figures of every run in its job summary.
+
 ## What the module adds to the shop
 
 - Tables `kx_nonce`, `kx_idempotency`, `kx_log`, `kx_entity_map`, `kx_image_map`, `kx_redirect`,
@@ -87,7 +139,13 @@ The smoke run (`scripts/ps-smoke.sh`, also `make up`) installs, uninstalls and r
 then pairs the shop with [tests/Integration/platform-stub.php](tests/Integration/platform-stub.php) (a
 minimal Connect service run by the shop's own PHP) and plays the platform's side with
 [tests/Integration/platform-driver.php](tests/Integration/platform-driver.php): the signed `GET
-capabilities` check, profile, health, replay/tamper/clock refusals, a rotation and an unpair.
+capabilities` check, profile, health, replay/tamper/clock refusals, signed catalog reads, a rotation and an
+unpair. Then [tests/Integration/catalog-walk.php](tests/Integration/catalog-walk.php) walks every catalog
+reader in K = 1, 3 and 8 id ranges on `KX_WALK_PRODUCTS` products (generated by SQL; default 0 = the shop's
+own) and [validate-answers.php](tests/Integration/validate-answers.php) checks every answer against its
+schema (needs `make install`): `KX_WALK_PRODUCTS=100000 make smoke PS=91`. Last,
+[tests/Integration/multistore.php](tests/Integration/multistore.php) adds a second shop in a second group,
+shares a product with it and checks that each shop reads only its own relations of that product.
 `scripts/ps/pair.php <platform url> <code>` pairs a local shop from the command line.
 
 `PS` is one of `178`, `81`, `82`, `90`, `91`, `92` ([docker/](docker/)); `PS_TAG` overrides the image tag.
@@ -96,7 +154,7 @@ only place to change them; `scripts/compose.sh` (used by `make` and the CI scrip
 The shops use PrestaShop's documented default admin login and `admin-dev` as the admin folder.
 
 Layout: `kronixonconnect.php` (module class), `controllers/front/api.php` (the only API entry),
-`src/` (`Kronixon\Connect\` — `Api`, `Auth`, `Compat`, `Crypto`, `Install`, `Platform`, `Shop`, `Support`, loaded by the module's
+`src/` (`Kronixon\Connect\` — `Api`, `Auth`, `Catalog`, `Compat`, `Crypto`, `Install`, `Platform`, `Shop`, `Support`, loaded by the module's
 own autoloader; no composer at runtime), `sql/`, `views/`, `protocol/v1/` (protocol document, JSON
 Schemas, signature vectors), `tests/` (PHPUnit, the fixture generator), `docker/`, `scripts/`.
 Development tools live in `tools/vendor`, because PrestaShop loads a module's `vendor/autoload.php`
@@ -106,8 +164,8 @@ at runtime.
 
 | Workflow | When | What |
 | --- | --- | --- |
-| `module-ci` | every PR and push to `main` | PSR-12, PHPCompatibility, PHPStan 6, PHPUnit on 7.4 and 8.5, schemas + vectors, smoke install on 9.1.5 (PHP 8.5), commitlint |
-| `matrix` | PRs to `main`, label `matrix`, weekly | the smoke run (install, pairing with the stub, signed calls) on the six versions above |
+| `module-ci` | every PR and push to `main` | PSR-12, PHPCompatibility, PHPStan 6, PHPUnit on 7.4 and 8.5, schemas + vectors, smoke install on 9.1.5 (PHP 8.5) with a catalog walk on 10 000 products, commitlint |
+| `matrix` | PRs to `main`, label `matrix`, weekly | the smoke run (install, pairing with the stub, signed calls) on the six versions above, catalog walk on 100 000 products |
 | `fixture-images` | on `main` only: a push that changes an image input, or by hand (by hand elsewhere it bakes without pushing) | bakes and publishes `ghcr.io/kronixon-pi/connect-ps-fixture:<ps>-<fixture sha>` (installed shop + module + 500 products); the fixture sha covers the generator, the bake scripts, the pinned images and the module code |
 
 Commits follow Conventional Commits with the scopes `api`, `auth`, `catalog`, `compat`, `outbox`,

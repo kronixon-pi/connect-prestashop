@@ -1,7 +1,10 @@
 name: matrix
 # The PrestaShop version matrix (plan D18): auto-install from the official image, module install,
-# uninstall/reinstall, GET /v1/status through both URL forms. Runs on PRs to main, when the label
-# "matrix" is added to any PR, weekly, and by hand. 9.2.0 is non-blocking until it is green.
+# uninstall/reinstall, GET /v1/status through both URL forms, pairing and signed calls, and the
+# catalog walk at full size: 100 000 products generated in the job's database, every GET catalog/*
+# reader walked in K = 1, 3 and 8 id ranges, the answers validated against the schemas. Runs on PRs to
+# main, when the label "matrix" is added to any PR, weekly, and by hand. 9.2.0 is non-blocking until
+# it is green.
 on:
   pull_request: { types: [opened, synchronize, reopened, labeled] }
   schedule: [{ cron: "23 4 * * 1" }]
@@ -21,7 +24,7 @@ jobs:
       || (github.event.action != 'labeled'
           && (github.event.pull_request.base.ref == 'main' || contains(github.event.pull_request.labels.*.name, 'matrix')))
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 40
     continue-on-error: ${{ matrix.experimental }}
     strategy:
       fail-fast: false
@@ -35,8 +38,12 @@ jobs:
           - { ps: "92", tag: "9.2.0-6.0-classic-8.2-apache", experimental: true }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # tools/vendor for the schema validation of the catalog answers (run inside the shop container).
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+        with: { php-version: "8.4", coverage: none, tools: none }
+      - uses: ramsey/composer-install@65e4f84970763564f46a70b8a54b90d033b3bdda # 4.0.0
       - run: scripts/ps-smoke.sh ${{ matrix.ps }}
-        env: { PS_TAG: "${{ matrix.tag }}" }
+        env: { PS_TAG: "${{ matrix.tag }}", KX_WALK_PRODUCTS: "100000" }
 
   required:
     name: matrix (required versions)

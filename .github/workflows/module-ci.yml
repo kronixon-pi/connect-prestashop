@@ -1,6 +1,7 @@
 name: module-ci
 # Every PR and every push to main: static checks, PHPUnit on the lowest and the highest PHP, the
-# protocol schemas and vectors, a smoke install on PrestaShop 9.1.5 (PHP 8.5 image), commitlint.
+# protocol schemas and vectors, a smoke install on PrestaShop 9.1.5 (PHP 8.5 image) with a catalog
+# walk on 10 000 products (the full 100 000 run in the matrix), commitlint.
 # The job "module-ci" at the end is the one required check of the main ruleset.
 on:
   pull_request:
@@ -38,8 +39,9 @@ jobs:
       matrix: { php: ["7.4", "8.5"] }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # intl: the NFC vectors of content_hash; pdo_sqlite: the catalog readers' SQL in the unit tests.
       - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
-        with: { php-version: "${{ matrix.php }}", coverage: none, tools: none }
+        with: { php-version: "${{ matrix.php }}", coverage: none, tools: none, extensions: "intl, pdo_sqlite" }
       - uses: ramsey/composer-install@65e4f84970763564f46a70b8a54b90d033b3bdda # 4.0.0
       - name: php -l on every PHP file
         run: |
@@ -75,8 +77,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # 9.1.5-apache is the image's default PHP 8.5 build; the matrix covers 9.1.5 on PHP 8.4.
       # PS_FOLDER_ADMIN=admin-dev is set in docker/compose.common.yml (other names break the 9.1.5 auto-install).
+      # tools/vendor for the schema validation of the catalog answers (run inside the shop container).
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+        with: { php-version: "8.4", coverage: none, tools: none }
+      - uses: ramsey/composer-install@65e4f84970763564f46a70b8a54b90d033b3bdda # 4.0.0
       - run: scripts/ps-smoke.sh 91
-        env: { PS_TAG: "9.1.5-apache" }
+        env: { PS_TAG: "9.1.5-apache", KX_WALK_PRODUCTS: "10000" }
 
   commitlint:
     name: commitlint

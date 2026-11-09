@@ -44,4 +44,9 @@ class Ps80 extends Ps178
     {
         return ['404', '410', '301-product', '302-product', '301-category', '302-category'];
     }
+
+    public function hasUnitPriceColumn(): bool
+    {
+        return true;
+    }
 }

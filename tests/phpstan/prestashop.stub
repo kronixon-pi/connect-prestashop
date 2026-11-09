@@ -51,6 +51,25 @@ class Shop
      * @return array<int, array<string, mixed>>
      */
     public static function getShops($active = true, $id_shop_group = null, $get_as_list_id = false) {}
+
+    /** @return ShopGroup */
+    public function getGroup() {}
+}
+
+class ShopGroup
+{
+    /** @var bool */
+    public $share_stock;
+}
+
+class ImageType
+{
+    /**
+     * @param string|null $type
+     * @param bool $orderBySize
+     * @return array<int, array<string, mixed>>
+     */
+    public static function getImagesTypes($type = null, $orderBySize = false) {}
 }
 
 class Language
@@ -226,6 +245,14 @@ class Link
      * @return string
      */
     public function getAdminLink($controller, $withToken = true, $sfRouteParams = [], $params = []) {}
+
+    /**
+     * @param string $name
+     * @param string $ids
+     * @param string|null $type
+     * @return string
+     */
+    public function getImageLink($name, $ids, $type = null) {}
 }
 
 class Db

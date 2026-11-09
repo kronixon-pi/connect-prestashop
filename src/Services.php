@@ -25,6 +25,11 @@ use Kronixon\Connect\Api\Kernel;
 use Kronixon\Connect\Api\Router;
 use Kronixon\Connect\Auth\DbGuards;
 use Kronixon\Connect\Auth\SecretStore;
+use Kronixon\Connect\Catalog\CatalogEndpoints;
+use Kronixon\Connect\Catalog\PrestaShopImageUrls;
+use Kronixon\Connect\Catalog\PrestaShopScope;
+use Kronixon\Connect\Catalog\PrestaShopSql;
+use Kronixon\Connect\Catalog\Scope;
 use Kronixon\Connect\Compat\Version;
 use Kronixon\Connect\Crypto\ShopCipher;
 use Kronixon\Connect\Platform\CurlTransport;
@@ -91,6 +96,18 @@ final class Services
         );
     }
 
+    /** The `GET catalog/*` readers on the shop's database (its read replica when it has one). */
+    public static function catalog(Context $context): CatalogEndpoints
+    {
+        return new CatalogEndpoints(
+            static function () use ($context): Scope {
+                return PrestaShopScope::of($context, Version::select(_PS_VERSION_));
+            },
+            CatalogEndpoints::readers(new PrestaShopSql(Db::getInstance(_PS_USE_SQL_SLAVE_), _DB_PREFIX_), new PrestaShopImageUrls($context->link)),
+            new SystemClock()
+        );
+    }
+
     public static function kernel(Context $context): Kernel
     {
         $settings = self::settings();
@@ -98,7 +115,7 @@ final class Services
         $rate = (int) $settings->get('KX_RATE_LIMIT');
 
         return new Kernel(
-            self::endpoints($context)->register(new Router()),
+            self::catalog($context)->register(self::endpoints($context)->register(new Router())),
             self::secrets(),
             new SystemClock(),
             $guards,
