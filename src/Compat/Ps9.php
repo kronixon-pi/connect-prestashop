@@ -28,4 +28,9 @@ class Ps9 extends Ps81
     {
         return 'ps9';
     }
+
+    public function hasFeatureValuePosition(): bool
+    {
+        return true;
+    }
 }

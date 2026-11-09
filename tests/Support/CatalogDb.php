@@ -35,7 +35,28 @@ final class CatalogDb implements Sql, ImageUrls
         'stock_available' => 'id_stock_available INTEGER PRIMARY KEY, id_product INT, id_product_attribute INT, id_shop INT DEFAULT 1, id_shop_group INT DEFAULT 0,
             quantity INT DEFAULT 0, physical_quantity INT DEFAULT 0, reserved_quantity INT DEFAULT 0, depends_on_stock INT DEFAULT 0, out_of_stock INT DEFAULT 2',
         'feature_product' => 'id_feature INT, id_product INT, id_feature_value INT, PRIMARY KEY (id_feature, id_product, id_feature_value)',
-        'feature_value' => 'id_feature_value INTEGER PRIMARY KEY, id_feature INT, custom INT DEFAULT 0',
+        'feature_value' => 'id_feature_value INTEGER PRIMARY KEY, id_feature INT, custom INT DEFAULT 0, position INT DEFAULT 0',
+        'feature_value_lang' => 'id_feature_value INT, id_lang INT, value TEXT, PRIMARY KEY (id_feature_value, id_lang)',
+        'feature' => 'id_feature INTEGER PRIMARY KEY, position INT DEFAULT 0',
+        'feature_lang' => 'id_feature INT, id_lang INT, name TEXT, PRIMARY KEY (id_feature, id_lang)',
+        'feature_shop' => 'id_feature INT, id_shop INT, PRIMARY KEY (id_feature, id_shop)',
+        'attribute_group' => 'id_attribute_group INTEGER PRIMARY KEY, is_color_group INT DEFAULT 0, group_type TEXT DEFAULT \'select\', position INT DEFAULT 0',
+        'attribute_group_lang' => 'id_attribute_group INT, id_lang INT, name TEXT, public_name TEXT, PRIMARY KEY (id_attribute_group, id_lang)',
+        'attribute_group_shop' => 'id_attribute_group INT, id_shop INT, PRIMARY KEY (id_attribute_group, id_shop)',
+        'attribute_lang' => 'id_attribute INT, id_lang INT, name TEXT, PRIMARY KEY (id_attribute, id_lang)',
+        'attribute_shop' => 'id_attribute INT, id_shop INT, PRIMARY KEY (id_attribute, id_shop)',
+        'category' => 'id_category INTEGER PRIMARY KEY, id_parent INT, level_depth INT DEFAULT 0, active INT DEFAULT 1, date_upd TEXT DEFAULT \'2026-09-01 10:00:00\'',
+        'category_lang' => 'id_category INT, id_shop INT, id_lang INT, name TEXT DEFAULT \'\', link_rewrite TEXT DEFAULT \'\', description TEXT DEFAULT \'\',
+            meta_title TEXT DEFAULT \'\', meta_description TEXT DEFAULT \'\', PRIMARY KEY (id_category, id_shop, id_lang)',
+        'category_shop' => 'id_category INT, id_shop INT, position INT DEFAULT 0, PRIMARY KEY (id_category, id_shop)',
+        'manufacturer' => 'id_manufacturer INTEGER PRIMARY KEY, name TEXT, active INT DEFAULT 1, date_upd TEXT DEFAULT \'2026-09-01 10:00:00\'',
+        'manufacturer_lang' => 'id_manufacturer INT, id_lang INT, description TEXT DEFAULT \'\', short_description TEXT DEFAULT \'\', meta_title TEXT DEFAULT \'\',
+            meta_description TEXT DEFAULT \'\', PRIMARY KEY (id_manufacturer, id_lang)',
+        'manufacturer_shop' => 'id_manufacturer INT, id_shop INT, PRIMARY KEY (id_manufacturer, id_shop)',
+        'supplier' => 'id_supplier INTEGER PRIMARY KEY, name TEXT, active INT DEFAULT 1, date_upd TEXT DEFAULT \'2026-09-01 10:00:00\'',
+        'supplier_lang' => 'id_supplier INT, id_lang INT, description TEXT DEFAULT \'\', meta_title TEXT DEFAULT \'\', meta_description TEXT DEFAULT \'\',
+            PRIMARY KEY (id_supplier, id_lang)',
+        'supplier_shop' => 'id_supplier INT, id_shop INT, PRIMARY KEY (id_supplier, id_shop)',
         'tag' => 'id_tag INTEGER PRIMARY KEY, id_lang INT, name TEXT',
         'product_tag' => 'id_product INT, id_tag INT, id_lang INT, PRIMARY KEY (id_product, id_tag)',
         'product_supplier' => 'id_product_supplier INTEGER PRIMARY KEY, id_product INT, id_product_attribute INT DEFAULT 0, id_supplier INT,
@@ -106,10 +127,15 @@ final class CatalogDb implements Sql, ImageUrls
         return 'https://shop.example.com/'.$imageId.($type === null ? '' : '-'.$type).'/'.($slug !== '' ? $slug : 'image').'.jpg';
     }
 
-    /** The scope of shop 1: en (1) and bg (2), EUR, Europe/Sofia. */
+    public function brandLogo(int $brandId): ?string
+    {
+        return $brandId === 12 ? 'https://shop.example.com/img/m/12.jpg' : null;
+    }
+
+    /** The scope of shop 1: en (1) and bg (2), EUR, Europe/Sofia, Home = category 2. */
     public function scope(): Scope
     {
-        return new Scope(1, 1, false, [1 => 'en', 2 => 'bg'], 1, new DateTimeZone('Europe/Sofia'), [1 => 'EUR', 2 => 'BGN'], ['small_default', 'large_default'], ! $this->legacy);
+        return new Scope(1, 1, false, [1 => 'en', 2 => 'bg'], 1, new DateTimeZone('Europe/Sofia'), [1 => 'EUR', 2 => 'BGN'], ['small_default', 'large_default'], ! $this->legacy, 2, ! $this->legacy);
     }
 
     /**
@@ -209,6 +235,54 @@ final class CatalogDb implements Sql, ImageUrls
         $this->pdo->exec("UPDATE ps_product SET product_type = 'pack', cache_is_pack = 1 WHERE id_product = 3");
         $this->product(4, ['is_virtual' => 1, 'product_type' => ''], [], 0);
         $this->product(5, [], ['active' => 0, 'date_upd' => '2026-08-01 10:00:00'], 0);
+    }
+
+    /**
+     * The taxonomy around demo(): categories Root 1, Home 2, 45, 46 (inactive); brands 12, 13 (no name),
+     * 14 (not in the shop); suppliers 2, 3; features 2, 7, 8 with values 310–312 (311 custom); attribute
+     * groups 1 (select) and 2 (color) with values 1–3; tags 43 (a language the shop lacks) and 44 (empty).
+     */
+    public function taxonomy(): void
+    {
+        foreach ([[1, 0, 0, 'Root', 0], [2, 1, 1, 'Home', 0], [45, 2, 2, 'SSD', 3], [46, 45, 3, 'NVMe', 0]] as [$id, $parent, $level, $name, $position]) {
+            $this->insert('category', ['id_category' => $id, 'id_parent' => $parent, 'level_depth' => $level, 'active' => $id === 46 ? 0 : 1]);
+            $this->insert('category_shop', ['id_category' => $id, 'id_shop' => 1, 'position' => $position]);
+            foreach ([1 => $name, 2 => $name.' bg'] as $lang => $text) {
+                $this->insert('category_lang', ['id_category' => $id, 'id_shop' => 1, 'id_lang' => $lang, 'name' => $text, 'link_rewrite' => strtolower($name)]);
+            }
+        }
+        foreach ([[12, 'Samsung', true], [13, '', true], [14, 'Elsewhere', false]] as [$id, $name, $inShop]) {
+            $this->insert('manufacturer', ['id_manufacturer' => $id, 'name' => $name]);
+            $this->insert('manufacturer_lang', ['id_manufacturer' => $id, 'id_lang' => 1, 'short_description' => 'About '.$id]);
+            if ($inShop) {
+                $this->insert('manufacturer_shop', ['id_manufacturer' => $id, 'id_shop' => 1]);
+            }
+        }
+        foreach ([2 => 'Distributor B', 3 => 'Distributor A'] as $id => $name) {
+            $this->insert('supplier', ['id_supplier' => $id, 'name' => $name, 'active' => $id === 3 ? 1 : 0]);
+            $this->insert('supplier_shop', ['id_supplier' => $id, 'id_shop' => 1]);
+            $this->insert('supplier_lang', ['id_supplier' => $id, 'id_lang' => 2, 'description' => 'Доставчик']);
+        }
+        foreach ([2 => 'Material', 7 => 'Capacity', 8 => 'Notes'] as $id => $name) {
+            $this->insert('feature', ['id_feature' => $id, 'position' => $id]);
+            $this->insert('feature_shop', ['id_feature' => $id, 'id_shop' => 1]);
+            $this->insert('feature_lang', ['id_feature' => $id, 'id_lang' => 1, 'name' => $name]);
+        }
+        $this->insert('feature_value', ['id_feature_value' => 312, 'id_feature' => 7, 'position' => 1]);
+        foreach ([310 => '512 GB', 311 => 'Quiet', 312 => '1 TB'] as $id => $value) {
+            $this->insert('feature_value_lang', ['id_feature_value' => $id, 'id_lang' => 1, 'value' => $value]);
+        }
+        foreach ([1 => ['Size', 'select', 0], 2 => ['Color', 'color', 1]] as $id => [$name, $type, $color]) {
+            $this->insert('attribute_group', ['id_attribute_group' => $id, 'group_type' => $type, 'is_color_group' => $color, 'position' => $id - 1]);
+            $this->insert('attribute_group_shop', ['id_attribute_group' => $id, 'id_shop' => 1]);
+            $this->insert('attribute_group_lang', ['id_attribute_group' => $id, 'id_lang' => 1, 'name' => $name, 'public_name' => $name.'!']);
+        }
+        foreach ([1 => 'Red', 2 => 'Blue', 3 => 'M'] as $id => $name) {
+            $this->insert('attribute_shop', ['id_attribute' => $id, 'id_shop' => 1]);
+            $this->insert('attribute_lang', ['id_attribute' => $id, 'id_lang' => 1, 'name' => $name]);
+        }
+        $this->insert('tag', ['id_tag' => 43, 'id_lang' => 3, 'name' => 'nicht']);
+        $this->insert('tag', ['id_tag' => 44, 'id_lang' => 1, 'name' => '']);
     }
 
     /** Combination $id of product $productId in shop 1, with one option value and a stock row. */

@@ -67,7 +67,9 @@ final class PrestaShopScope
             $zone,
             $currencies,
             $types,
-            $compat->hasUnitPriceColumn()
+            $compat->hasUnitPriceColumn(),
+            (int) $shop->id_category,
+            $compat->hasFeatureValuePosition()
         );
     }
 }

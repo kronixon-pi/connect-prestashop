@@ -34,6 +34,9 @@ class Shop
     /** @var int */
     public $id_shop_group;
 
+    /** @var int the shop's Home category */
+    public $id_category;
+
     /**
      * @param bool $auto_ssl
      * @param bool $add_base_uri
@@ -253,6 +256,13 @@ class Link
      * @return string
      */
     public function getImageLink($name, $ids, $type = null) {}
+
+    /**
+     * @param int $idManufacturer
+     * @param string|null $type
+     * @return string
+     */
+    public function getManufacturerImageLink($idManufacturer, $type = null) {}
 }
 
 class Db

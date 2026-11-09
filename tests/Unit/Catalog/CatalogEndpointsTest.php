@@ -28,6 +28,7 @@ final class CatalogEndpointsTest extends TestCase
     {
         $this->db = new CatalogDb();
         $this->db->demo();
+        $this->db->taxonomy();
         $this->module = new TestModule();
         $this->module->pair();
         $db = $this->db;
@@ -38,7 +39,7 @@ final class CatalogEndpointsTest extends TestCase
     }
 
     /**
-     * @return iterable<string, array{string, string}>
+     * @return iterable<string, array{0: string, 1: string, 2?: array<string, string>}>
      */
     public function endpoints(): iterable
     {
@@ -47,14 +48,21 @@ final class CatalogEndpointsTest extends TestCase
         yield 'images' => ['catalog/images', 'catalog-images.json'];
         yield 'prices' => ['catalog/prices', 'catalog-prices.json'];
         yield 'stock' => ['catalog/stock', 'catalog-stock.json'];
+        yield 'categories' => ['catalog/categories', 'catalog-categories.json'];
+        yield 'brands' => ['catalog/brands', 'catalog-brands.json'];
+        yield 'suppliers' => ['catalog/suppliers', 'catalog-suppliers.json'];
+        yield 'attributes' => ['catalog/attributes', 'catalog-attributes.json'];
+        yield 'attribute values of features' => ['catalog/attribute-values', 'catalog-attribute-values.json', ['kind' => 'feature']];
+        yield 'attribute values of groups' => ['catalog/attribute-values', 'catalog-attribute-values.json', ['kind' => 'attribute_group']];
+        yield 'tags' => ['catalog/tags', 'catalog-tags.json'];
     }
 
     /**
      * @dataProvider endpoints
      */
-    public function test_a_walk_by_next_cursor_through_the_kernel(string $endpoint, string $schema): void
+    public function test_a_walk_by_next_cursor_through_the_kernel(string $endpoint, string $schema, array $parameters = []): void
     {
-        $query = ['limit' => '1'];
+        $query = $parameters + ['limit' => '1'];
         $pages = 0;
         do {
             $nonce = '4056df7f-8d8a-445a-9102-1e318c62'.sprintf('%04d', ++$pages);
