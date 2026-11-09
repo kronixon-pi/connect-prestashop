@@ -171,6 +171,14 @@ elif psphp modules/kronixonconnect/tests/Integration/validate-answers.php /tmp/k
 else
     echo "  FAIL catalog answers against their schemas"; failures=$((failures + 1))
 fi
+# Rows MySQL reads for a page (tests/Integration/page-cost.php): bounded per item for products, printed
+# for every reader.
+if psphp modules/kronixonconnect/tests/Integration/page-cost.php >"$tmp/cost"; then
+    echo "  ok   a products page reads a bounded number of rows per item"
+else
+    echo "  FAIL rows read per catalog page"; failures=$((failures + 1))
+fi
+cat "$tmp/cost"
 step "catalog reads checked in $(( $(date +%s) - w0 ))s"
 
 front="$(curl -s -o /dev/null -w '%{http_code}' "$base/")"

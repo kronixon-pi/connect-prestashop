@@ -101,7 +101,8 @@ schema. Endpoints so far: `products`, `variants`, `images`, `prices`, `stock`.
   `redirect_type` is `default`, 1.7.8's `404`) is different data.
 - **Cost.** A page is a fixed number of queries whatever its size (products 9, `fields=basic` 5, variants 5,
   images 3, prices ≤ 6, stock ≤ 2): base rows by id, then one query per related table for the page's ids.
-  Measured on 100 000 generated products, limit 500, in process (`tests/Integration/catalog-walk.php`):
+  A products page reads about 20–30 rows per item in MySQL wherever it starts
+  ([tests/Integration/page-cost.php](tests/Integration/page-cost.php), checked by the smoke run). Measured on 100 000 generated products, limit 500, in process (`tests/Integration/catalog-walk.php`):
   memory flat between pages; the time per products page depends on the machine more than on the
   version: a median of 27–81 ms on GitHub's runners (two matrix runs, every version, the same version up
   to 2× apart between runs) and 105–110 ms on a slower development machine. The matrix prints the
