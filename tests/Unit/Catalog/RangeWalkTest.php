@@ -6,8 +6,10 @@ namespace Kronixon\Connect\Tests\Unit\Catalog;
 
 use Kronixon\Connect\Catalog\Cursor;
 use Kronixon\Connect\Catalog\ImageReader;
+use Kronixon\Connect\Catalog\PriceReader;
 use Kronixon\Connect\Catalog\ProductReader;
 use Kronixon\Connect\Catalog\Reader;
+use Kronixon\Connect\Catalog\StockReader;
 use Kronixon\Connect\Catalog\VariantReader;
 use Kronixon\Connect\Tests\Support\CatalogDb;
 use Kronixon\Connect\Tests\Support\ProtocolSchemas;
@@ -73,6 +75,37 @@ final class RangeWalkTest extends TestCase
             'delete' => static function (CatalogDb $db, int $id): void {
                 $db->deleteImage($id);
             },
+        ]];
+        // Rows keyed by product and variant: every 3rd product has two combinations.
+        $productRow = static function (array $item): int {
+            return (int) $item['product_id'];
+        };
+        $rowKey = static function (array $item): string {
+            return $item['product_id'].':'.$item['variant_id'];
+        };
+        $seed = static function (CatalogDb $db, int $id): void {
+            $db->product($id);
+            if ($id % 3 === 0) {
+                $db->variant($id * 10 + 1, $id);
+                $db->variant($id * 10 + 2, $id);
+            }
+        };
+        $delete = static function (CatalogDb $db, int $id): void {
+            $db->deleteProduct($id);
+        };
+        yield 'prices' => [[
+            'schema' => 'catalog-prices.json',
+            'reader' => static function (CatalogDb $db): Reader {
+                return new PriceReader($db, $db->scope());
+            },
+            'key' => $rowKey, 'range' => $productRow, 'seed' => $seed, 'delete' => $delete,
+        ]];
+        yield 'stock' => [[
+            'schema' => 'catalog-stock.json',
+            'reader' => static function (CatalogDb $db): Reader {
+                return new StockReader($db, $db->scope());
+            },
+            'key' => $rowKey, 'range' => $productRow, 'seed' => $seed, 'delete' => $delete,
         ]];
     }
 

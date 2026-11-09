@@ -242,7 +242,7 @@ final class CatalogDb implements Sql, ImageUrls
 
     public function deleteProduct(int $id): void
     {
-        foreach (['product', 'product_shop', 'product_lang', 'category_product', 'stock_available'] as $table) {
+        foreach (['product', 'product_shop', 'product_lang', 'category_product', 'stock_available', 'product_attribute', 'product_attribute_shop'] as $table) {
             $this->delete($table, 'id_product = '.$id);
         }
     }

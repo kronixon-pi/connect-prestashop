@@ -66,6 +66,12 @@ final class CatalogEndpoints
             'images' => static function (Scope $scope) use ($sql, $urls): Reader {
                 return new ImageReader($sql, $scope, $urls);
             },
+            'prices' => static function (Scope $scope) use ($sql): Reader {
+                return new PriceReader($sql, $scope);
+            },
+            'stock' => static function (Scope $scope) use ($sql): Reader {
+                return new StockReader($sql, $scope);
+            },
         ];
     }
 

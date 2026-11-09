@@ -45,6 +45,8 @@ final class CatalogEndpointsTest extends TestCase
         yield 'products' => ['catalog/products', 'catalog-products.json'];
         yield 'variants' => ['catalog/variants', 'catalog-variants.json'];
         yield 'images' => ['catalog/images', 'catalog-images.json'];
+        yield 'prices' => ['catalog/prices', 'catalog-prices.json'];
+        yield 'stock' => ['catalog/stock', 'catalog-stock.json'];
     }
 
     /**

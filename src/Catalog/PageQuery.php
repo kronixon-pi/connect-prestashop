@@ -139,6 +139,27 @@ final class PageQuery
         return $id;
     }
 
+    /**
+     * The conditions of a page of rows keyed by (product, variant), each an index range on
+     * (product, variant) that a query orders and limits: the rest of the cursor's product when the
+     * cursor names a variant, then the products after it up to `until_id`. Their results, in this
+     * order, are in key order.
+     *
+     * @return array<string, string> `rest` (variants of the cursor's product), `range` (later products)
+     */
+    public function variantWindows(string $product, string $variant): array
+    {
+        $windows = [];
+        if ($this->afterVariant !== null && $this->afterId <= $this->untilId) {
+            $windows['rest'] = $product.' = '.$this->afterId.' AND '.$variant.' > '.$this->afterVariant;
+        }
+        if ($this->afterId < $this->untilId) {
+            $windows['range'] = $product.' > '.$this->afterId.' AND '.$product.' <= '.$this->untilId;
+        }
+
+        return $windows;
+    }
+
     /** Whether the range is empty (a cursor at or past `until_id`). */
     public function exhausted(): bool
     {
