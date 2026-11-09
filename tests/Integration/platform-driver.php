@@ -41,6 +41,14 @@ $uuid = static function (): string {
 $call = static function (string $method, string $endpoint, ?string $secret, string $body = '', array $options = []) use ($base, $connectTo, $hostPort, $state, $uuid): array {
     $friendly = ! empty($options['friendly']);
     $url = rtrim($base, '/').($friendly ? '/module/kronixonconnect/api?path=' : '/index.php?fc=module&module=kronixonconnect&controller=api&path=').rawurlencode($endpoint);
+    // Endpoint parameters: in the URL, and signed as the canonical query (README §4.2).
+    $pairs = [];
+    foreach ($options['query'] ?? [] as $name => $value) {
+        $url .= '&'.rawurlencode((string) $name).'='.rawurlencode((string) $value);
+        $pairs[] = rawurlencode((string) $name).'='.rawurlencode((string) $value);
+    }
+    sort($pairs, SORT_STRING);
+    $path = '/v1/'.$endpoint.($pairs === [] ? '' : '?'.implode('&', $pairs));
     $nonce = $options['nonce'] ?? $uuid();
     $timestamp = $options['timestamp'] ?? time();
     $headers = ['X-KX-Protocol' => 'v1', 'X-KX-Store' => $state['store_id'], 'X-KX-Request-Id' => $nonce, 'Accept' => 'application/json', 'User-Agent' => 'KronixonPlatform/smoke'];
@@ -49,7 +57,7 @@ $call = static function (string $method, string $endpoint, ?string $secret, stri
         $headers['Idempotency-Key'] = hash('sha256', $method.' /v1/'.$endpoint.' '.$body);
     }
     if ($secret !== null) {
-        $canonical = implode("\n", [$method, '/v1/'.$endpoint, (string) $timestamp, $nonce, hash('sha256', $options['signed_body'] ?? $body)]);
+        $canonical = implode("\n", [$method, $path, (string) $timestamp, $nonce, hash('sha256', $options['signed_body'] ?? $body)]);
         $headers += ['X-KX-Timestamp' => (string) $timestamp, 'X-KX-Nonce' => $nonce, 'X-KX-Key-Id' => $options['key_id'] ?? 'cur', 'X-KX-Signature' => hash_hmac('sha256', $canonical, $secret)];
     }
     $lines = [];
@@ -142,6 +150,42 @@ $check('an unsigned request → 401, unsigned', $unsigned['status'] === 401 && !
 $unknown = $call('GET', 'nope', $cur);
 $check('an unknown endpoint after the signature → 404 not_found (signed)', $unknown['status'] === 404 && $signedBy($unknown, $cur), $unknown['status'].' '.$unknown['body']);
 $check('the shop is still paired after the refusals', $call('GET', 'health', $cur)['status'] === 200);
+
+// Catalog reads: the first page of every GET catalog/* signed, a walk by next_cursor through the friendly
+// URL, an id range from a cursor the platform builds itself, a tampered cursor. Every answer is written to
+// $answers as <schema>--<name>.json for validate-answers.php.
+$answers = getenv('KX_ANSWERS') ?: '/tmp/kx-answers';
+if (! is_dir($answers)) {
+    mkdir($answers, 0777, true);
+}
+$cursorFor = static function (int $after): string {
+    return rtrim(strtr(base64_encode('{"id":'.$after.'}'), '+/', '-_'), '=');
+};
+foreach (['products', 'variants', 'images', 'prices', 'stock'] as $kind) {
+    $page = $call('GET', 'catalog/'.$kind, $cur, '', ['query' => ['limit' => '20']]);
+    $data = json_decode($page['body'], true);
+    file_put_contents("$answers/catalog-$kind.json--signed.json", $page['body']);
+    $check("GET catalog/$kind → 200 signed, data and meta.max_id", $page['status'] === 200 && $signedBy($page, $cur) && is_array($data['data'] ?? null) && isset($data['meta']['max_id']), $page['status'].' '.substr($page['body'], 0, 300));
+}
+$ids = [];
+$query = ['limit' => '3', 'fields' => 'basic'];
+for ($i = 1; $i <= 3; $i++) {
+    $page = $call('GET', 'catalog/products', $cur, '', ['query' => $query, 'friendly' => true]);
+    $data = json_decode($page['body'], true);
+    file_put_contents("$answers/catalog-products.json--walk-$i.json", $page['body']);
+    $ids = array_merge($ids, array_column($data['data'] ?? [], 'external_id'));
+    $query['cursor'] = (string) ($data['meta']['next_cursor'] ?? '');
+}
+$ints = array_map('intval', $ids);
+$sorted = array_values(array_unique($ints));
+sort($sorted);
+$check('three pages by next_cursor: 9 products in id order, none twice', count($ids) === 9 && $ints === $sorted, implode(',', $ids));
+$range = $call('GET', 'catalog/products', $cur, '', ['query' => ['cursor' => $cursorFor((int) $ids[1]), 'until_id' => $ids[4], 'fields' => 'basic']]);
+$data = json_decode($range['body'], true);
+file_put_contents("$answers/catalog-products.json--range.json", $range['body']);
+$check('a range from a built cursor: exactly the ids in (after, until_id]', $range['status'] === 200 && array_column($data['data'] ?? [], 'external_id') === array_slice($ids, 2, 3) && ($data['meta']['has_more'] ?? null) === false, $range['body']);
+$bad = $call('GET', 'catalog/products', $cur, '', ['query' => ['cursor' => $cursorFor(1).'x']]);
+$check('a tampered cursor → 400 bad_request (signed)', $bad['status'] === 400 && $code($bad) === 'bad_request' && $signedBy($bad, $cur), $bad['status'].' '.$bad['body']);
 
 // Rotation (README §4.5): sealed to the module's key, prev valid 24 h.
 $alphabet = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
