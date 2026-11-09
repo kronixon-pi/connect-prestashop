@@ -4,27 +4,33 @@ All notable changes of the module are listed here; versions follow [Semantic Ver
 
 ## [Unreleased]
 
+## [0.3.0]
+
 ### Added
 
-- 0.3.0 catalog reads: the eleven `GET catalog/*` endpoints — `products`, `variants`, `images`, `prices`,
+- Catalog reads: the eleven `GET catalog/*` endpoints — `products`, `variants`, `images`, `prices`,
   `stock`, `categories`, `brands`, `suppliers`, `attributes`, `attribute-values`, `tags` — ordered by id,
   with a checked cursor, `until_id` (inclusive) and `meta.max_id` for parallel id ranges, `since`,
   multilang fields by iso, net prices in the shop default currency, the default stock location and
-  `content_hash` on products and categories in the platform's canonical form. A page costs a bounded
-  number of queries; memory is flat over a walk. `capabilities.suppliers` is true.
+  `content_hash` on products and categories in the platform's canonical form (without `kx_id`). Every
+  answer is the paired shop's, also on a multistore install. A page costs a bounded number of queries;
+  memory is flat over a walk. `capabilities.suppliers` is true.
+
+## [0.2.1]
 
 ### Fixed
 
-- 0.2.1: a rotation retried after a lost answer (verified with `prev`) replaces only `cur` and keeps
-  `prev` with its original expiry, so the platform's secret keeps verifying and the unconfirmed one
-  does not.
+- A rotation retried after a lost answer (verified with `prev`) replaces only `cur` and keeps `prev` with
+  its original expiry, so the platform's secret keeps verifying and the unconfirmed one does not.
 - An unpair by the platform also forgets the last pairing outcome (`KX_PAIR_STATE`) and the time of the
   last platform request (`KX_LAST_REQUEST_AT`).
 - Uninstall deletes the `access` rows of the back-office tab's roles, which PrestaShop leaves behind.
 
+## [0.2.0]
+
 ### Added
 
-- 0.2.0 pairing: the settings page (also *Advanced Parameters → Kronixon Connect*) pairs the shop with a
+- Pairing: the settings page (also *Advanced Parameters → Kronixon Connect*) pairs the shop with a
   code, shows the outcome or the platform's reason with the time to retry, tests the connection and
   unpairs; `POST /v1/pair` with the module's X25519 key, the sealed secret opened and stored encrypted
   (`PhpEncryption` with `_NEW_COOKIE_KEY_`), the signed ping.
@@ -34,7 +40,12 @@ All notable changes of the module are listed here; versions follow [Semantic Ver
 - A zero-right Profile and an inactive Employee created at install and removed at uninstall; uninstall
   tells the platform (best effort) before the secrets go.
 - `kx_log` (14 days, secrets masked), translations bg and de, an install failure names its step.
-- 0.1.0 skeleton: module class with install/uninstall, the module tables, hooks registered (handlers
+
+## [0.1.0]
+
+### Added
+
+- Skeleton: module class with install/uninstall, the module tables, hooks registered (handlers
   empty until the outbox arrives), the API front controller with its kernel (25 s budget, JSON errors,
   no stack traces), compatibility profiles for PrestaShop 1.7.8 / 8.0 / 8.1–8.2 / 9.x.
 - Connect protocol v1: [document](protocol/v1/README.md), JSON Schemas for every Phase-0 endpoint and
