@@ -55,6 +55,16 @@ final class ApiError extends RuntimeException
         return new self(400, 'bad_request', $message);
     }
 
+    /**
+     * A query parameter of a GET endpoint is invalid (`details.errors` names them).
+     *
+     * @param  list<string>  $parameters
+     */
+    public static function badQuery(array $parameters): self
+    {
+        return new self(400, 'bad_request', 'A query parameter is invalid.', ['errors' => $parameters]);
+    }
+
     public static function protocolUnsupported(): self
     {
         return new self(400, 'protocol_version_unsupported', 'Send X-KX-Protocol: v1 and a /v1 path.', ['supported' => ['v1']]);
