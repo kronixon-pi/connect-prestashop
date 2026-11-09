@@ -64,6 +64,12 @@ final class Scope
     public $featureValuePosition;
 
     /**
+     * @var bool the install has more than one shop; with one, every product and value is that shop's,
+     *           so the counters need no `*_shop` join (it costs a lookup per counted row)
+     */
+    public $multistore = true;
+
+    /**
      * @param  array<int, string>  $languages
      * @param  array<int, string>  $currencies
      * @param  list<string>  $imageTypes

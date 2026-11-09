@@ -88,10 +88,13 @@ final class Rows
 
     /**
      * The join that keeps a counter to the shop's products: `$alias.id_product` in the shop's `product_shop`.
+     * None on an install with one shop, whose products are all that shop's.
      */
     public static function inShop(Sql $sql, Scope $scope, string $alias): string
     {
-        return ' INNER JOIN '.$sql->table('product_shop').' cps ON cps.id_product = '.$alias.'.id_product AND cps.id_shop = '.$scope->shopId;
+        return $scope->multistore
+            ? ' INNER JOIN '.$sql->table('product_shop').' cps ON cps.id_product = '.$alias.'.id_product AND cps.id_shop = '.$scope->shopId
+            : '';
     }
 
     /** Database text as valid UTF-8 (a broken byte becomes `?`), so an answer always encodes. */

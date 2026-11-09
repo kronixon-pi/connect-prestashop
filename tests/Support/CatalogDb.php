@@ -85,6 +85,9 @@ final class CatalogDb implements Sql, ImageUrls
     /** @var int statements run through rows() */
     public $queries = 0;
 
+    /** @var list<string>|null when an array, every statement run through rows() is appended */
+    public $log;
+
     /** @var bool 1.7.8: no product_shop.unit_price */
     public $legacy = false;
 
@@ -105,6 +108,9 @@ final class CatalogDb implements Sql, ImageUrls
     public function rows(string $sql): array
     {
         $this->queries++;
+        if ($this->log !== null) {
+            $this->log[] = $sql;
+        }
         $rows = [];
         $statement = $this->pdo->query($sql);
         if ($statement === false) {

@@ -89,6 +89,29 @@ final class TaxonomyReaderTest extends TestCase
         self::assertSame($before, $counters());
     }
 
+    public function test_one_shop_counts_its_products_without_a_product_shop_join(): void
+    {
+        $counts = function (bool $multistore): array {
+            $scope = $this->db->scope();
+            $scope->multistore = $multistore;
+            $this->db->log = [];
+            $counts = [];
+            foreach ([[new CategoryReader($this->db, $scope), 'catalog-categories.json'], [new BrandReader($this->db, $scope, $this->db), 'catalog-brands.json'],
+                [new SupplierReader($this->db, $scope), 'catalog-suppliers.json'], [new TagReader($this->db, $scope), 'catalog-tags.json'], ] as [$reader, $schema]) {
+                $counts[] = array_column($this->answer($reader, $schema)['data'], 'product_count');
+            }
+            $joins = count(preg_grep('/product_shop/', $this->db->log));
+            $this->db->log = null;
+
+            return [$counts, $joins];
+        };
+        [$single, $singleJoins] = $counts(false);
+        [$multi, $multiJoins] = $counts(true);
+
+        self::assertSame($multi, $single, 'every product of a one-shop install is the shop\'s');
+        self::assertSame([0, 4], [$singleJoins, $multiJoins], 'statements that join product_shop');
+    }
+
     public function test_the_platform_link_of_a_category_is_not_content(): void
     {
         $before = $this->answer(new CategoryReader($this->db, $this->db->scope()), 'catalog-categories.json')['data'];

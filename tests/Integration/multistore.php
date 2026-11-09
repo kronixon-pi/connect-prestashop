@@ -97,6 +97,13 @@ $column = static function (array $items, string $key): array {
     return array_map('strval', array_column($items, $key));
 };
 
+// The counters join *_shop tables only on an install with more than one shop.
+$multistore = static function () use ($contextOf): bool {
+    return PrestaShopScope::of($contextOf(1), Version::select(_PS_VERSION_))->multistore;
+};
+$shopsBefore = $value("SELECT COUNT(*) FROM {$p}shop");
+$check("scope: multistore with $shopsBefore shop(s) before shop 2", $shopsBefore > 1, $multistore());
+
 // Shop 2 in a new group, every language of shop 1.
 $group = $value("SELECT MAX(id_shop_group) FROM {$p}shop_group") + 1;
 $shop2 = $value("SELECT MAX(id_shop) FROM {$p}shop") + 1;
@@ -144,6 +151,7 @@ $run("INSERT INTO {$p}attribute_group_shop (id_attribute_group, id_shop) VALUES 
 $run("INSERT INTO {$p}attribute (id_attribute, id_attribute_group, color, position) VALUES ($attribute, $group2, '', 0)");
 $run("INSERT INTO {$p}attribute_shop (id_attribute, id_shop) VALUES ($attribute, 1), ($attribute, $shop2)");
 Shop::cacheShops(true);
+$check('scope: multistore once shop 2 exists', true, $multistore());
 
 // The brand and the default supplier are product columns, shared by every shop: set them to shop 2's.
 $run("UPDATE {$p}product SET id_manufacturer = $brand, id_supplier = $supplier WHERE id_product = $product");

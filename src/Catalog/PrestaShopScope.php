@@ -26,6 +26,7 @@ use Exception;
 use ImageType;
 use Kronixon\Connect\Compat\CompatInterface;
 use Language;
+use Shop;
 
 /**
  * The Scope of the shop in the request's Context (cached PrestaShop lookups, no catalog query).
@@ -58,7 +59,7 @@ final class PrestaShopScope
         }
         $group = $shop->getGroup();
 
-        return new Scope(
+        $scope = new Scope(
             (int) $shop->id,
             (int) $shop->id_shop_group,
             (bool) $group->share_stock,
@@ -71,5 +72,9 @@ final class PrestaShopScope
             (int) $shop->id_category,
             $compat->hasFeatureValuePosition()
         );
+        // Every shop, active or not, whatever the multistore switch says: its rows are in the tables.
+        $scope->multistore = count(Shop::getShops(false)) > 1;
+
+        return $scope;
     }
 }
