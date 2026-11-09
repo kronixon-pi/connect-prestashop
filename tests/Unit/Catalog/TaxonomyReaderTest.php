@@ -57,6 +57,16 @@ final class TaxonomyReaderTest extends TestCase
         self::assertNotSame($ssd['content_hash'], $this->answer(new CategoryReader($this->db, $this->db->scope()), 'catalog-categories.json')['data'][2]['content_hash']);
     }
 
+    public function test_the_platform_link_of_a_category_is_not_content(): void
+    {
+        $before = $this->answer(new CategoryReader($this->db, $this->db->scope()), 'catalog-categories.json')['data'];
+        $this->db->insert('kx_entity_map', ['entity_type' => 'category', 'external_id' => '45', 'kx_id' => '0192b2e4-2f7a-7c5b-8a1d-3e4f5a6b7c91']);
+        $after = $this->answer(new CategoryReader($this->db, $this->db->scope()), 'catalog-categories.json')['data'];
+
+        self::assertSame('0192b2e4-2f7a-7c5b-8a1d-3e4f5a6b7c91', $after[2]['kx_id']);
+        self::assertSame(array_column($before, 'content_hash'), array_column($after, 'content_hash'), 'a kx_entity_map row');
+    }
+
     public function test_brands_and_suppliers(): void
     {
         $brands = $this->answer(new BrandReader($this->db, $this->db->scope(), $this->db), 'catalog-brands.json');

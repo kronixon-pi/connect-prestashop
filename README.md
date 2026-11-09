@@ -103,7 +103,7 @@ schema: `products`, `variants`, `images`, `prices`, `stock`, `categories`, `bran
   brands, suppliers, features and attribute groups, and a value only when its feature or group is the
   shop's too; tags have no shop table and follow the shop's languages.
 - **`content_hash`** (products and categories, as v1 declares it): sha256 of the canonical JSON of the item
-  without `date_add`, `date_upd`, `content_hash`, and for products `kx_id`, `quantity` and `images[].url`, for
+  without `kx_id`, `date_add`, `date_upd`, `content_hash`, and for products `quantity` and `images[].url`, for
   categories `product_count` (a counter, not content). `kx_id` links the item to the platform; it is not
   content, so linking or unlinking does not change the hash. Canonical as the platform's sync engine: maps sorted by key
   (byte order) at every depth, lists in their order (the module sorts every list whose order means

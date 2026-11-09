@@ -25,8 +25,8 @@ namespace Kronixon\Connect\Catalog;
  * the platform maps both to its catalog root. Pages follow ids, not the tree: a client that needs
  * parents first orders by `level` (a child's level is above its parent's). Four queries a page.
  *
- * `content_hash` covers every member but `date_upd`, `product_count` (a counter, not content) and the
- * hash itself.
+ * `content_hash` covers every member but `kx_id` (a link to the platform), `date_upd`, `product_count`
+ * (a counter, not content) and the hash itself.
  */
 final class CategoryReader implements Reader
 {
@@ -93,7 +93,9 @@ final class CategoryReader implements Reader
             foreach (self::TEXTS as $field) {
                 $item[$field] = Rows::field($texts, $id, $field);
             }
+            // kx_id links the category to the platform; it is not content of the shop.
             $hashed = $item;
+            unset($hashed['kx_id']);
             $item['product_count'] = $counts[$id] ?? 0;
             $date = $this->scope->utc($row['date_upd']);
             if ($date !== null) {
