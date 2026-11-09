@@ -1,0 +1,82 @@
+{
+  "description": "content_hash vectors (README.md, Catalog reads): each item (already without date_*, quantity, images[].url and content_hash) must give this canonical JSON and sha256. decompose: the same item with every string in Unicode NFD must give the same hash. The platform's CanonicalPayload, with decimal() on the amount members, gives the same sha256 for each.",
+  "vectors": [
+    {
+      "name": "keys sorted at every depth, lists keep their order",
+      "item": {
+        "type": "simple",
+        "external_id": "123",
+        "kx_id": null,
+        "active": true,
+        "category_ids": ["45", "46"],
+        "attributes": [{ "value_id": "310", "feature_id": "7", "custom": false }],
+        "name": { "en": "SSD 512 GB", "bg": "SSD 512 GB" },
+        "redirect": { "type": "404", "target_id": "0" },
+        "tax_rules_group_id": 53,
+        "out_of_stock": 2
+      },
+      "json": "{\"active\":true,\"attributes\":[{\"custom\":false,\"feature_id\":\"7\",\"value_id\":\"310\"}],\"category_ids\":[\"45\",\"46\"],\"external_id\":\"123\",\"kx_id\":null,\"name\":{\"bg\":\"SSD 512 GB\",\"en\":\"SSD 512 GB\"},\"out_of_stock\":2,\"redirect\":{\"target_id\":\"0\",\"type\":\"404\"},\"tax_rules_group_id\":53,\"type\":\"simple\"}",
+      "sha256": "b7509073a9984c92b3615a9b410850db83fde3d10ddb642b4742425e343393d3"
+    },
+    {
+      "name": "amounts are decimals without trailing zeros, at any depth",
+      "item": {
+        "external_id": "124",
+        "price": "99.990000",
+        "wholesale_price": "0.000000",
+        "unit_price": "-0.000000",
+        "weight": "1.200000",
+        "width": "10.000000",
+        "height": "0.050000",
+        "depth": "0",
+        "suppliers": [{ "supplier_id": "3", "reference": "S-1", "price_te": "80.000000", "currency": "EUR" }],
+        "reference": "10.500000"
+      },
+      "json": "{\"depth\":\"0\",\"external_id\":\"124\",\"height\":\"0.05\",\"price\":\"99.99\",\"reference\":\"10.500000\",\"suppliers\":[{\"currency\":\"EUR\",\"price_te\":\"80\",\"reference\":\"S-1\",\"supplier_id\":\"3\"}],\"unit_price\":\"0\",\"weight\":\"1.2\",\"wholesale_price\":\"0\",\"width\":\"10\"}",
+      "sha256": "5695a0d112e6b8c72d2ac00de6edbf965f0c24ae9a078e35453029ece9ea2c84"
+    },
+    {
+      "name": "text in NFC: the same item decomposed (NFD) hashes alike",
+      "decompose": true,
+      "item": {
+        "external_id": "125",
+        "name": { "bg": "Кафе с мляко – йогурт", "en": "Café crème brûlée", "de": "Größe Ä" },
+        "tags": { "en": ["café", "naïve"] }
+      },
+      "json": "{\"external_id\":\"125\",\"name\":{\"bg\":\"Кафе с мляко – йогурт\",\"de\":\"Größe Ä\",\"en\":\"Café crème brûlée\"},\"tags\":{\"en\":[\"café\",\"naïve\"]}}",
+      "sha256": "031c49e2fa8690bd44a6b454b0de9531de2fcb13bdafca44f775b225c7e12b9a"
+    },
+    {
+      "name": "empty maps are {}, empty lists [], no escaped slashes or Unicode",
+      "item": {
+        "external_id": "126",
+        "description": {},
+        "tags": {},
+        "category_ids": [],
+        "images": [{ "external_id": "9001", "position": 1, "cover": true, "sha256": null }],
+        "description_short": { "en": "<p>NVMe 5/7 — “fast” & 100% \"quoted\"</p>" }
+      },
+      "json": "{\"category_ids\":[],\"description\":{},\"description_short\":{\"en\":\"<p>NVMe 5/7 — “fast” & 100% \\\"quoted\\\"</p>\"},\"external_id\":\"126\",\"images\":[{\"cover\":true,\"external_id\":\"9001\",\"position\":1,\"sha256\":null}],\"tags\":{}}",
+      "sha256": "4e9ad4942fa5378e0712004fc0e443b47ad47920c3606095c207d2d8af511866"
+    },
+    {
+      "name": "a category",
+      "item": {
+        "external_id": "45",
+        "kx_id": null,
+        "parent_id": "2",
+        "root": false,
+        "level": 2,
+        "position": 3,
+        "active": true,
+        "name": { "bg": "SSD", "en": "SSD" },
+        "link_rewrite": { "bg": "ssd", "en": "ssd" },
+        "description": {},
+        "meta_title": {},
+        "meta_description": {}
+      },
+      "json": "{\"active\":true,\"description\":{},\"external_id\":\"45\",\"kx_id\":null,\"level\":2,\"link_rewrite\":{\"bg\":\"ssd\",\"en\":\"ssd\"},\"meta_description\":{},\"meta_title\":{},\"name\":{\"bg\":\"SSD\",\"en\":\"SSD\"},\"parent_id\":\"2\",\"position\":3,\"root\":false}",
+      "sha256": "0f5fa990ce57737eaafb53c011e30cbd128fba6da3f63aabfd35fdb7dfd6ac04"
+    }
+  ]
+}
