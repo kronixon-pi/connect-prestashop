@@ -44,8 +44,15 @@ final class PrestaShopSql implements Sql
         if (! is_array($rows)) {
             throw new RuntimeException('A catalog query failed.');
         }
+        $text = [];
+        foreach ($rows as $row) {
+            // PrestaShop 9 (PDO with native types) returns integers; 1.7.8 (mysqli) text. Readers see text.
+            $text[] = array_map(static function ($value): ?string {
+                return $value === null ? null : (is_bool($value) ? (string) (int) $value : (string) $value);
+            }, $row);
+        }
 
-        return array_values($rows);
+        return $text;
     }
 
     public function table(string $name): string
