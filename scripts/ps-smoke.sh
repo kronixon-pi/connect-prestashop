@@ -173,9 +173,19 @@ else
 fi
 step "catalog reads checked in $(( $(date +%s) - w0 ))s"
 
-total_s=$(elapsed)
 front="$(curl -s -o /dev/null -w '%{http_code}' "$base/")"
 expect_eq "storefront home with the module installed" "200" "$front"
+
+# Multistore last (it adds a second shop for good): tests/Integration/multistore.php shares a product
+# with shop 2 in a second group and checks that shop 1 never reads shop 2's categories, features,
+# suppliers, brand or images, and that shop 2's links leave shop 1's items and content_hash unchanged.
+if psphp modules/kronixonconnect/tests/Integration/multistore.php >"$tmp/multistore"; then
+    echo "  ok   multistore: shop 1 reads only its own relations, shop 2's links do not change its items"
+else
+    echo "  FAIL multistore"; failures=$((failures + 1))
+fi
+cat "$tmp/multistore"
+total_s=$(elapsed)
 summary="SMOKE ps=$ps image=$(dc config --images 2>/dev/null | grep prestashop | head -n 1) prestashop=$version php=$php_version install_s=$install_s module_install_s=$module_s total_s=$total_s failures=$failures"
 echo "$summary"
 if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then echo "- \`$summary\`" >>"$GITHUB_STEP_SUMMARY"; fi

@@ -36,6 +36,10 @@ final class CatalogDb implements Sql, ImageUrls
             quantity INT DEFAULT 0, physical_quantity INT DEFAULT 0, reserved_quantity INT DEFAULT 0, depends_on_stock INT DEFAULT 0, out_of_stock INT DEFAULT 2',
         'feature_product' => 'id_feature INT, id_product INT, id_feature_value INT, PRIMARY KEY (id_feature, id_product, id_feature_value)',
         'feature_value' => 'id_feature_value INTEGER PRIMARY KEY, id_feature INT, custom INT DEFAULT 0',
+        'feature_shop' => 'id_feature INT, id_shop INT, PRIMARY KEY (id_feature, id_shop)',
+        'category_shop' => 'id_category INT, id_shop INT, position INT DEFAULT 0, PRIMARY KEY (id_category, id_shop)',
+        'manufacturer_shop' => 'id_manufacturer INT, id_shop INT, PRIMARY KEY (id_manufacturer, id_shop)',
+        'supplier_shop' => 'id_supplier INT, id_shop INT, PRIMARY KEY (id_supplier, id_shop)',
         'tag' => 'id_tag INTEGER PRIMARY KEY, id_lang INT, name TEXT',
         'product_tag' => 'id_product INT, id_tag INT, id_lang INT, PRIMARY KEY (id_product, id_tag)',
         'product_supplier' => 'id_product_supplier INTEGER PRIMARY KEY, id_product INT, id_product_attribute INT DEFAULT 0, id_supplier INT,
@@ -76,6 +80,9 @@ final class CatalogDb implements Sql, ImageUrls
         }
         $this->pdo->exec('CREATE INDEX ix_pa_product ON ps_product_attribute (id_product, id_product_attribute)');
         $this->pdo->exec('CREATE UNIQUE INDEX ix_stock ON ps_stock_available (id_product, id_product_attribute, id_shop, id_shop_group)');
+        // A stock shop: Root (1) and Home (2), where every product() goes, in shop 1.
+        $this->link('category_shop', 'id_category', 1);
+        $this->link('category_shop', 'id_category', 2);
     }
 
     public function rows(string $sql): array
@@ -106,10 +113,16 @@ final class CatalogDb implements Sql, ImageUrls
         return 'https://shop.example.com/'.$imageId.($type === null ? '' : '-'.$type).'/'.($slug !== '' ? $slug : 'image').'.jpg';
     }
 
-    /** The scope of shop 1: en (1) and bg (2), EUR, Europe/Sofia. */
-    public function scope(): Scope
+    /** The scope of shop 1 (or of secondShop() 2, in group 2): en (1) and bg (2), EUR, Europe/Sofia. */
+    public function scope(int $shopId = 1): Scope
     {
-        return new Scope(1, 1, false, [1 => 'en', 2 => 'bg'], 1, new DateTimeZone('Europe/Sofia'), [1 => 'EUR', 2 => 'BGN'], ['small_default', 'large_default'], ! $this->legacy);
+        return new Scope($shopId, $shopId, false, [1 => 'en', 2 => 'bg'], 1, new DateTimeZone('Europe/Sofia'), [1 => 'EUR', 2 => 'BGN'], ['small_default', 'large_default'], ! $this->legacy);
+    }
+
+    /** Entity $id of a `*_shop` table ($table, keyed by $column) in shop $shopId, once. */
+    public function link(string $table, string $column, int $id, int $shopId = 1): void
+    {
+        $this->pdo->exec('INSERT OR IGNORE INTO ps_'.$table.' ('.$column.', id_shop) VALUES ('.$id.', '.$shopId.')');
     }
 
     /**
@@ -177,6 +190,10 @@ final class CatalogDb implements Sql, ImageUrls
         }
         $this->insert('product_supplier', ['id_product' => 1, 'id_supplier' => 3, 'product_supplier_reference' => 'S-1', 'product_supplier_price_te' => '80.000000', 'id_currency' => 1]);
         $this->insert('product_supplier', ['id_product' => 1, 'id_supplier' => 2, 'product_supplier_price_te' => '81.000000', 'id_currency' => 0]);
+        foreach ([['category_shop', 'id_category', 45], ['feature_shop', 'id_feature', 7], ['feature_shop', 'id_feature', 8], ['supplier_shop', 'id_supplier', 2],
+            ['supplier_shop', 'id_supplier', 3], ['manufacturer_shop', 'id_manufacturer', 12], ] as [$table, $column, $entity]) {
+            $this->link($table, $column, $entity);
+        }
         $this->insert('kx_entity_map', ['entity_type' => 'product', 'external_id' => '1', 'kx_id' => '0192b2e4-2f7a-7c5b-8a1d-3e4f5a6b7c8d']);
 
         $this->product(2, ['reference' => 'TS'], ['price' => '20.000000', 'cache_default_attribute' => 10], 0);
@@ -209,6 +226,33 @@ final class CatalogDb implements Sql, ImageUrls
         $this->pdo->exec("UPDATE ps_product SET product_type = 'pack', cache_is_pack = 1 WHERE id_product = 3");
         $this->product(4, ['is_virtual' => 1, 'product_type' => ''], [], 0);
         $this->product(5, [], ['active' => 0, 'date_upd' => '2026-08-01 10:00:00'], 0);
+    }
+
+    /**
+     * Shop 2 (in group 2) next to demo()'s shop 1, the usual multistore layout: shared products, a tree,
+     * features, suppliers, brands and images of its own. Products 1 and 2 are in both shops; shop 2 links
+     * product 1 to its category 990, feature 9 (value 390) and supplier 4, gives product 2 its brand 14
+     * and default supplier 4, and gives combination 10 its image 903 — none of which shop 1 has.
+     */
+    public function secondShop(): void
+    {
+        foreach ([1, 2] as $product) {
+            $this->insert('product_shop', ['id_product' => $product, 'id_shop' => 2, 'price' => '77.000000', 'id_category_default' => 990]);
+            $this->insert('product_lang', ['id_product' => $product, 'id_shop' => 2, 'id_lang' => 1, 'name' => 'Shop 2 product '.$product]);
+        }
+        $this->insert('product_attribute_shop', ['id_product_attribute' => 10, 'id_product' => 2, 'id_shop' => 2, 'price' => '1.000000']);
+        $this->link('category_shop', 'id_category', 990, 2);
+        $this->insert('category_product', ['id_category' => 990, 'id_product' => 1]);
+        $this->link('feature_shop', 'id_feature', 9, 2);
+        $this->insert('feature_value', ['id_feature_value' => 390, 'id_feature' => 9]);
+        $this->insert('feature_product', ['id_feature' => 9, 'id_product' => 1, 'id_feature_value' => 390]);
+        $this->link('supplier_shop', 'id_supplier', 4, 2);
+        $this->insert('product_supplier', ['id_product' => 1, 'id_supplier' => 4, 'product_supplier_price_te' => '70.000000', 'id_currency' => 1]);
+        $this->link('manufacturer_shop', 'id_manufacturer', 14, 2);
+        $this->pdo->exec('UPDATE ps_product SET id_manufacturer = 14, id_supplier = 4 WHERE id_product = 2');
+        $this->insert('image', ['id_image' => 903, 'id_product' => 2, 'position' => 4]);
+        $this->insert('image_shop', ['id_image' => 903, 'id_product' => 2, 'id_shop' => 2]);
+        $this->insert('product_attribute_image', ['id_product_attribute' => 10, 'id_image' => 903]);
     }
 
     /** Combination $id of product $productId in shop 1, with one option value and a stock row. */
