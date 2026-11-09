@@ -74,7 +74,7 @@ final class CategoryReader implements Reader
         $ids = Rows::ints($rows, 'id_category');
         $texts = Rows::multilang($this->scope, $this->sql->rows('SELECT id_category, id_lang, '.implode(', ', self::TEXTS).' FROM '.$this->sql->table('category_lang')
             .' WHERE id_shop = '.$this->scope->shopId.' AND id_category IN ('.Rows::in($ids).')'), 'id_category', self::TEXTS);
-        $counts = Rows::counts($this->sql, $this->sql->table('category_product'), 'id_category', $ids);
+        $counts = Rows::counts($this->sql, $this->sql->table('category_product').' cp'.Rows::inShop($this->sql, $this->scope, 'cp'), 'cp.id_category', $ids);
         $kx = Rows::kxIds($this->sql, self::ENTITY, $ids);
 
         $items = [];

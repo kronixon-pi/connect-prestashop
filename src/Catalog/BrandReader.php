@@ -73,7 +73,7 @@ final class BrandReader implements Reader
         $ids = Rows::ints($rows, 'id_manufacturer');
         $texts = Rows::multilang($this->scope, $this->sql->rows('SELECT id_manufacturer, id_lang, '.implode(', ', self::TEXTS).' FROM '
             .$this->sql->table('manufacturer_lang').' WHERE id_manufacturer IN ('.Rows::in($ids).')'), 'id_manufacturer', self::TEXTS);
-        $counts = Rows::counts($this->sql, $this->sql->table('product'), 'id_manufacturer', $ids);
+        $counts = Rows::counts($this->sql, $this->sql->table('product').' p'.Rows::inShop($this->sql, $this->scope, 'p'), 'p.id_manufacturer', $ids);
         $kx = Rows::kxIds($this->sql, self::ENTITY, $ids);
 
         $items = [];

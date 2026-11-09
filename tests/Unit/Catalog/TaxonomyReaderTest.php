@@ -57,6 +57,38 @@ final class TaxonomyReaderTest extends TestCase
         self::assertNotSame($ssd['content_hash'], $this->answer(new CategoryReader($this->db, $this->db->scope()), 'catalog-categories.json')['data'][2]['content_hash']);
     }
 
+    public function test_counters_count_only_what_the_shop_has(): void
+    {
+        $counters = function (): array {
+            $scope = $this->db->scope();
+            $count = function (Reader $reader, string $schema, string $member, string $query = ''): array {
+                $data = $this->answer($reader, $schema, $query)['data'];
+
+                return array_combine(array_column($data, 'external_id'), array_column($data, $member));
+            };
+
+            return [
+                'categories' => $count(new CategoryReader($this->db, $scope), 'catalog-categories.json', 'product_count'),
+                'brands' => $count(new BrandReader($this->db, $scope, $this->db), 'catalog-brands.json', 'product_count'),
+                'suppliers' => $count(new SupplierReader($this->db, $scope), 'catalog-suppliers.json', 'product_count'),
+                'tags' => $count(new TagReader($this->db, $scope), 'catalog-tags.json', 'product_count'),
+                'attributes' => $count(new AttributeReader($this->db, $scope), 'catalog-attributes.json', 'value_count'),
+            ];
+        };
+        $before = $counters();
+        // Product 6 of another shop with shop 1's category, brand, supplier and tag; value 5 of group 2 in that shop only.
+        $this->db->insert('product', ['id_product' => 6, 'id_manufacturer' => 12]);
+        $this->db->insert('product_shop', ['id_product' => 6, 'id_shop' => 2]);
+        $this->db->insert('category_product', ['id_category' => 45, 'id_product' => 6]);
+        $this->db->insert('product_supplier', ['id_product' => 6, 'id_supplier' => 3]);
+        $this->db->insert('product_tag', ['id_product' => 6, 'id_tag' => 40, 'id_lang' => 1]);
+        $this->db->insert('attribute', ['id_attribute' => 5, 'id_attribute_group' => 2]);
+        $this->db->link('attribute_shop', 'id_attribute', 5, 2);
+
+        self::assertSame([1, 1, 1, 1, 2], [$before['categories']['45'], $before['brands']['12'], $before['suppliers']['3'], $before['tags']['40'], $before['attributes']['2']]);
+        self::assertSame($before, $counters());
+    }
+
     public function test_the_platform_link_of_a_category_is_not_content(): void
     {
         $before = $this->answer(new CategoryReader($this->db, $this->db->scope()), 'catalog-categories.json')['data'];

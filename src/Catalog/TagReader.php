@@ -63,7 +63,7 @@ final class TagReader implements Reader
             "t.name <> '' AND t.id_lang IN (".Rows::in(array_keys($this->scope->languages)).')'
         );
         $ids = Rows::ints($rows, 'id_tag');
-        $counts = Rows::counts($this->sql, $this->sql->table('product_tag'), 'id_tag', $ids);
+        $counts = Rows::counts($this->sql, $this->sql->table('product_tag').' pt'.Rows::inShop($this->sql, $this->scope, 'pt'), 'pt.id_tag', $ids);
 
         $items = [];
         foreach ($rows as $row) {

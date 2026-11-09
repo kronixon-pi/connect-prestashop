@@ -98,7 +98,9 @@ final class AttributeReader implements Reader
                 'texts' => Rows::multilang($this->scope, $this->sql->rows('SELECT '.$id.', id_lang, '.implode(', ', $fields).' FROM '
                     .$this->sql->table($table.'_lang').' WHERE '.$id.' IN ('.Rows::in($ids).')'), $id, $fields),
                 'counts' => $kind === 1
-                    ? Rows::counts($this->sql, $this->sql->table('attribute'), 'id_attribute_group', $ids)
+                    // The shop's values of a group; a feature's values have no shop table (they follow the feature's).
+                    ? Rows::counts($this->sql, $this->sql->table('attribute').' a INNER JOIN '.$this->sql->table('attribute_shop').' s ON s.id_attribute = a.id_attribute AND s.id_shop = '
+                        .$this->scope->shopId, 'a.id_attribute_group', $ids)
                     : Rows::counts($this->sql, $this->sql->table('feature_value'), 'id_feature', $ids, 'SUM(CASE WHEN custom = 0 THEN 1 ELSE 0 END)'),
                 'kx' => Rows::kxIds($this->sql, $entity, $ids),
             ];

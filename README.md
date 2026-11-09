@@ -94,7 +94,8 @@ schema: `products`, `variants`, `images`, `prices`, `stock`, `categories`, `bran
   come from the shop's own `Link` (friendly URLs, media servers, overrides). `kx_id` comes from
   `kx_entity_map` with the entity types `product`, `variant`, `category`, `brand`, `supplier`, `feature`,
   `attribute_group`, `feature_value` and `attribute`. A feature value with `custom: true` is a per-product
-  text value. `value_count` of a feature counts its predefined values; `facets` are not read (no `facets`
+  text value. `product_count` counts the shop's products (`product_shop`), `value_count` of an attribute
+  group the shop's values (`attribute_shop`) and of a feature its predefined values; `facets` are not read (no `facets`
   capability).
 - **Multistore.** Everything is the paired shop's: a product shared by several shops names only the
   categories, features, suppliers and images that shop has (`*_shop`), and its `brand_id`/`supplier_id`
