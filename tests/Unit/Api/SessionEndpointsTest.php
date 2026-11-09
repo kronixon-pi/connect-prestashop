@@ -31,6 +31,7 @@ final class SessionEndpointsTest extends TestCase
         $data = self::json($response);
         self::assertSame('v1', $data['protocol']);
         self::assertFalse($data['capabilities']['products.write'], 'operations of later versions are false');
+        self::assertTrue($data['capabilities']['suppliers'], 'GET catalog/suppliers is served');
         self::assertSame(['jpg', 'webp'], $data['capabilities']['image_formats']);
         self::assertSame(25, $data['limits']['time_budget_s']);
     }

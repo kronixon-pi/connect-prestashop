@@ -40,7 +40,7 @@ final class Endpoints
     /** Capabilities whose operations arrive with later module versions: false until then (README §10). */
     private const NOT_YET = ['products.write', 'variants', 'images', 'image_alt', 'categories', 'attributes',
         'attribute_values_custom', 'stock', 'stock_locations', 'prices.bulk', 'specific_prices', 'tags', 'seo',
-        'redirects', 'webhooks', 'search_reindex', 'cache_flush', 'orders.read', 'facets', 'suppliers', 'events.pull', ];
+        'redirects', 'webhooks', 'search_reindex', 'cache_flush', 'orders.read', 'facets', 'events.pull', ];
 
     /** @var SecretStore */
     private $secrets;
@@ -102,6 +102,8 @@ final class Endpoints
         $flags['multistore'] = $this->shop->multistore();
         $flags['blog'] = ['enabled' => false, 'adapters' => [], 'import_sources' => []];
         $flags['image_formats'] = $this->shop->imageFormats();
+        // GET catalog/suppliers (module/catalog-suppliers.json: "with the suppliers capability").
+        $flags['suppliers'] = true;
         ksort($flags);
 
         return [
