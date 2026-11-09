@@ -211,6 +211,35 @@ final class CatalogDb implements Sql, ImageUrls
         $this->product(5, [], ['active' => 0, 'date_upd' => '2026-08-01 10:00:00'], 0);
     }
 
+    /** Combination $id of product $productId in shop 1, with one option value and a stock row. */
+    public function variant(int $id, int $productId = 1): void
+    {
+        $this->insert('product_attribute', ['id_product_attribute' => $id, 'id_product' => $productId]);
+        $this->insert('product_attribute_shop', ['id_product_attribute' => $id, 'id_product' => $productId, 'id_shop' => 1, 'price' => '1.000000']);
+        $this->insert('product_attribute_combination', ['id_attribute' => 1, 'id_product_attribute' => $id]);
+        $this->insert('stock_available', ['id_product' => $productId, 'id_product_attribute' => $id, 'quantity' => 1]);
+    }
+
+    public function deleteVariant(int $id): void
+    {
+        foreach (['product_attribute', 'product_attribute_shop', 'product_attribute_combination', 'stock_available'] as $table) {
+            $this->delete($table, 'id_product_attribute = '.$id);
+        }
+    }
+
+    /** Image $id of product $productId in shop 1. */
+    public function image(int $id, int $productId = 1): void
+    {
+        $this->insert('image', ['id_image' => $id, 'id_product' => $productId, 'position' => 1]);
+        $this->insert('image_shop', ['id_image' => $id, 'id_product' => $productId, 'id_shop' => 1]);
+    }
+
+    public function deleteImage(int $id): void
+    {
+        $this->delete('image', 'id_image = '.$id);
+        $this->delete('image_shop', 'id_image = '.$id);
+    }
+
     public function deleteProduct(int $id): void
     {
         foreach (['product', 'product_shop', 'product_lang', 'category_product', 'stock_available'] as $table) {

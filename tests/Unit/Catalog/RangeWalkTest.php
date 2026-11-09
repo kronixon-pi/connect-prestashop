@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace Kronixon\Connect\Tests\Unit\Catalog;
 
 use Kronixon\Connect\Catalog\Cursor;
+use Kronixon\Connect\Catalog\ImageReader;
 use Kronixon\Connect\Catalog\ProductReader;
 use Kronixon\Connect\Catalog\Reader;
+use Kronixon\Connect\Catalog\VariantReader;
 use Kronixon\Connect\Tests\Support\CatalogDb;
 use Kronixon\Connect\Tests\Support\ProtocolSchemas;
 use PHPUnit\Framework\TestCase;
@@ -42,6 +44,34 @@ final class RangeWalkTest extends TestCase
             },
             'delete' => static function (CatalogDb $db, int $id): void {
                 $db->deleteProduct($id);
+            },
+        ]];
+        yield 'variants' => [[
+            'schema' => 'catalog-variants.json',
+            'reader' => static function (CatalogDb $db): Reader {
+                return new VariantReader($db, $db->scope());
+            },
+            'key' => $externalId,
+            'range' => $externalId,
+            'seed' => static function (CatalogDb $db, int $id): void {
+                $db->variant($id, 1 + $id % 5);
+            },
+            'delete' => static function (CatalogDb $db, int $id): void {
+                $db->deleteVariant($id);
+            },
+        ]];
+        yield 'images' => [[
+            'schema' => 'catalog-images.json',
+            'reader' => static function (CatalogDb $db): Reader {
+                return new ImageReader($db, $db->scope(), $db);
+            },
+            'key' => $externalId,
+            'range' => $externalId,
+            'seed' => static function (CatalogDb $db, int $id): void {
+                $db->image($id, 1 + $id % 5);
+            },
+            'delete' => static function (CatalogDb $db, int $id): void {
+                $db->deleteImage($id);
             },
         ]];
     }

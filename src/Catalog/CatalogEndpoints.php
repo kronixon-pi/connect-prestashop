@@ -60,6 +60,12 @@ final class CatalogEndpoints
             'products' => static function (Scope $scope) use ($sql, $urls): Reader {
                 return new ProductReader($sql, $scope, $urls);
             },
+            'variants' => static function (Scope $scope) use ($sql): Reader {
+                return new VariantReader($sql, $scope);
+            },
+            'images' => static function (Scope $scope) use ($sql, $urls): Reader {
+                return new ImageReader($sql, $scope, $urls);
+            },
         ];
     }
 

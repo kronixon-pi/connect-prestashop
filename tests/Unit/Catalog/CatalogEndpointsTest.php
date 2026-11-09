@@ -43,6 +43,8 @@ final class CatalogEndpointsTest extends TestCase
     public function endpoints(): iterable
     {
         yield 'products' => ['catalog/products', 'catalog-products.json'];
+        yield 'variants' => ['catalog/variants', 'catalog-variants.json'];
+        yield 'images' => ['catalog/images', 'catalog-images.json'];
     }
 
     /**
@@ -50,7 +52,7 @@ final class CatalogEndpointsTest extends TestCase
      */
     public function test_a_walk_by_next_cursor_through_the_kernel(string $endpoint, string $schema): void
     {
-        $query = ['limit' => '2'];
+        $query = ['limit' => '1'];
         $pages = 0;
         do {
             $nonce = '4056df7f-8d8a-445a-9102-1e318c62'.sprintf('%04d', ++$pages);
