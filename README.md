@@ -4,7 +4,7 @@ The free, open-source companion module that links a PrestaShop store to **Kronix
 platform never touches the shop's database, files or the PrestaShop Webservice: it talks only to
 this module, over the signed [Connect protocol v1](protocol/v1/README.md).
 
-> **Status: 0.3.0, pairing and catalog reads.** The module pairs with Kronixon PI from its settings page,
+> **Status: 0.3.1, pairing and catalog reads.** The module pairs with Kronixon PI from its settings page,
 > verifies the signature of every protocol request, signs every answer and serves `capabilities`,
 > `profile`, `health`, `rotate`, `unpair` and the eleven `GET catalog/*` reads. Writes, webhooks and
 > self-update arrive in the next versions. Do not install it on a production shop yet.
@@ -114,11 +114,12 @@ schema: `products`, `variants`, `images`, `prices`, `stock`, `categories`, `bran
   `fields=basic` hashes the members a basic item carries. The same data gives the same hash on PHP
   7.4–8.5 and PrestaShop 1.7.8–9.x; a value PrestaShop stores differently (a new 9.x product's
   `redirect_type` is `default`, 1.7.8's `404`) is different data.
-- **Cost.** A page is a bounded number of queries whatever its size (products 9, `fields=basic` 5, variants 5,
+- **Cost.** A page is a bounded number of queries whatever its size (products 9, `fields=basic` 5, variants 6,
   images 3, prices ≤ 6, stock ≤ 2, categories, brands, suppliers and attribute values 4, attributes ≤ 8,
   tags 2): base rows by id, then one query per related table for the page's ids.
-  A products page reads about 20–30 rows per item in MySQL wherever it starts
-  ([tests/Integration/page-cost.php](tests/Integration/page-cost.php), checked by the smoke run).
+  In MySQL, a products page reads about 20–30 rows per item wherever it starts, a prices page about 5 and
+  a variants page about 7. [tests/Integration/page-cost.php](tests/Integration/page-cost.php) checks this
+  in the smoke run (at most 60, 20 and 20).
   Measured on 100 000 generated products, limit 500, in process (`tests/Integration/catalog-walk.php`):
   memory flat between pages; the time per products page depends on the machine more than on the
   version: a median of 27–81 ms on GitHub's runners (two matrix runs, every version, the same version up

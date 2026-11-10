@@ -45,6 +45,17 @@ final class VariantImageReaderTest extends TestCase
         $reader->read(ProductReaderTest::query($db, 'product_id=x'));
     }
 
+    /** Option values come from the page's combination rows; a row whose value no longer exists is left out. */
+    public function test_variant_option_values_skip_a_deleted_value(): void
+    {
+        $db = new CatalogDb();
+        $db->demo();
+        $db->insert('product_attribute_combination', ['id_attribute' => 999, 'id_product_attribute' => 10]);
+        $items = (new VariantReader($db, $db->scope()))->read(ProductReaderTest::query($db, ''))->items;
+
+        self::assertSame([['group_id' => '1', 'value_id' => '3'], ['group_id' => '2', 'value_id' => '1']], $items[0]['option_values']);
+    }
+
     public function test_images(): void
     {
         $db = new CatalogDb();
@@ -70,7 +81,7 @@ final class VariantImageReaderTest extends TestCase
         $db->demo();
         $variants = new VariantReader($db, $db->scope());
         $images = new ImageReader($db, $db->scope(), $db);
-        foreach ([[$variants, 5], [$images, 3]] as [$reader, $expected]) {
+        foreach ([[$variants, 6], [$images, 3]] as [$reader, $expected]) {
             foreach (['limit=1', 'limit=500'] as $query) {
                 $db->queries = 0;
                 $reader->read(ProductReaderTest::query($db, $query));

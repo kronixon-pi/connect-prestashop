@@ -9,12 +9,16 @@ declare(strict_types=1);
  * row an index or table scan touched) around read(). A keyset page of N items must read a bounded number
  * of rows per item wherever it starts; a plan that reads the whole id range (a join buffer before
  * LIMIT) or every product of a category (a join driven by a small *_shop table) reads thousands.
- * Prints one JSON line per reader; exit 1 when a page of an --enforce reader (default products) reads
- * more than --max rows per item (default 60). The other readers are measured and printed only.
+ * Each reader reads its first page once before measuring: the first read of a process carries
+ * PrestaShop's one-time work (on 9.x about 3 000 rows of image type and link lookups), which is not a
+ * cost of the page.
+ * Prints one JSON line per reader; exit 1 when a page of an --enforce reader reads more rows per item
+ * than its limit (`name:limit`, or --max, default 60). By default products (60), prices (20) and
+ * variants (20) are enforced; the other readers are measured and printed only.
  * Run inside the shop container as www-data, after catalog-walk.php has generated the products
  * (scripts/ps-smoke.sh does).
  *
- *   php query-plans.php [--endpoints=products,…] [--enforce=products,…] [--max=60]
+ *   php page-cost.php [--endpoints=products,…] [--enforce=products:60,prices,…] [--max=60]
  *
  * @license   https://opensource.org/licenses/AFL-3.0 Academic Free License version 3.0
  */
@@ -54,8 +58,11 @@ $context = Context::getContext();
 $scope = PrestaShopScope::of($context, Version::select(_PS_VERSION_));
 $readers = CatalogEndpoints::readers(new PrestaShopSql($db, _DB_PREFIX_), new PrestaShopImageUrls($context->link));
 $endpoints = isset($options['endpoints']) ? explode(',', (string) $options['endpoints']) : array_keys($readers);
-$max = (int) ($options['max'] ?? 60);
-$enforce = explode(',', (string) ($options['enforce'] ?? 'products'));
+$enforce = [];
+foreach (explode(',', (string) ($options['enforce'] ?? 'products:60,prices:20,variants:20')) as $limit) {
+    [$name, $most] = explode(':', $limit, 2) + [1 => $options['max'] ?? 60];
+    $enforce[$name] = (int) $most;
+}
 $failures = 0;
 foreach ($endpoints as $endpoint) {
     // `attribute-values?kind=feature`: the endpoint and its own parameters.
@@ -67,21 +74,26 @@ foreach ($endpoints as $endpoint) {
     }
     $reader = $readers[$name]($scope);
     $line = ['endpoint' => $endpoint, 'max_id' => $reader->maxId()];
-    foreach (['start' => 0, 'middle' => intdiv((int) $line['max_id'], 2)] as $at => $after) {
+    $pages = ['warm-up' => 0, 'start' => 0, 'middle' => intdiv((int) $line['max_id'], 2)];
+    foreach ($pages as $at => $after) {
         $query = PageQuery::from(
             Request::fromServer(['REQUEST_METHOD' => 'GET', 'QUERY_STRING' => "path=catalog/$name&$extra&limit=500&cursor=".Cursor::encode($after)], ''),
             $scope,
             $reader->maxLimit(),
             $reader->maxCursorVariant()
         );
+        if ($at === 'warm-up') {
+            $reader->read($query);
+            continue;
+        }
         $before = $reads();
         $items = count($reader->read($query)->items);
         $rows = $reads() - $before - 1;  // less the status query's own read
         $perItem = round($rows / max(1, $items), 1);
         $line[$at] = ['items' => $items, 'rows_read' => $rows, 'per_item' => $perItem];
-        if ($perItem > $max && in_array($endpoint, $enforce, true)) {
+        if (isset($enforce[$endpoint]) && $perItem > $enforce[$endpoint]) {
             $failures++;
-            fwrite(STDERR, "FAIL $endpoint page at $at: $rows rows read for $items items (more than $max per item)\n");
+            fwrite(STDERR, "FAIL $endpoint page at $at: $rows rows read for $items items (more than {$enforce[$endpoint]} per item)\n");
         }
     }
     echo json_encode($line), "\n";

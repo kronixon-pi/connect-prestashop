@@ -4,6 +4,17 @@ All notable changes of the module are listed here; versions follow [Semantic Ver
 
 ## [Unreleased]
 
+## [0.3.1]
+
+### Changed
+
+- A `catalog/prices` page reads its products through `product` by primary key: on PrestaShop 8.2+
+  it read and sorted every product of the shop per page (about 200 rows per item at 100 000 products,
+  now about 5).
+- A `catalog/variants` page reads its option values with two queries by the page's ids: it read every
+  combination row of the shop per page (about 84 rows per item at 20 000 combinations, now about 7).
+  Answers are unchanged; a variants page costs 6 queries instead of 5.
+
 ## [0.3.0]
 
 ### Added
