@@ -2,7 +2,8 @@
 # Bakes a fixture image: an installed PrestaShop with the module and the Spec §12 fixture (500
 # products), committed from the official image, plus the MariaDB dump and an init script that
 # restores it on an empty database (docker/fixture/kx-restore.sh). Then starts the baked image on a
-# fresh database and checks it (500 fixture products, the API answers).
+# fresh database for another domain and checks it (500 fixture products, the API answers, a product
+# image answers by its friendly URL).
 #
 #   scripts/bake-fixture.sh <prestashop image tag> <output image>
 #   e.g. scripts/bake-fixture.sh 9.1.5-8.4 ghcr.io/kronixon-pi/connect-ps-fixture:9.1.5-8.4-$(scripts/fixture-sha.sh)
@@ -49,7 +50,7 @@ wait_web() { # container [ready marker]
     local marker="${2:-Starting web server now}" deadline=$(( $(date +%s) + 900 )) logs
     while :; do
         logs="$(docker logs "$1" 2>&1 || true)"
-        if [[ "$logs" == *"installation failed"* || "$logs" == *"kx-restore: database"* ]]; then echo "start failed in $1" >&2; return 1; fi
+        if [[ "$logs" == *"installation failed"* || "$logs" == *"kx-restore: database"* || "$logs" == *"kx-restore: failed"* ]]; then echo "start failed in $1" >&2; return 1; fi
         if [[ "$logs" == *"$marker"* ]]; then return 0; fi
         if [ "$(date +%s)" -gt "$deadline" ]; then echo "$1 not ready in 900 s" >&2; return 1; fi
         if [ "$(docker inspect -f '{{.State.Running}}' "$1")" != "true" ]; then echo "$1 stopped" >&2; return 1; fi
@@ -126,7 +127,16 @@ if [ "$status" != "403" ] || [ "$code" != "store_unpaired" ]; then
     echo "baked image API answered $status $code" >&2
     exit 1
 fi
-step "baked image checked: $products fixture products, GET /v1/status → $status $code"
+# The check runs on another domain than the bake (port + 1): a fixture product image by its friendly URL
+# answers only when kx-restore.sh wrote .htaccess for that domain.
+read -r image rewrite < <(sql "$id-db2" "SELECT i.id_image, pl.link_rewrite FROM ps_image i INNER JOIN ps_product p ON p.id_product = i.id_product INNER JOIN ps_product_lang pl ON pl.id_product = i.id_product AND pl.id_lang = (SELECT MIN(id_lang) FROM ps_lang) WHERE p.reference LIKE 'KX-%' ORDER BY i.id_image LIMIT 1")
+image_url="http://localhost:$((port + 1))/$image-small_default/$rewrite.jpg"
+image_answer="$(curl -s -o /dev/null -w '%{http_code} %{content_type}' "$image_url")"
+if [ "$image_answer" != "200 image/jpeg" ]; then
+    echo "baked image on a new domain: $image_url answered $image_answer, want 200 image/jpeg" >&2
+    exit 1
+fi
+step "baked image checked: $products fixture products, GET /v1/status → $status $code, $image_url → $image_answer"
 
 size_mb=$(( $(docker image inspect -f '{{.Size}}' "$out") / 1048576 ))
 dump_kb=$(( $(stat -c %s "$tmp/db.sql.gz") / 1024 ))
