@@ -104,6 +104,8 @@ final class Endpoints
         $flags['image_formats'] = $this->shop->imageFormats();
         // GET catalog/suppliers (module/catalog-suppliers.json: "with the suppliers capability").
         $flags['suppliers'] = true;
+        // GET catalog/variants?product_id_in= (module 0.3.2).
+        $flags['catalog'] = ['variants_product_id_in' => true];
         ksort($flags);
 
         return [

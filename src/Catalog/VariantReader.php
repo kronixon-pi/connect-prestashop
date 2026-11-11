@@ -18,15 +18,24 @@ declare(strict_types=1);
 
 namespace Kronixon\Connect\Catalog;
 
+use Kronixon\Connect\Api\ApiError;
+
 /**
  * `GET catalog/variants` (module/catalog-variants.json): the combinations of the paired shop by
  * combination id, all or of one `product_id`, with their shop values (impacts, default, minimal
  * quantity), option values, images and the default stock row. `since` is the product's `date_upd`
  * (a combination has none). Six queries a page.
+ *
+ * With `product_id_in` (up to 100 product ids) the page holds the combinations of those products,
+ * ordered by product, then combination, and its cursor names both (`{"id":<product>,"v":<combination>}`);
+ * `until_id` and `product_id` do not combine with it. At most seven queries a page.
  */
 final class VariantReader implements Reader
 {
     public const ENTITY = 'variant';
+
+    /** The most product ids of one `product_id_in`. */
+    public const MAX_PRODUCT_IDS = 100;
 
     /** @var Sql */
     private $sql;
@@ -50,13 +59,28 @@ final class VariantReader implements Reader
         return Rows::id($this->sql->rows('SELECT MAX(id_product_attribute) AS m FROM '.$this->sql->table('product_attribute'))[0]['m'] ?? null);
     }
 
-    public function maxCursorVariant(): ?int
+    /** `v` (a combination id) only on `product_id_in` pages; read() refuses it on the others. */
+    public function maxCursorVariant(): int
     {
-        return null;
+        return PHP_INT_MAX;
     }
 
     public function read(PageQuery $query): Page
     {
+        $products = $query->idListParam('product_id_in', self::MAX_PRODUCT_IDS);
+        if ($products !== null) {
+            $conflicts = array_values(array_filter(['product_id', 'until_id'], static function (string $name) use ($query): bool {
+                return $query->param($name) !== null;
+            }));
+            if ($conflicts !== []) {
+                throw ApiError::badQuery(array_merge($conflicts, ['product_id_in']));
+            }
+
+            return $this->ofProducts($query, $products);
+        }
+        if ($query->afterVariant !== null) {
+            throw ApiError::badQuery(['cursor']);
+        }
         $productId = $query->idParam('product_id');
         if ($query->afterId >= $query->untilId) {
             return Page::none();
@@ -65,17 +89,75 @@ final class VariantReader implements Reader
         if ($productId !== null) {
             $where .= ' AND pa.id_product = '.$productId;
         }
+        $rows = $this->rows($query, $where, 'pa.id_product_attribute', $query->limit + 1);
+        $more = count($rows) > $query->limit;
+
+        return $this->page(array_slice($rows, 0, $query->limit), $more, static function (array $item): string {
+            return Cursor::encode((int) $item['external_id']);
+        });
+    }
+
+    /**
+     * A page of the combinations of $products after the cursor's (product, combination): the rest of
+     * the cursor's product, then the later products of the list. Each is a range of the
+     * `id_product` index, read in index order, so a page reads about the rows it answers.
+     *
+     * @param  list<int>  $products  ascending
+     */
+    private function ofProducts(PageQuery $query, array $products): Page
+    {
+        $windows = [];
+        if ($query->afterVariant !== null && in_array($query->afterId, $products, true)) {
+            $windows[] = 'pa.id_product = '.$query->afterId.' AND pa.id_product_attribute > '.$query->afterVariant;
+        }
+        $later = array_values(array_filter($products, static function (int $id) use ($query): bool {
+            return $id > $query->afterId;
+        }));
+        if ($later !== []) {
+            $windows[] = 'pa.id_product IN ('.Rows::in($later).')';
+        }
+        $rows = [];
+        foreach ($windows as $where) {
+            $wanted = $query->limit + 1 - count($rows);
+            if ($wanted > 0) {
+                $rows = array_merge($rows, $this->rows($query, $where, 'pa.id_product, pa.id_product_attribute', $wanted));
+            }
+        }
+        $more = count($rows) > $query->limit;
+
+        return $this->page(array_slice($rows, 0, $query->limit), $more, static function (array $item): string {
+            return Cursor::encode((int) $item['product_id'], (int) $item['external_id']);
+        });
+    }
+
+    /**
+     * The shop's combination rows matching $where (and `since`), in $order, at most $limit.
+     *
+     * @return list<array<string, string|null>>
+     */
+    private function rows(PageQuery $query, string $where, string $order, int $limit): array
+    {
         $join = '';
         if ($query->since !== null) {
             $join = ' INNER JOIN '.$this->sql->table('product_shop').' ps ON ps.id_product = pa.id_product AND ps.id_shop = '.$this->scope->shopId;
             $where .= " AND ps.date_upd >= '".$query->since."'";
         }
-        $rows = $this->sql->rows('SELECT pa.id_product_attribute, pa.id_product, pa.reference, pa.ean13, pa.mpn, pas.price, pas.wholesale_price,'
+
+        return $this->sql->rows('SELECT pa.id_product_attribute, pa.id_product, pa.reference, pa.ean13, pa.mpn, pas.price, pas.wholesale_price,'
             .' pas.weight, pas.default_on, pas.minimal_quantity, pas.available_date FROM '.$this->sql->table('product_attribute').' pa INNER JOIN '
             .$this->sql->table('product_attribute_shop').' pas ON pas.id_product_attribute = pa.id_product_attribute AND pas.id_shop = '.$this->scope->shopId
-            .$join.' WHERE '.$where.' ORDER BY pa.id_product_attribute LIMIT '.($query->limit + 1));
-        $more = count($rows) > $query->limit;
-        $rows = array_slice($rows, 0, $query->limit);
+            .$join.' WHERE '.$where.' ORDER BY '.$order.' LIMIT '.$limit);
+    }
+
+    /**
+     * The items of a page's combination rows: option values, images, stock and `kx_id` read by the
+     * page's ids, five queries.
+     *
+     * @param  list<array<string, string|null>>  $rows
+     * @param  callable(array<string, mixed>): string  $cursorOf
+     */
+    private function page(array $rows, bool $more, callable $cursorOf): Page
+    {
         $ids = array_map(static function (array $row): int {
             return (int) $row['id_product_attribute'];
         }, $rows);
@@ -145,8 +227,6 @@ final class VariantReader implements Reader
             ];
         }
 
-        return new Page($items, $more, static function (array $item): string {
-            return Cursor::encode((int) $item['external_id']);
-        });
+        return new Page($items, $more, $cursorOf);
     }
 }

@@ -96,6 +96,16 @@
             "facets": { "type": "boolean" },
             "suppliers": { "type": "boolean" },
             "events.pull": { "type": "boolean" },
+            "catalog": {
+              "type": "object",
+              "description": "Optional members of the GET catalog/* reads; an absent member is false.",
+              "properties": {
+                "variants_product_id_in": {
+                  "type": "boolean",
+                  "description": "GET catalog/variants accepts product_id_in (module 0.3.2)."
+                }
+              }
+            },
             "image_formats": {
               "type": "array",
               "items": { "enum": ["jpg", "png", "webp", "avif"] },
@@ -177,6 +187,7 @@
             "facets": true,
             "suppliers": true,
             "events.pull": true,
+            "catalog": { "variants_product_id_in": true },
             "image_formats": ["jpg", "webp"]
           },
           "limits": {

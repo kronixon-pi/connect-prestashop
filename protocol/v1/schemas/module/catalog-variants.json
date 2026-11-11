@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://connect.kronixon.com/protocol/v1/schemas/module/catalog-variants.json",
   "title": "GET catalog/variants",
-  "description": "Combinations of one product (product_id) or of all, by cursor (Spec §6.4).",
+  "description": "Combinations of one product (product_id), of several (product_id_in) or of all, by cursor (Spec §6.4).",
   "x-kx-endpoint": {
     "method": "GET",
     "path": "/v1/catalog/variants",
@@ -13,10 +13,22 @@
     "query": {
       "allOf": [{ "$ref": "../common.json#/$defs/catalog_query" }],
       "properties": {
-        "product_id": { "$ref": "../common.json#/$defs/external_id" }
+        "product_id": { "$ref": "../common.json#/$defs/external_id" },
+        "product_id_in": {
+          "description": "Comma-separated product ids, at most 100 distinct (duplicates count once). The page holds the combinations of those products ordered by product id, then combination id; next_cursor names both. Not with product_id or until_id; an empty list, a member that is not an id or more than 100 ids answer 400 bad_request. Announced by capabilities.catalog.variants_product_id_in (module 0.3.2).",
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,19})(,(0|[1-9][0-9]{0,19}))*$"
+        }
+      },
+      "not": {
+        "anyOf": [
+          { "required": ["product_id", "product_id_in"] },
+          { "required": ["until_id", "product_id_in"] }
+        ]
       },
       "examples": [
         { "product_id": "123" },
+        { "product_id_in": "123,124,130", "limit": "500" },
         { "since": "2026-09-01T00:00:00Z", "limit": "500" }
       ]
     },

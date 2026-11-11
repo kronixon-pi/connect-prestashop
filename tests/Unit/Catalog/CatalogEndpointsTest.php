@@ -45,6 +45,7 @@ final class CatalogEndpointsTest extends TestCase
     {
         yield 'products' => ['catalog/products', 'catalog-products.json'];
         yield 'variants' => ['catalog/variants', 'catalog-variants.json'];
+        yield 'variants of several products' => ['catalog/variants', 'catalog-variants.json', ['product_id_in' => '2,1']];
         yield 'images' => ['catalog/images', 'catalog-images.json'];
         yield 'prices' => ['catalog/prices', 'catalog-prices.json'];
         yield 'stock' => ['catalog/stock', 'catalog-stock.json'];
@@ -92,6 +93,9 @@ final class CatalogEndpointsTest extends TestCase
             self::assertTrue(TestModule::signedWith($response, $nonce, (string) $this->module->platform->secret));
         }
         self::assertSame(405, $this->get('catalog/products', [], '8056df7f-8d8a-445a-9102-1e318c620000', 'POST')->status());
+        $response = $this->get('catalog/variants', ['product_id_in' => implode(',', range(1, 101))], '8056df7f-8d8a-445a-9102-1e318c620001');
+        self::assertSame([400, 'bad_request', ['product_id_in']], [$response->status(), json_decode($response->body(), true)['error']['code'], json_decode($response->body(), true)['error']['details']['errors']]);
+        self::assertTrue(TestModule::signedWith($response, '8056df7f-8d8a-445a-9102-1e318c620001', (string) $this->module->platform->secret));
     }
 
     public function test_only_the_endpoints_that_write_v_accept_it_in_a_cursor(): void

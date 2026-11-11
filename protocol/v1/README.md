@@ -173,6 +173,10 @@ out the answer says `continue: true` and the client resends **only** the `skippe
 `GET catalog/*` pages are ordered by id ascending with an opaque `cursor`, `limit` 1–500 (1–1 000 for
 prices and stock), `since` (ISO 8601) and `until_id` (an upper id bound, for parallel id-range slices);
 `meta.max_id` reports the highest id.
+`GET catalog/variants?product_id_in=1,2,…` reads the combinations of up to 100 products in one walk,
+ordered by product id, then combination id; it does not combine with `product_id` or `until_id`. A module
+that serves it announces `capabilities.catalog.variants_product_id_in: true`; without that member a
+client reads one `product_id` at a time.
 
 ### 6.1 Module endpoints
 

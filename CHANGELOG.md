@@ -4,6 +4,16 @@ All notable changes of the module are listed here; versions follow [Semantic Ver
 
 ## [Unreleased]
 
+## [0.3.2]
+
+### Added
+
+- `GET catalog/variants?product_id_in=1,2,…`: the combinations of up to 100 products in one walk, ordered
+  by product id, then combination id, paged by `limit` and a cursor naming product and combination. An
+  empty list, a member that is not an id, more than 100 distinct ids, or `product_id_in` with `product_id`
+  or `until_id` answer `400 bad_request`. Announced as `capabilities.catalog.variants_product_id_in: true`.
+  `product_id=` and the id-range walk are unchanged.
+
 ## [0.3.1]
 
 ### Changed

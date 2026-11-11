@@ -2,7 +2,7 @@
 <module>
     <name>kronixonconnect</name>
     <displayName><![CDATA[Kronixon Connect]]></displayName>
-    <version><![CDATA[0.3.1]]></version>
+    <version><![CDATA[0.3.2]]></version>
     <description><![CDATA[Connects this store to Kronixon PI over the signed Connect protocol v1.]]></description>
     <author><![CDATA[Kronixon]]></author>
     <tab><![CDATA[administration]]></tab>
