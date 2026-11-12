@@ -18,6 +18,8 @@ declare(strict_types=1);
 
 namespace Kronixon\Connect\Catalog;
 
+use Kronixon\Connect\Api\Request;
+
 /**
  * `GET catalog/images` (module/catalog-images.json): the product images of the paired shop by image
  * id, all or of one `product_id`: position, cover, alt per language, the original image's URL and one
@@ -52,7 +54,7 @@ final class ImageReader implements Reader
         return Rows::id($this->sql->rows('SELECT MAX(id_image) AS m FROM '.$this->sql->table('image'))[0]['m'] ?? null);
     }
 
-    public function maxCursorVariant(): ?int
+    public function maxCursorVariant(Request $request): ?int
     {
         return null;
     }

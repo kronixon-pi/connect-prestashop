@@ -32,6 +32,7 @@ final class SessionEndpointsTest extends TestCase
         self::assertSame('v1', $data['protocol']);
         self::assertFalse($data['capabilities']['products.write'], 'operations of later versions are false');
         self::assertTrue($data['capabilities']['suppliers'], 'GET catalog/suppliers is served');
+        self::assertSame(['variants_product_id_in' => true], $data['capabilities']['catalog'], 'GET catalog/variants?product_id_in= is served');
         self::assertSame(['jpg', 'webp'], $data['capabilities']['image_formats']);
         self::assertSame(25, $data['limits']['time_budget_s']);
     }

@@ -37,7 +37,7 @@ final class PairingTest extends TestCase
         self::assertSame(hash('sha256', (string) json_encode($module->endpoints()->capabilities(), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION)), $request['capabilities_hash']);
         self::assertSame('https://connect.example.test/v1/stores/'.FakePlatform::STORE_ID.'/ping', $ping['url']);
         self::assertSame('cur', $ping['headers']['X-KX-Key-Id']);
-        self::assertStringStartsWith('KronixonConnect/0.3.1 (prestashop ', $ping['headers']['User-Agent']);
+        self::assertStringStartsWith('KronixonConnect/0.3.2 (prestashop ', $ping['headers']['User-Agent']);
     }
 
     /**

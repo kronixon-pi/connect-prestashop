@@ -18,6 +18,8 @@ declare(strict_types=1);
 
 namespace Kronixon\Connect\Catalog;
 
+use Kronixon\Connect\Api\Request;
+
 /**
  * `GET catalog/prices` (module/catalog-prices.json): one row per product (`variant_id` "0") and per
  * combination, ordered by product then variant, with net prices in the shop default currency (PrestaShop
@@ -51,7 +53,7 @@ final class PriceReader implements Reader
     }
 
     /** Rows are keyed by (product, variant): `v` is the variant id. */
-    public function maxCursorVariant(): int
+    public function maxCursorVariant(Request $request): int
     {
         return PHP_INT_MAX;
     }

@@ -171,14 +171,26 @@ elif psphp modules/kronixonconnect/tests/Integration/validate-answers.php /tmp/k
 else
     echo "  FAIL catalog answers against their schemas"; failures=$((failures + 1))
 fi
-# Rows MySQL reads for a page (tests/Integration/page-cost.php): bounded per item for products, prices
-# and variants, printed for every reader.
+# Rows MySQL reads for a page (tests/Integration/page-cost.php): bounded per item for products, prices,
+# variants and variants?product_id_in, per page for an empty variants?product_id_in page, printed for
+# every reader.
 if psphp modules/kronixonconnect/tests/Integration/page-cost.php >"$tmp/cost"; then
-    echo "  ok   products, prices and variants pages read a bounded number of rows per item"
+    echo "  ok   products, prices, variants and variants?product_id_in pages read a bounded number of rows per item, an empty variants?product_id_in page a bounded number per page"
 else
     echo "  FAIL rows read per catalog page"; failures=$((failures + 1))
 fi
 cat "$tmp/cost"
+# variants?product_id_in against the product_id= answers of the same 100 products, byte for byte, across
+# page boundaries (tests/Integration/variants-in.php).
+if psphp modules/kronixonconnect/tests/Integration/variants-in.php >"$tmp/variants-in"; then
+    echo "  ok   variants?product_id_in pages hold exactly the product_id= answers of their products"
+else
+    echo "  FAIL variants?product_id_in against product_id="; failures=$((failures + 1))
+fi
+cat "$tmp/variants-in"
+if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+    { echo "Rows read per page and variants?product_id_in on PrestaShop $version:"; echo '```'; cat "$tmp/cost" "$tmp/variants-in"; echo '```'; } >>"$GITHUB_STEP_SUMMARY"
+fi
 step "catalog reads checked in $(( $(date +%s) - w0 ))s"
 
 front="$(curl -s -o /dev/null -w '%{http_code}' "$base/")"

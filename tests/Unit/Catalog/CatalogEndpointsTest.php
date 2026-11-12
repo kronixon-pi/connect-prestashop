@@ -45,6 +45,7 @@ final class CatalogEndpointsTest extends TestCase
     {
         yield 'products' => ['catalog/products', 'catalog-products.json'];
         yield 'variants' => ['catalog/variants', 'catalog-variants.json'];
+        yield 'variants of several products' => ['catalog/variants', 'catalog-variants.json', ['product_id_in' => '2,1']];
         yield 'images' => ['catalog/images', 'catalog-images.json'];
         yield 'prices' => ['catalog/prices', 'catalog-prices.json'];
         yield 'stock' => ['catalog/stock', 'catalog-stock.json'];
@@ -92,6 +93,9 @@ final class CatalogEndpointsTest extends TestCase
             self::assertTrue(TestModule::signedWith($response, $nonce, (string) $this->module->platform->secret));
         }
         self::assertSame(405, $this->get('catalog/products', [], '8056df7f-8d8a-445a-9102-1e318c620000', 'POST')->status());
+        $response = $this->get('catalog/variants', ['product_id_in' => implode(',', range(1, 101))], '8056df7f-8d8a-445a-9102-1e318c620001');
+        self::assertSame([400, 'bad_request', ['product_id_in']], [$response->status(), json_decode($response->body(), true)['error']['code'], json_decode($response->body(), true)['error']['details']['errors']]);
+        self::assertTrue(TestModule::signedWith($response, '8056df7f-8d8a-445a-9102-1e318c620001', (string) $this->module->platform->secret));
     }
 
     public function test_only_the_endpoints_that_write_v_accept_it_in_a_cursor(): void
@@ -109,6 +113,23 @@ final class CatalogEndpointsTest extends TestCase
         }
 
         self::assertSame(['prices', 'stock', 'attributes'], $accepted, 'rows keyed by product and variant, by id and kind');
+    }
+
+    /** A `v` cursor on variants without `product_id_in` is refused together with the other invalid members. */
+    public function test_a_variants_v_cursor_is_listed_with_the_other_invalid_members(): void
+    {
+        $cases = [
+            [['limit' => '0', 'cursor' => Cursor::encode(2, 10)], ['limit', 'cursor']],
+            [['limit' => '0', 'until_id' => '01', 'since' => 'x', 'cursor' => Cursor::encode(2, 10)], ['limit', 'cursor', 'until_id', 'since']],
+            [['product_id' => '2', 'cursor' => Cursor::encode(2, 10)], ['cursor']],
+            [['cursor' => Cursor::encode(2, 10)], ['cursor']],
+            [['limit' => '0', 'product_id_in' => '2', 'cursor' => Cursor::encode(2, 10)], ['limit']],
+        ];
+        foreach ($cases as $i => [$query, $errors]) {
+            $response = $this->get('catalog/variants', $query, 'c056df7f-8d8a-445a-9102-1e318c62000'.$i);
+            self::assertSame([400, 'bad_request', $errors], [$response->status(), json_decode($response->body(), true)['error']['code'], json_decode($response->body(), true)['error']['details']['errors']], json_encode($query));
+        }
+        self::assertSame(200, $this->get('catalog/variants', ['product_id_in' => '2', 'cursor' => Cursor::encode(2, 10)], 'c056df7f-8d8a-445a-9102-1e318c620009')->status());
     }
 
     public function test_the_attributes_cursor_carries_a_kind_0_or_1(): void

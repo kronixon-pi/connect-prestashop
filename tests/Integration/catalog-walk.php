@@ -222,7 +222,8 @@ foreach ($endpoints as $endpoint) {
                 $before = memory_get_usage();
                 $baseline[] = $before - $start;
                 $t = hrtime(true);
-                $query = PageQuery::from(Request::fromServer(['REQUEST_METHOD' => 'GET', 'QUERY_STRING' => "path=catalog/$name&{$extra}limit=$limit&until_id=$until&cursor=$cursor"], ''), $scope, $reader->maxLimit(), $reader->maxCursorVariant());
+                $request = Request::fromServer(['REQUEST_METHOD' => 'GET', 'QUERY_STRING' => "path=catalog/$name&{$extra}limit=$limit&until_id=$until&cursor=$cursor"], '');
+                $query = PageQuery::from($request, $scope, $reader->maxLimit(), $reader->maxCursorVariant($request));
                 $page = $reader->read($query);
                 $answer = $page->answer($page->maxId ?? $reader->maxId(), gmdate('Y-m-d\TH:i:s\Z'));
                 $json = json_encode($answer, Kronixon\Connect\Api\Response::JSON_FLAGS);

@@ -19,6 +19,7 @@ declare(strict_types=1);
 namespace Kronixon\Connect\Catalog;
 
 use Kronixon\Connect\Api\ApiError;
+use Kronixon\Connect\Api\Request;
 
 /**
  * One `GET catalog/<kind>` endpoint.
@@ -32,10 +33,11 @@ interface Reader
     public function maxId(): string;
 
     /**
-     * The largest `v` of this endpoint's cursor (rows keyed by an id and a second key); null when its
-     * cursor is `{"id":N}` only, so that a cursor with `v` is a bad request.
+     * The largest `v` of this endpoint's cursor for $request (rows keyed by an id and a second key);
+     * null when its cursor is `{"id":N}` only, so that a cursor with `v` is a bad request, listed with
+     * the request's other invalid paging members.
      */
-    public function maxCursorVariant(): ?int;
+    public function maxCursorVariant(Request $request): ?int;
 
     /**
      * @throws ApiError 400 for an invalid parameter of the endpoint

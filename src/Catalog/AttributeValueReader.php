@@ -19,6 +19,7 @@ declare(strict_types=1);
 namespace Kronixon\Connect\Catalog;
 
 use Kronixon\Connect\Api\ApiError;
+use Kronixon\Connect\Api\Request;
 
 /**
  * `GET catalog/attribute-values` (module/catalog-attribute-values.json): the values of one `kind`
@@ -52,7 +53,7 @@ final class AttributeValueReader implements Reader
         return (string) max((int) $this->max('feature_value', 'id_feature_value'), (int) $this->max('attribute', 'id_attribute'));
     }
 
-    public function maxCursorVariant(): ?int
+    public function maxCursorVariant(Request $request): ?int
     {
         return null;
     }

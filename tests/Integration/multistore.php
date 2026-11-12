@@ -71,7 +71,8 @@ $read = static function (Context $context, string $endpoint, string $params): ar
     $cursor = '';
     do {
         $query = "path=catalog/$endpoint&limit=500&$params".($cursor === '' ? '' : "&cursor=$cursor");
-        $page = $reader->read(PageQuery::from(Request::fromServer(['REQUEST_METHOD' => 'GET', 'QUERY_STRING' => $query], ''), $scope, $reader->maxLimit(), $reader->maxCursorVariant()));
+        $request = Request::fromServer(['REQUEST_METHOD' => 'GET', 'QUERY_STRING' => $query], '');
+        $page = $reader->read(PageQuery::from($request, $scope, $reader->maxLimit(), $reader->maxCursorVariant($request)));
         $answer = json_decode((string) json_encode($page->answer($reader->maxId(), gmdate('Y-m-d\TH:i:s\Z'))), true);
         $items = array_merge($items, $answer['data']);
         $cursor = (string) $answer['meta']['next_cursor'];

@@ -4,7 +4,7 @@ The free, open-source companion module that links a PrestaShop store to **Kronix
 platform never touches the shop's database, files or the PrestaShop Webservice: it talks only to
 this module, over the signed [Connect protocol v1](protocol/v1/README.md).
 
-> **Status: 0.3.1, pairing and catalog reads.** The module pairs with Kronixon PI from its settings page,
+> **Status: 0.3.2, pairing and catalog reads.** The module pairs with Kronixon PI from its settings page,
 > verifies the signature of every protocol request, signs every answer and serves `capabilities`,
 > `profile`, `health`, `rotate`, `unpair` and the eleven `GET catalog/*` reads. Writes, webhooks and
 > self-update arrive in the next versions. Do not install it on a production shop yet.
@@ -64,12 +64,13 @@ schema: `products`, `variants`, `images`, `prices`, `stock`, `categories`, `bran
 `attributes` (features and attribute groups, told apart by `kind`), `attribute-values` (`kind` required) and
 `tags`.
 
-- **Order and paging.** Items come in ascending id order (prices and stock: product id, then variant id;
-  attributes: id, then kind — a feature before the attribute group with the same id);
+- **Order and paging.** Items come in ascending id order (prices and stock, and variants read with
+  `product_id_in`: product id, then variant id; attributes: id, then kind — a feature before the attribute
+  group with the same id);
   `limit` is 1–500 (1–1 000 for prices and stock), 100 by default; an invalid parameter answers
   `400 bad_request` with `details.errors`. An answer stays under 8 MB: items past that move to the next page.
 - **Cursor.** base64url without padding of the JSON `{"id":<last id>}`, or `{"id":<product id>,"v":<variant
-  id>}` for prices and stock, `{"id":<id>,"v":0|1}` for attributes (0 a feature, 1 an attribute group). A
+  id>}` for prices, stock and variants read with `product_id_in`, `{"id":<id>,"v":0|1}` for attributes (0 a feature, 1 an attribute group). A
   page starts after the cursor's position; `{"id":N}` without `v` starts after every row of id N. Only that
   exact form is accepted (no padding, no other member, integers only, `v` only on the endpoints that write
   it); anything else is `400`. The cursor carries no signature of its own: the request that carries it is signed.
@@ -82,6 +83,14 @@ schema: `products`, `variants`, `images`, `prices`, `stock`, `categories`, `bran
   walk's position in its range and within it — new PrestaShop ids are above the `max_id` the walk started
   from, so they are outside every range and arrive through events or a later `since` read. Tested in
   PHPUnit (K = 1, 3, 8 over ids with gaps, rows created and deleted between pages) and on real shops.
+- **Variants of several products.** `variants?product_id_in=1,2,…` (up to 100 distinct product ids,
+  duplicates count once) answers the combinations of those products, product id then combination id,
+  paged by `limit` and the cursor `{"id":<product id>,"v":<combination id>}` (`{"id":N}` starts after every
+  combination of product N). It does not combine with `product_id` or `until_id`; an empty list, a member
+  that is not an id or more than 100 ids answer `400`. `meta.max_id` stays the highest combination id. The
+  pages of one list hold exactly the items of the `product_id=` answers of its products, byte for byte
+  (tests/Integration/variants-in.php checks it on real shops). `capabilities.catalog.variants_product_id_in`
+  is `true` from 0.3.2.
 - **`since`** (UTC, compared in the shop's time zone) filters on `date_upd`: the product's for products,
   variants, images and prices; the entity's own for categories, brands and suppliers. Stock, attributes,
   attribute values and tags have no change date, so they ignore it and read every row.
@@ -114,12 +123,15 @@ schema: `products`, `variants`, `images`, `prices`, `stock`, `categories`, `bran
   `fields=basic` hashes the members a basic item carries. The same data gives the same hash on PHP
   7.4–8.5 and PrestaShop 1.7.8–9.x; a value PrestaShop stores differently (a new 9.x product's
   `redirect_type` is `default`, 1.7.8's `404`) is different data.
-- **Cost.** A page is a bounded number of queries whatever its size (products 9, `fields=basic` 5, variants 6,
-  images 3, prices ≤ 6, stock ≤ 2, categories, brands, suppliers and attribute values 4, attributes ≤ 8,
-  tags 2): base rows by id, then one query per related table for the page's ids.
-  In MySQL, a products page reads about 20–30 rows per item wherever it starts, a prices page about 5 and
-  a variants page about 7. [tests/Integration/page-cost.php](tests/Integration/page-cost.php) checks this
-  in the smoke run (at most 60, 20 and 20).
+- **Cost.** A page is a bounded number of queries whatever its size (products 9, `fields=basic` 5, variants 6
+  (≤ 7 with `product_id_in`), images 3, prices ≤ 6, stock ≤ 2, categories, brands, suppliers and attribute values 4, attributes ≤ 8,
+  tags 2): base rows by id, then one query per related table for the page's ids. A variants page without
+  items runs only its base query (two with a `product_id_in` cursor inside a product).
+  In MySQL, a products page reads about 20–30 rows per item wherever it starts, a prices page about 5,
+  a variants page about 7 and a `product_id_in` page of 100 products about 8; an empty `product_id_in`
+  page of 100 products without combinations reads about 100 rows, one index lookup per product.
+  [tests/Integration/page-cost.php](tests/Integration/page-cost.php) checks this in the smoke run (at
+  most 60, 20, 20 and 20 per item, 200 for the empty page).
   Measured on 100 000 generated products, limit 500, in process (`tests/Integration/catalog-walk.php`):
   memory flat between pages; the time per products page depends on the machine more than on the
   version: a median of 27–81 ms on GitHub's runners (two matrix runs, every version, the same version up

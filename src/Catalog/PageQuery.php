@@ -145,6 +145,35 @@ final class PageQuery
     }
 
     /**
+     * A comma-separated list of `external_id`s, deduplicated, in ascending order; null when absent.
+     *
+     * @return list<int>|null
+     *
+     * @throws ApiError 400 bad_request when the list is empty, a member is not an id or it holds more than $max distinct ids
+     */
+    public function idListParam(string $name, int $max): ?array
+    {
+        $value = $this->param($name);
+        if ($value === null) {
+            return null;
+        }
+        $ids = [];
+        foreach (explode(',', $value) as $member) {
+            $id = self::id($member);
+            if ($id === null) {
+                throw ApiError::badQuery([$name]);
+            }
+            $ids[$id] = true;
+            if (count($ids) > $max) {
+                throw ApiError::badQuery([$name]);
+            }
+        }
+        ksort($ids);
+
+        return array_keys($ids);
+    }
+
+    /**
      * The conditions of a page of rows keyed by (product, variant), each an index range on
      * (product, variant) that a query orders and limits: the rest of the cursor's product when the
      * cursor names a variant, then the products after it up to `until_id`. Their results, in this
