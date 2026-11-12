@@ -125,11 +125,13 @@ schema: `products`, `variants`, `images`, `prices`, `stock`, `categories`, `bran
   `redirect_type` is `default`, 1.7.8's `404`) is different data.
 - **Cost.** A page is a bounded number of queries whatever its size (products 9, `fields=basic` 5, variants 6
   (≤ 7 with `product_id_in`), images 3, prices ≤ 6, stock ≤ 2, categories, brands, suppliers and attribute values 4, attributes ≤ 8,
-  tags 2): base rows by id, then one query per related table for the page's ids.
+  tags 2): base rows by id, then one query per related table for the page's ids. A variants page without
+  items runs only its base query (two with a `product_id_in` cursor inside a product).
   In MySQL, a products page reads about 20–30 rows per item wherever it starts, a prices page about 5,
-  a variants page about 7 and a `product_id_in` page of 100 products about 8.
+  a variants page about 7 and a `product_id_in` page of 100 products about 8; an empty `product_id_in`
+  page of 100 products without combinations reads about 100 rows, one index lookup per product.
   [tests/Integration/page-cost.php](tests/Integration/page-cost.php) checks this in the smoke run (at
-  most 60, 20, 20 and 20).
+  most 60, 20, 20 and 20 per item, 200 for the empty page).
   Measured on 100 000 generated products, limit 500, in process (`tests/Integration/catalog-walk.php`):
   memory flat between pages; the time per products page depends on the machine more than on the
   version: a median of 27–81 ms on GitHub's runners (two matrix runs, every version, the same version up

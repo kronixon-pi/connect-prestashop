@@ -14,6 +14,12 @@ All notable changes of the module are listed here; versions follow [Semantic Ver
   or `until_id` answer `400 bad_request`. Announced as `capabilities.catalog.variants_product_id_in: true`.
   `product_id=` and the id-range walk are unchanged.
 
+### Fixed
+
+- A `catalog/variants` page without items (for example `product_id=` of a product without combinations in
+  the shop) runs only its base query. It also read the base stock row of every product of the shop
+  (`stock_available … id_product_attribute IN (0)`): about 120 000 rows at 100 000 products.
+
 ## [0.3.1]
 
 ### Changed

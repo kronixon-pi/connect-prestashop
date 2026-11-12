@@ -24,7 +24,7 @@ use Kronixon\Connect\Api\ApiError;
  * `GET catalog/variants` (module/catalog-variants.json): the combinations of the paired shop by
  * combination id, all or of one `product_id`, with their shop values (impacts, default, minimal
  * quantity), option values, images and the default stock row. `since` is the product's `date_upd`
- * (a combination has none). Six queries a page.
+ * (a combination has none). Six queries a page; a page without items runs only its base query.
  *
  * With `product_id_in` (up to 100 product ids) the page holds the combinations of those products,
  * ordered by product, then combination, and its cursor names both (`{"id":<product>,"v":<combination>}`);
@@ -151,13 +151,18 @@ final class VariantReader implements Reader
 
     /**
      * The items of a page's combination rows: option values, images, stock and `kx_id` read by the
-     * page's ids, five queries.
+     * page's ids, five queries; none for a page without rows.
      *
      * @param  list<array<string, string|null>>  $rows
      * @param  callable(array<string, mixed>): string  $cursorOf
      */
     private function page(array $rows, bool $more, callable $cursorOf): Page
     {
+        // No ids, no follow-up queries: `IN (0)` would match the base stock row (combination 0) of
+        // every product of the shop.
+        if ($rows === []) {
+            return new Page([], $more, $cursorOf);
+        }
         $ids = array_map(static function (array $row): int {
             return (int) $row['id_product_attribute'];
         }, $rows);

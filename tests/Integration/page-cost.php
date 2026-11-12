@@ -15,8 +15,10 @@ declare(strict_types=1);
  * Prints one JSON line per reader; exit 1 when a page of an --enforce reader reads more rows per item
  * than its limit (`name:limit`, or --max, default 60). By default products (60), prices (20),
  * variants (20) and `variants?product_id_in` (20: the combinations of 100 products with combinations,
- * from the start and from the middle of the product ids) are enforced; the other readers are measured
- * and printed only.
+ * from the start and from the middle of the product ids) are enforced, and so is
+ * `variants?product_id_in=simple`: 100 products without combinations in the shop, an empty page, gated
+ * at 200 rows per page (about one index lookup per listed product, not a read of the shop's stock
+ * rows). The other readers are measured and printed only.
  * Run inside the shop container as www-data, after catalog-walk.php has generated the products
  * (scripts/ps-smoke.sh does).
  *
@@ -68,13 +70,15 @@ foreach (isset($options['endpoints']) ? explode(',', (string) $options['endpoint
     if ($endpoint === 'attribute-values') {
         array_push($endpoints, 'attribute-values?kind=feature', 'attribute-values?kind=attribute_group');
     } elseif ($endpoint === 'variants' && ! isset($options['endpoints'])) {
-        array_push($endpoints, 'variants', 'variants?product_id_in');
+        array_push($endpoints, 'variants', 'variants?product_id_in', 'variants?product_id_in=simple');
     } else {
         $endpoints[] = $endpoint;
     }
 }
+// Pages gated in rows per page: they answer no items to divide by.
+$perPage = ['variants?product_id_in=simple' => true];
 $enforce = [];
-foreach (explode(',', (string) ($options['enforce'] ?? 'products:60,prices:20,variants:20,variants?product_id_in:20')) as $limit) {
+foreach (explode(',', (string) ($options['enforce'] ?? 'products:60,prices:20,variants:20,variants?product_id_in:20,variants?product_id_in=simple:200')) as $limit) {
     [$name, $most] = explode(':', $limit, 2) + [1 => $options['max'] ?? 60];
     $enforce[$name] = (int) $most;
 }
@@ -85,15 +89,19 @@ foreach ($endpoints as $endpoint) {
     $line = ['endpoint' => $endpoint, 'max_id' => $reader->maxId()];
     $pages = ['warm-up' => 0, 'start' => 0, 'middle' => intdiv((int) $line['max_id'], 2)];
     $extras = array_fill_keys(array_keys($pages), $extra);
-    if ($extra === 'product_id_in') {
-        // One page of the combinations of 100 products with combinations, from the start and from the
-        // middle of the product ids.
+    if ($extra === 'product_id_in' || $extra === 'product_id_in=simple') {
+        // One page of 100 products with combinations (`simple`: without any in this shop, an empty
+        // page), from the start and from the middle of the product ids.
         $p = _DB_PREFIX_;
         $shopId = (int) $context->shop->id;
         $middle = intdiv((int) $db->getValue("SELECT MAX(id_product) FROM {$p}product", false), 2);
+        $combinations = "FROM {$p}product_attribute pa INNER JOIN {$p}product_attribute_shop pas"
+            ." ON pas.id_product_attribute = pa.id_product_attribute AND pas.id_shop = $shopId";
         foreach (['warm-up' => 0, 'start' => 0, 'middle' => $middle] as $at => $from) {
-            $ids = array_column($db->executeS("SELECT DISTINCT pa.id_product FROM {$p}product_attribute pa INNER JOIN {$p}product_attribute_shop pas"
-                ." ON pas.id_product_attribute = pa.id_product_attribute AND pas.id_shop = $shopId WHERE pa.id_product > $from ORDER BY pa.id_product LIMIT 100", true, false), 'id_product');
+            $ids = array_column($db->executeS($extra === 'product_id_in'
+                ? "SELECT DISTINCT pa.id_product $combinations WHERE pa.id_product > $from ORDER BY pa.id_product LIMIT 100"
+                : "SELECT ps.id_product FROM {$p}product_shop ps WHERE ps.id_shop = $shopId AND ps.id_product > $from"
+                    ." AND NOT EXISTS (SELECT 1 $combinations WHERE pa.id_product = ps.id_product) ORDER BY ps.id_product LIMIT 100", true, false), 'id_product');
             $extras[$at] = 'product_id_in='.implode(',', $ids === [] ? [0] : $ids);
             $pages[$at] = 0;
         }
@@ -112,6 +120,17 @@ foreach ($endpoints as $endpoint) {
         $before = $reads();
         $items = count($reader->read($query)->items);
         $rows = $reads() - $before - 1;  // less the status query's own read
+        if (isset($perPage[$endpoint])) {
+            $line[$at] = ['items' => $items, 'rows_read' => $rows];
+            if ($items !== 0) {
+                $failures++;
+                fwrite(STDERR, "FAIL $endpoint page at $at: $items items, the list should have none\n");
+            } elseif (isset($enforce[$endpoint]) && $rows > $enforce[$endpoint]) {
+                $failures++;
+                fwrite(STDERR, "FAIL $endpoint page at $at: $rows rows read (more than {$enforce[$endpoint]} per page)\n");
+            }
+            continue;
+        }
         $perItem = round($rows / max(1, $items), 1);
         $line[$at] = ['items' => $items, 'rows_read' => $rows, 'per_item' => $perItem];
         if (isset($enforce[$endpoint]) && $perItem > $enforce[$endpoint]) {

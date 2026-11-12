@@ -163,6 +163,30 @@ final class VariantImageReaderTest extends TestCase
     }
 
     /**
+     * A page without combination rows runs only its base query (or the two windows of a `product_id_in`
+     * cursor inside a product): its ids would be `IN (0)`, the base stock row of every product.
+     */
+    public function test_an_empty_page_runs_only_its_base_queries(): void
+    {
+        $db = self::severalProducts();
+        $reader = new VariantReader($db, $db->scope());
+        $cases = [
+            'product_id_in=1' => 1,
+            'product_id_in=1,6,99' => 1,
+            'product_id_in=2&cursor='.Cursor::encode(2, 11) => 1,
+            'product_id_in=1,6&cursor='.Cursor::encode(1, 5) => 2,
+            'product_id=1' => 1,
+            'product_id=6' => 1,
+            'product_id=2&cursor='.Cursor::encode(11) => 1,
+        ];
+        foreach ($cases as $query => $expected) {
+            $db->queries = 0;
+            $answer = ProductReaderTest::decode($reader->read(ProductReaderTest::query($db, $query)), '17');
+            self::assertSame([[], null, $expected], [$answer['data'], $answer['meta']['next_cursor'], $db->queries], $query);
+        }
+    }
+
+    /**
      * The demo shop (product 2: combinations 10, 11) plus product 3 (5, 12), 4 (13, 14, 16), 7 (15) and
      * 6, whose only combination (17) is in shop 2.
      */
