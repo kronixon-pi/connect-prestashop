@@ -19,6 +19,7 @@ declare(strict_types=1);
 namespace Kronixon\Connect\Catalog;
 
 use Kronixon\Connect\Api\ApiError;
+use Kronixon\Connect\Api\Request;
 
 /**
  * `GET catalog/variants` (module/catalog-variants.json): the combinations of the paired shop by
@@ -59,10 +60,13 @@ final class VariantReader implements Reader
         return Rows::id($this->sql->rows('SELECT MAX(id_product_attribute) AS m FROM '.$this->sql->table('product_attribute'))[0]['m'] ?? null);
     }
 
-    /** `v` (a combination id) only on `product_id_in` pages; read() refuses it on the others. */
-    public function maxCursorVariant(): int
+    /**
+     * `v` (a combination id) only on `product_id_in` pages, so that PageQuery::from() lists a `v`
+     * cursor of the other pages with their other invalid members.
+     */
+    public function maxCursorVariant(Request $request): ?int
     {
-        return PHP_INT_MAX;
+        return $request->query('product_id_in') === null ? null : PHP_INT_MAX;
     }
 
     public function read(PageQuery $query): Page
@@ -78,7 +82,7 @@ final class VariantReader implements Reader
 
             return $this->ofProducts($query, $products);
         }
-        if ($query->afterVariant !== null) {
+        if ($query->afterVariant !== null) {  // a query made without maxCursorVariant()
             throw ApiError::badQuery(['cursor']);
         }
         $productId = $query->idParam('product_id');

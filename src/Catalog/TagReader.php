@@ -18,6 +18,8 @@ declare(strict_types=1);
 
 namespace Kronixon\Connect\Catalog;
 
+use Kronixon\Connect\Api\Request;
+
 /**
  * `GET catalog/tags` (module/catalog-tags.json): tags by id (a PrestaShop tag belongs to one language)
  * in the shop's languages, with the number of products; the products' tags are in `catalog/products`.
@@ -47,7 +49,7 @@ final class TagReader implements Reader
         return Rows::id($this->sql->rows('SELECT MAX(id_tag) AS m FROM '.$this->sql->table('tag'))[0]['m'] ?? null);
     }
 
-    public function maxCursorVariant(): ?int
+    public function maxCursorVariant(Request $request): ?int
     {
         return null;
     }

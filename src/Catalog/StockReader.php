@@ -18,6 +18,8 @@ declare(strict_types=1);
 
 namespace Kronixon\Connect\Catalog;
 
+use Kronixon\Connect\Api\Request;
+
 /**
  * `GET catalog/stock` (module/catalog-stock.json): the `stock_available` rows of the paired shop (of
  * its group when the group shares stock), location `default`, ordered by product then variant; the
@@ -50,7 +52,7 @@ final class StockReader implements Reader
     }
 
     /** Rows are keyed by (product, variant): `v` is the variant id. */
-    public function maxCursorVariant(): int
+    public function maxCursorVariant(Request $request): int
     {
         return PHP_INT_MAX;
     }

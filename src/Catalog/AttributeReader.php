@@ -18,6 +18,8 @@ declare(strict_types=1);
 
 namespace Kronixon\Connect\Catalog;
 
+use Kronixon\Connect\Api\Request;
+
 /**
  * `GET catalog/attributes` (module/catalog-attributes.json): features and attribute groups of the
  * paired shop in one list, told apart by `kind`, ordered by id and then kind (feature before attribute
@@ -61,7 +63,7 @@ final class AttributeReader implements Reader
     }
 
     /** Features and attribute groups share ids: `v` is the kind (0 a feature, 1 an attribute group). */
-    public function maxCursorVariant(): int
+    public function maxCursorVariant(Request $request): int
     {
         return 1;
     }

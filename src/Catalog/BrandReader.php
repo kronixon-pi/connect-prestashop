@@ -18,6 +18,8 @@ declare(strict_types=1);
 
 namespace Kronixon\Connect\Catalog;
 
+use Kronixon\Connect\Api\Request;
+
 /**
  * `GET catalog/brands` (module/catalog-brands.json): the manufacturers of the paired shop by id, with
  * texts per language, the logo URL (null without a logo), the number of products and `date_upd`.
@@ -55,7 +57,7 @@ final class BrandReader implements Reader
         return Rows::id($this->sql->rows('SELECT MAX(id_manufacturer) AS m FROM '.$this->sql->table('manufacturer'))[0]['m'] ?? null);
     }
 
-    public function maxCursorVariant(): ?int
+    public function maxCursorVariant(Request $request): ?int
     {
         return null;
     }

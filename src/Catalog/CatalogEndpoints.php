@@ -99,7 +99,7 @@ final class CatalogEndpoints
             $router->add('GET', '/v1/catalog/'.$endpoint, function (Request $request) use ($factory): Response {
                 $scope = ($this->scope)();
                 $reader = $factory($scope);
-                $page = $reader->read(PageQuery::from($request, $scope, $reader->maxLimit(), $reader->maxCursorVariant()));
+                $page = $reader->read(PageQuery::from($request, $scope, $reader->maxLimit(), $reader->maxCursorVariant($request)));
 
                 // A page that knows its max_id (attribute values: of the kind asked) saves the reader's query.
                 return Response::json(200, $page->answer($page->maxId ?? $reader->maxId(), gmdate('Y-m-d\TH:i:s\Z', (int) floor($this->clock->now()))));

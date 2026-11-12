@@ -76,7 +76,8 @@ $walk = static function (string $params, int $limit) use ($reader, $scope, $read
     $read = 0;
     $cursor = '';
     do {
-        $query = PageQuery::from(Request::fromServer(['REQUEST_METHOD' => 'GET', 'QUERY_STRING' => "path=catalog/variants&$params&limit=$limit".($cursor === '' ? '' : "&cursor=$cursor")], ''), $scope, $reader->maxLimit(), $reader->maxCursorVariant());
+        $request = Request::fromServer(['REQUEST_METHOD' => 'GET', 'QUERY_STRING' => "path=catalog/variants&$params&limit=$limit".($cursor === '' ? '' : "&cursor=$cursor")], '');
+        $query = PageQuery::from($request, $scope, $reader->maxLimit(), $reader->maxCursorVariant($request));
         $before = $reads();
         $page = $reader->read($query);
         $read += $reads() - $before;

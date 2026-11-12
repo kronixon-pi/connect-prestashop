@@ -18,6 +18,8 @@ declare(strict_types=1);
 
 namespace Kronixon\Connect\Catalog;
 
+use Kronixon\Connect\Api\Request;
+
 /**
  * `GET catalog/categories` (module/catalog-categories.json): the categories of the paired shop by id,
  * with parent, depth, position in the shop, texts per language, product count and `content_hash`.
@@ -56,7 +58,7 @@ final class CategoryReader implements Reader
         return Rows::id($this->sql->rows('SELECT MAX(id_category) AS m FROM '.$this->sql->table('category'))[0]['m'] ?? null);
     }
 
-    public function maxCursorVariant(): ?int
+    public function maxCursorVariant(Request $request): ?int
     {
         return null;
     }

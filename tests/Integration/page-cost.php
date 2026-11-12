@@ -107,12 +107,8 @@ foreach ($endpoints as $endpoint) {
         }
     }
     foreach ($pages as $at => $after) {
-        $query = PageQuery::from(
-            Request::fromServer(['REQUEST_METHOD' => 'GET', 'QUERY_STRING' => "path=catalog/$name&{$extras[$at]}&limit=500&cursor=".Cursor::encode($after)], ''),
-            $scope,
-            $reader->maxLimit(),
-            $reader->maxCursorVariant()
-        );
+        $request = Request::fromServer(['REQUEST_METHOD' => 'GET', 'QUERY_STRING' => "path=catalog/$name&{$extras[$at]}&limit=500&cursor=".Cursor::encode($after)], '');
+        $query = PageQuery::from($request, $scope, $reader->maxLimit(), $reader->maxCursorVariant($request));
         if ($at === 'warm-up') {
             $reader->read($query);
             continue;
