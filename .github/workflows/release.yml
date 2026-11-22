@@ -1,0 +1,121 @@
+name: release
+# Builds the release zip of the module, signs it with the staging channel's Ed25519 key and puts the zip, its signature
+# and its sha256 on a GitHub pre-release (docs/RELEASING.md). Runs by hand, on main only, with a version — not on a tag:
+# a tag may stand on a commit whose workflow was changed, main is protected. The job publish makes the tag.
+#
+# Three jobs, so the secret meets as little as possible:
+#   build    no secret: two builds of the commit, in two directories, must be the same bytes;
+#   sign     the only job with the signing key: environment release-staging, which waits for an approval;
+#            builds once more on its own runner, must get build's sha256, and signs that file;
+#   publish  no secret, the only job that may write to the repository: creates the GitHub release.
+# The stable channel is not built here.
+on:
+  workflow_dispatch:
+    inputs:
+      version: { description: "Version to release, e.g. 0.3.2 (the module's own version on main)", required: true, type: string }
+concurrency: { group: release, cancel-in-progress: false }
+permissions: { contents: read }
+# bash -eo pipefail, and no -x anywhere in this file.
+defaults: { run: { shell: bash } }
+
+env:
+  CHANNEL: staging
+  # Public keys, not a secret: key_id:base64[,key_id:base64…]; the first is the one that signs.
+  PUBLIC_KEYS: ${{ vars.KX_RELEASE_PUBLIC_KEYS_STAGING }}
+
+jobs:
+  build:
+    name: build (twice, the same bytes)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      sha256: ${{ steps.zip.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { fetch-depth: 0, persist-credentials: false }
+      - id: version
+        name: the version asked for, on a commit of main
+        env: { ASKED: "${{ inputs.version }}" }
+        run: |
+          version="${ASKED#v}"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]{1,12})?$ ]] || { echo "::error::not a version: x.y.z"; exit 1; }
+          if [ "$GITHUB_REF" != refs/heads/main ]; then echo "::error::run the workflow on main"; exit 1; fi
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || { echo "::error::this commit is not on main"; exit 1; }
+          [ -n "$PUBLIC_KEYS" ] || { echo "::error::the repository variable KX_RELEASE_PUBLIC_KEYS_STAGING is not set (docs/RELEASING.md)"; exit 1; }
+          echo "version=$version" >>"$GITHUB_OUTPUT"
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+        with: { php-version: "8.4", coverage: none, tools: none }
+      - id: zip
+        env: { VERSION: "${{ steps.version.outputs.version }}" }
+        run: |
+          zip="kronixonconnect-$VERSION.zip"
+          mkdir -p "$RUNNER_TEMP/one" "$RUNNER_TEMP/two"
+          php scripts/release/build.php "$VERSION" "$CHANNEL" "$PUBLIC_KEYS" "$RUNNER_TEMP/one/$zip"
+          git clone --quiet --no-hardlinks . "$RUNNER_TEMP/clone"
+          git -C "$RUNNER_TEMP/clone" checkout --quiet "$GITHUB_SHA"
+          php "$RUNNER_TEMP/clone/scripts/release/build.php" "$VERSION" "$CHANNEL" "$PUBLIC_KEYS" "$RUNNER_TEMP/two/$zip"
+          cmp "$RUNNER_TEMP/one/$zip" "$RUNNER_TEMP/two/$zip"
+          unzip -tq "$RUNNER_TEMP/one/$zip"
+          sha256="$(sha256sum "$RUNNER_TEMP/one/$zip" | cut -d' ' -f1)"
+          echo "sha256=$sha256" >>"$GITHUB_OUTPUT"
+          echo "- \`$zip\` ($CHANNEL, commit \`$GITHUB_SHA\`): sha256 \`$sha256\`, the same in two builds" >>"$GITHUB_STEP_SUMMARY"
+
+  sign:
+    name: sign (after an approval)
+    needs: [build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: release-staging
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+        with: { php-version: "8.4", coverage: none, tools: none, extensions: sodium }
+      - name: the same zip once more
+        env: { VERSION: "${{ needs.build.outputs.version }}", SHA256: "${{ needs.build.outputs.sha256 }}" }
+        run: |
+          mkdir dist
+          php scripts/release/build.php "$VERSION" "$CHANNEL" "$PUBLIC_KEYS" "dist/kronixonconnect-$VERSION.zip"
+          cd dist
+          echo "$SHA256  kronixonconnect-$VERSION.zip" | tee "kronixonconnect-$VERSION.zip.sha256" | sha256sum --check --strict -
+      - name: sign
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+          KX_RELEASE_SIGNING_KEY: ${{ secrets.KX_RELEASE_SIGNING_KEY_STAGING }}
+        run: |
+          [ -n "$KX_RELEASE_SIGNING_KEY" ] || { echo "::error::the environment secret KX_RELEASE_SIGNING_KEY_STAGING is not set (docs/RELEASING.md)"; exit 1; }
+          # Every line of a multi-line secret (a PEM) masked on its own; the PEM's BEGIN/END lines are no secret.
+          while IFS= read -r line || [ -n "$line" ]; do
+            line="${line%$'\r'}"
+            case "$line" in ''|-----*) ;; *) echo "::add-mask::$line" ;; esac
+          done <<<"$KX_RELEASE_SIGNING_KEY"
+          umask 077
+          key="$(mktemp)"
+          trap 'rm -f "$key"' EXIT
+          printf '%s' "$KX_RELEASE_SIGNING_KEY" >"$key"
+          unset KX_RELEASE_SIGNING_KEY
+          php scripts/release/sign.php "dist/kronixonconnect-$VERSION.zip" "$key" "$PUBLIC_KEYS"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with: { name: release, path: dist/, if-no-files-found: error, retention-days: 7 }
+
+  publish:
+    name: GitHub pre-release
+    needs: [build, sign]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: { contents: write }
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { name: release, path: dist }
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build.outputs.version }}
+          SHA256: ${{ needs.build.outputs.sha256 }}
+        run: |
+          zip="kronixonconnect-$VERSION.zip"
+          (cd dist && sha256sum --check --strict "$zip.sha256")
+          notes="Staging build of Kronixon Connect $VERSION (pre-release): it talks to the staging platform only. sha256 $SHA256; $zip.sig is the base64 of the detached Ed25519 signature over the zip."
+          gh release create "v$VERSION" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
+            --title "Kronixon Connect $VERSION (staging)" --notes "$notes" \
+            "dist/$zip" "dist/$zip.sig" "dist/$zip.sha256"

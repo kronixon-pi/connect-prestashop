@@ -1,0 +1,5 @@
+# On top of docker/compose.<ps>.yml (scripts/zip-smoke.sh): a shop without the work tree mounted as the module, so the
+# only module files it has are those of the release zip.
+services:
+  ps:
+    volumes: !override []
