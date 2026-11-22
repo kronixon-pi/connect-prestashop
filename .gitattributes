@@ -1,9 +1,10 @@
 * text=auto eol=lf
 
-# Not part of the module zip (`git archive` honours export-ignore; the release build in a later PR
-# uses the same list).
+# Not part of the module (`git archive` honours export-ignore; the release zip is built from the list of
+# scripts/release/ReleaseBuilder.php).
 /.github export-ignore
 /docker export-ignore
+/docs export-ignore
 /protocol export-ignore
 /scripts export-ignore
 /tests export-ignore

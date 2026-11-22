@@ -28,8 +28,9 @@ says that pairing needs it).
 
 ## Install
 
-1. Download `kronixonconnect.zip` from the [releases](https://github.com/kronixon-pi/connect-prestashop/releases)
-   (the first release comes with pairing).
+1. Download `kronixonconnect-<version>.zip` in Kronixon PI (*Stores → Connect a store*, step 2), or from the
+   [releases](https://github.com/kronixon-pi/connect-prestashop/releases). A pre-release is a staging build: it talks
+   to the staging platform only.
 2. In the shop's back office: *Modules → Module Manager → Upload a module*, choose the zip.
 3. Open *Advanced Parameters → Kronixon Connect* (or *Configure* on the module) and enter the code
    `XXXX-XXXX` that Kronixon PI shows under *Stores → Connect a store*. The page shows the outcome: paired
@@ -52,7 +53,9 @@ The API front controller answers at `https://<shop>/module/kronixonconnect/api?p
   verified signature are signed; earlier answers carry no module version.
 - *Unpair* on the settings page tells the platform (best effort) and forgets the secrets; uninstalling
   does the same. The platform can unpair or rotate the secret through the signed endpoints.
-- The module talks only to the platform URL on its settings page (default `https://connect.kronixon.com`).
+- The module talks only to the platform URL on its settings page (default `https://connect.kronixon.com`; a
+  staging build's default is `https://connect-staging.kronixon.com`). A release build pins its channel's public
+  key: pairing with a platform that names another key is refused.
   A plain `http://` URL is refused unless the Configuration key `KX_PLATFORM_ALLOW_HTTP` is `1` — for a
   development platform only; it is not on the settings page.
 
@@ -197,6 +200,7 @@ at runtime.
 | `module-ci` | every PR and push to `main` | PSR-12, PHPCompatibility, PHPStan 6, PHPUnit on 7.4 and 8.5, schemas + vectors, smoke install on 9.1.5 (PHP 8.5) with a catalog walk on 10 000 products, commitlint |
 | `matrix` | PRs to `main`, label `matrix`, weekly | the smoke run (install, pairing with the stub, signed calls) on the six versions above, catalog walk on 100 000 products |
 | `fixture-images` | on `main` only: a push that changes an image input, or by hand (by hand elsewhere it bakes without pushing) | bakes and publishes `ghcr.io/kronixon-pi/connect-ps-fixture:<ps>-<fixture sha>` (installed shop + module + 500 products); the fixture sha covers the generator, the bake scripts, the pinned images and the module code |
+| `release` | a tag `v*` on `main`, or by hand | builds the staging zip three times (the same bytes), signs it after the owner's approval, creates the GitHub pre-release: [docs/RELEASING.md](docs/RELEASING.md) |
 
 Commits follow Conventional Commits with the scopes `api`, `auth`, `catalog`, `compat`, `outbox`,
 `update`, `admin`, `ci`, `deps` ([.commitlintrc.json](.commitlintrc.json)).

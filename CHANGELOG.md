@@ -4,6 +4,9 @@ All notable changes of the module are listed here; versions follow [Semantic Ver
 
 ## [Unreleased]
 
+Nothing in the module itself. Releases are built reproducibly and signed ([docs/RELEASING.md](docs/RELEASING.md)); the
+first one is 0.3.2 on the staging channel.
+
 ## [0.3.2]
 
 ### Added
