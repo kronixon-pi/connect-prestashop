@@ -197,10 +197,10 @@ at runtime.
 
 | Workflow | When | What |
 | --- | --- | --- |
-| `module-ci` | every PR and push to `main` | PSR-12, PHPCompatibility, PHPStan 6, PHPUnit on 7.4 and 8.5, schemas + vectors, smoke install on 9.1.5 (PHP 8.5) with a catalog walk on 10 000 products, commitlint |
+| `module-ci` | every PR and push to `main` | PSR-12, PHPCompatibility, PHPStan 6, PHPUnit on 7.4 and 8.5, schemas + vectors, smoke install on 9.1.5 (PHP 8.5) with a catalog walk on 10 000 products, an install of the built release zip on 9.1.5, commitlint |
 | `matrix` | PRs to `main`, label `matrix`, weekly | the smoke run (install, pairing with the stub, signed calls) on the six versions above, catalog walk on 100 000 products |
 | `fixture-images` | on `main` only: a push that changes an image input, or by hand (by hand elsewhere it bakes without pushing) | bakes and publishes `ghcr.io/kronixon-pi/connect-ps-fixture:<ps>-<fixture sha>` (installed shop + module + 500 products); the fixture sha covers the generator, the bake scripts, the pinned images and the module code |
-| `release` | a tag `v*` on `main`, or by hand | builds the staging zip three times (the same bytes), signs it after the owner's approval, creates the GitHub pre-release: [docs/RELEASING.md](docs/RELEASING.md) |
+| `release` | by hand, on `main` only | builds the staging zip three times (the same bytes), signs it after an approval, creates the GitHub pre-release: [docs/RELEASING.md](docs/RELEASING.md) |
 
 Commits follow Conventional Commits with the scopes `api`, `auth`, `catalog`, `compat`, `outbox`,
 `update`, `admin`, `ci`, `deps` ([.commitlintrc.json](.commitlintrc.json)).

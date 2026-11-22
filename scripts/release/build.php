@@ -21,7 +21,7 @@ try {
     $root = dirname(__DIR__, 2);
     $zip = ReleaseBuilder::build(
         ReleaseBuilder::filesFromGit($root),
-        ReleaseBuilder::minPhp((string) file_get_contents($root.'/composer.json')),
+        ReleaseBuilder::minPhp(ReleaseBuilder::composerFromGit($root)),
         $argv[1],
         $argv[2],
         $argv[3]

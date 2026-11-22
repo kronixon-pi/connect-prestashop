@@ -10,7 +10,7 @@ use RuntimeException;
  * Builds and signs the module's release zip (docs/RELEASING.md). Not part of the module.
  *
  * The zip holds the module folder exactly as scripts/bake-fixture.sh installs it into the test shops — the same list
- * of tracked files — with the channel's API host and first public key written into src/Protocol.php (plan C14) and
+ * of tracked files — with the channel's API host and first public key written into src/Protocol.php and
  * `kx-manifest.json` (Spec §10: version, channel, compatibility, the sha256 of every file). It is a function of the
  * commit, the version, the channel and the keys alone: the files come from git, sorted by path, stored uncompressed
  * with one fixed time and mode, by the writer below — no libzip or zlib version can change a byte.
@@ -70,6 +70,12 @@ final class ReleaseBuilder
         }
 
         return $files;
+    }
+
+    /** `composer.json` of HEAD — the compatibility comes from the commit too, whatever the work tree says. */
+    public static function composerFromGit(string $root): string
+    {
+        return self::run($root, 'git cat-file blob HEAD:composer.json');
     }
 
     /**
@@ -136,7 +142,7 @@ final class ReleaseBuilder
     }
 
     /**
-     * The Ed25519 secret key (64 bytes) from what the owner pasted: base64 of the 64-byte secret key or the 32-byte
+     * The Ed25519 secret key (64 bytes) from the secret as it was pasted: base64 of the 64-byte secret key or the 32-byte
      * seed (PHP's sodium), or the PEM of `openssl genpkey -algorithm ed25519`.
      */
     public static function secretKey(string $pasted): string

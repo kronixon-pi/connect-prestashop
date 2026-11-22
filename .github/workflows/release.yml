@@ -1,15 +1,15 @@
 name: release
 # Builds the release zip of the module, signs it with the staging channel's Ed25519 key and puts the zip, its signature
-# and its sha256 on a GitHub pre-release (docs/RELEASING.md). Runs on a tag v<x.y.z>, or by hand on main with a version.
+# and its sha256 on a GitHub pre-release (docs/RELEASING.md). Runs by hand, on main only, with a version — not on a tag:
+# a tag may stand on a commit whose workflow was changed, main is protected. The job publish makes the tag.
 #
 # Three jobs, so the secret meets as little as possible:
 #   build    no secret: two builds of the commit, in two directories, must be the same bytes;
-#   sign     the only job with the signing key: environment release-staging, which waits for the owner's approval;
+#   sign     the only job with the signing key: environment release-staging, which waits for an approval;
 #            builds once more on its own runner, must get build's sha256, and signs that file;
 #   publish  no secret, the only job that may write to the repository: creates the GitHub release.
-# The stable channel is not built here: its key is kept offline (docs/RELEASING.md).
+# The stable channel is not built here.
 on:
-  push: { tags: ["v*"] }
   workflow_dispatch:
     inputs:
       version: { description: "Version to release, e.g. 0.3.2 (the module's own version on main)", required: true, type: string }
@@ -36,13 +36,11 @@ jobs:
         with: { fetch-depth: 0, persist-credentials: false }
       - id: version
         name: the version asked for, on a commit of main
-        env:
-          ASKED: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
-          DISPATCHED: ${{ github.event_name == 'workflow_dispatch' }}
+        env: { ASKED: "${{ inputs.version }}" }
         run: |
           version="${ASKED#v}"
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]{1,12})?$ ]] || { echo "::error::not a version: x.y.z"; exit 1; }
-          if [ "$DISPATCHED" = true ] && [ "$GITHUB_REF" != refs/heads/main ]; then echo "::error::run the workflow on main"; exit 1; fi
+          if [ "$GITHUB_REF" != refs/heads/main ]; then echo "::error::run the workflow on main"; exit 1; fi
           git merge-base --is-ancestor "$GITHUB_SHA" origin/main || { echo "::error::this commit is not on main"; exit 1; }
           [ -n "$PUBLIC_KEYS" ] || { echo "::error::the repository variable KX_RELEASE_PUBLIC_KEYS_STAGING is not set (docs/RELEASING.md)"; exit 1; }
           echo "version=$version" >>"$GITHUB_OUTPUT"
@@ -64,7 +62,7 @@ jobs:
           echo "- \`$zip\` ($CHANNEL, commit \`$GITHUB_SHA\`): sha256 \`$sha256\`, the same in two builds" >>"$GITHUB_STEP_SUMMARY"
 
   sign:
-    name: sign (after the owner's approval)
+    name: sign (after an approval)
     needs: [build]
     runs-on: ubuntu-24.04
     timeout-minutes: 10

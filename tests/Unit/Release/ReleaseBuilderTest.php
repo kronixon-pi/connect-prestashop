@@ -60,6 +60,41 @@ final class ReleaseBuilderTest extends TestCase
         self::assertStringContainsString("\n    ".$list."\n", (string) file_get_contents($root.'/scripts/fixture-sha.sh'));
     }
 
+    public function test_every_tracked_path_is_in_the_zip_or_known_to_stay_out(): void
+    {
+        $root = $this->checkout();
+        $out = ['.commitlintrc.json', '.editorconfig', '.gitattributes', '.github', '.gitignore', '.php-cs-fixer.dist.php', '.well-known', 'CHANGELOG.md', 'Makefile', 'README.md', 'SECURITY.md', 'composer.json', 'composer.lock', 'docker', 'docs', 'phpcs.xml.dist', 'phpstan.neon.dist', 'phpunit.xml.dist', 'protocol', 'scripts', 'tests'];
+        $tracked = explode("\n", trim((string) shell_exec('git -C '.escapeshellarg($root).' ls-tree --name-only HEAD')));
+        $known = array_merge(ReleaseBuilder::PATHS, $out);
+        sort($tracked);
+        sort($known);
+
+        self::assertSame($known, $tracked, 'a new top-level path: add it to ReleaseBuilder::PATHS (and bake-fixture.sh, fixture-sha.sh) or to this list');
+    }
+
+    public function test_the_lowest_php_is_the_commits_not_the_work_trees(): void
+    {
+        $root = sys_get_temp_dir().'/kx-release-'.bin2hex(random_bytes(6));
+        exec('git clone --quiet --no-hardlinks '.escapeshellarg($this->checkout()).' '.escapeshellarg($root).' 2>&1', $output, $code);
+        self::assertSame(0, $code, implode("\n", $output));
+
+        try {
+            $build = static function () use ($root): string {
+                exec('php '.escapeshellarg($root.'/scripts/release/build.php').' '.Protocol::MODULE_VERSION.' staging kx-test-1:'.base64_encode(str_repeat('k', 32)).' '.escapeshellarg($root.'/k.zip').' 2>&1', $printed, $code);
+
+                return $code.' '.implode("\n", $printed);
+            };
+            $clean = $build();
+            self::assertStringStartsWith('0 ', $clean);
+            $composer = (string) file_get_contents($root.'/composer.json');
+            file_put_contents($root.'/composer.json', str_replace('">=7.4"', '">=8.1"', $composer, $replaced));
+            self::assertSame(1, $replaced);
+            self::assertSame($clean, $build(), 'an uncommitted composer.json changed the zip');
+        } finally {
+            exec('rm -rf '.escapeshellarg($root));
+        }
+    }
+
     public function test_the_channel_decides_the_host_and_the_first_key_is_pinned(): void
     {
         $files = $this->files();
@@ -173,6 +208,19 @@ final class ReleaseBuilderTest extends TestCase
                 }
             }
         }
+    }
+
+    /** The checkout's path when git can read it: the plain PHP images of `make test` have no git, CI has. */
+    private function checkout(): string
+    {
+        $root = dirname(__DIR__, 3);
+        exec('git -C '.escapeshellarg($root).' rev-parse HEAD 2>&1', $output, $code);
+        if ($code !== 0) {
+            self::assertFalse(getenv('CI'), 'CI must have git: '.implode("\n", $output));
+            self::markTestSkipped('needs git');
+        }
+
+        return $root;
     }
 
     private function build(string $channel = 'staging'): string
