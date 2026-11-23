@@ -19,6 +19,7 @@ declare(strict_types=1);
 namespace Kronixon\Connect\Write;
 
 use RuntimeException;
+use Throwable;
 
 /**
  * Database::lockRows() did not get the row locks: another session held a row longer than the wait
@@ -26,4 +27,18 @@ use RuntimeException;
  */
 final class RowsLocked extends RuntimeException
 {
+    /** @var bool */
+    private $deadlock;
+
+    public function __construct(string $message, bool $deadlock = false, ?Throwable $previous = null)
+    {
+        parent::__construct($message, 0, $previous);
+        $this->deadlock = $deadlock;
+    }
+
+    /** The server chose this transaction to roll back (1213): the other session goes on at once. */
+    public function deadlock(): bool
+    {
+        return $this->deadlock;
+    }
 }

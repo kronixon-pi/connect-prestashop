@@ -187,6 +187,13 @@ final class PagingTest extends TestCase
         self::assertSame('0.000000', Decimal::add('-1', '1'));
         self::assertSame('9.996667', Decimal::divide('29.990000', '3.000000'));
         self::assertSame('0.000000', Decimal::divide('29.990000', '0.000000'));
+        self::assertSame('1.666666', Decimal::quotient('10', '6'), 'cut, as bcdiv()');
+        self::assertSame('3.000000', Decimal::quotient('10.000000', '3.333333'));
+        self::assertSame('9.996666', Decimal::quotient('29.99', '3'));
+        self::assertSame('123456789.000000', Decimal::quotient('123456789', '1'));
+        self::assertSame('0.000001', Decimal::quotient('0.000001', '1'));
+        self::assertSame('0.000000', Decimal::quotient('10', '0'));
+        self::assertSame('0.000000', Decimal::quotient('0', '3'));
         self::assertSame('99.99', Decimal::canonical('99.990000'));
         self::assertSame('0', Decimal::canonical('-0.000000'));
         self::assertSame('2', Decimal::canonical('2.000000'));

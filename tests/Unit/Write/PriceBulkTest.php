@@ -156,15 +156,26 @@ final class PriceBulkTest extends TestCase
     public function test_on_1_7_8_a_new_price_keeps_the_unit_price_as_product_update_does(): void
     {
         $this->db->legacy = true;
-        // The review's product: price 10, unit price 5 (ratio 2); price 20 sent → ratio 4, unit price 5.
+        // Price 10 with unit price 5 (ratio 2); price 20 sent → ratio 4, unit price 5.
         $this->db->pdo->exec("UPDATE ps_product_shop SET unit_price_ratio = '2.000000' WHERE id_product = 1");
         $this->send([['product_id' => '1', 'variant_id' => '0', 'price' => '20']]);
         self::assertSame(['20.000000', '4.000000'], array_values($this->db->rows('SELECT price, unit_price_ratio FROM ps_product_shop WHERE id_product = 1')[0]));
 
-        // A ratio PrestaShop computes in floats: 10 / 3 per unit, then price 20 → ratio 6, not 6.000001.
-        $this->db->pdo->exec("UPDATE ps_product_shop SET price = '10.000000', unit_price_ratio = '3.000000' WHERE id_product = 1");
-        $this->send([['product_id' => '1', 'variant_id' => '0', 'price' => '20']]);
-        self::assertSame('6.000000', $this->db->rows('SELECT unit_price_ratio FROM ps_product_shop WHERE id_product = 1')[0]['unit_price_ratio']);
+        // The ratios 1.7.8.11's Product::update() stored for these changes: the unit price is cut to 6
+        // decimals first (10 / 6 → 1.666666, not 1.666667, hence 12.000005).
+        $stored = [
+            ['10', '3', '20', '6.000001'],
+            ['10', '3.333333', '20', '6.666667'],
+            ['7.99', '3.208835', '8.49', '3.409639'],
+            ['10', '6', '20', '12.000005'],
+            ['10', '0.3', '7', '0.210000'],
+            ['19.99', '1.333333', '24.5', '1.634150'],
+        ];
+        foreach ($stored as [$price, $ratio, $new, $expected]) {
+            $this->db->pdo->exec("UPDATE ps_product_shop SET price = '".$price."', unit_price_ratio = '".$ratio."' WHERE id_product = 1");
+            $this->send([['product_id' => '1', 'variant_id' => '0', 'price' => $new]]);
+            self::assertSame($expected, $this->db->rows('SELECT unit_price_ratio FROM ps_product_shop WHERE id_product = 1')[0]['unit_price_ratio'], $price.' / '.$ratio.' → '.$new);
+        }
 
         // No unit price (ratio 0) stays none; an unchanged price writes nothing.
         $this->db->pdo->exec("UPDATE ps_product_shop SET unit_price_ratio = '0.000000' WHERE id_product = 1");

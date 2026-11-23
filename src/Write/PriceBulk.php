@@ -260,9 +260,9 @@ final class PriceBulk extends Bulk
             if (Decimal::money($price) === Decimal::money($current['price'])) {
                 return [];
             }
-            // In floats as PrestaShop computes it: the unit price is not rounded before the ratio.
-            $oldRatio = (float) Decimal::money($current['unit_price_ratio']);
-            $unit = $oldRatio > 0.0 ? (float) Decimal::money($current['price']) / $oldRatio : 0.0;
+            // As PrestaShop computes it: the unit price cut to 6 decimals (DecimalNumber::dividedBy()),
+            // then the ratio in floats, which the DECIMAL(20,6) column rounds.
+            $unit = (float) Decimal::quotient($current['price'], $current['unit_price_ratio']);
             $ratio = $unit > 0.0 ? Decimal::money(sprintf('%.6F', (float) Decimal::money($price) / $unit)) : '0.000000';
         } else {
             $ratio = Decimal::money($unitPrice) === '0.000000' ? '0.000000' : Decimal::divide($price, $unitPrice);
