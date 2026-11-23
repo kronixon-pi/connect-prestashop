@@ -356,6 +356,17 @@ own requests are not recorded (`origin: kronixon` is suppressed). `module.heartb
 with `GET events` + `POST events/ack`.
 Types and payloads: [`schemas/events.json`](schemas/events.json).
 
+**Self-update (module 0.7.0).** The module asks the signed `GET /v1/module/latest` once a day (before
+the heartbeat) and when the administrator asks; `module.heartbeat` then carries `update.available`
+(the newer compatible version, or null) and `update.pending_confirmation`. The module installs a
+release only on the administrator's click in its settings page, never on the platform's request;
+the platform may remind the merchant. It records `module.updated` (`from`, `to`) when the upgrade
+succeeded and `module.update_failed` (`from`, `to`, `error`: a code such as `sha256_mismatch`,
+`bad_signature`, `unknown_key`, `channel_mismatch`, `not_newer`, `read_only`, `disk_space`,
+`opcache_static`, `download_failed`, `upgrade_failed`, then details) for every attempt that did not
+end in the new version. `module` of the query is a transport parameter (§4.2 step 3), so it is not
+covered by the signature; the platform uses it for `mandatory` only.
+
 Recording (module 0.6.0):
 
 - **What is recorded.** The hooks of Spec §7.2 run in every request except the platform's own (the

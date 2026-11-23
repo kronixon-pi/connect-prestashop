@@ -15,7 +15,8 @@ offers a release to shops only when the signature verifies against a public key 
 - the module's tracked files — the list `scripts/bake-fixture.sh` installs into the test shops; no tests, tools,
   workflows or documents;
 - `src/Protocol.php` with the channel's API host (`DEFAULT_PLATFORM_URL`) and the first public key
-  (`PINNED_PLATFORM_KEY`); pairing with a platform that names another key is refused;
+  (`PINNED_PLATFORM_KEY`); pairing with a platform that names another key is refused; the channel (`CHANNEL`) and every
+  public key given, in that order (`RELEASE_KEYS`): the keys the module checks its own updates with;
 - `kx-manifest.json`: version, channel, protocol, the compatibility (PrestaShop from … to, PHP), the API host, the public
   keys and the sha256 of every file.
 
@@ -60,3 +61,35 @@ The signing key exists in that environment only. In the job it is masked, writte
 `trap` removes, and read from there: never on a command line, never in the output.
 
 A release is never changed. A mistake is a new version.
+
+## How a shop installs it
+
+A shop paired with Kronixon PI asks `GET /v1/module/latest` (signed) once a day and when the administrator clicks
+*Check for updates*; the settings page then offers the newer compatible version, and nothing happens before the
+administrator clicks *Update now* (the module's `src/Update/`):
+
+1. The zip is fetched from the URL of the signed answer, only from the platform's hosts (as images are), into
+   PrestaShop's cache folder.
+2. Before anything is unpacked: its size and sha256 must be the answer's, and its Ed25519 signature must verify with the
+   key the answer names **among the keys built into the running module** (`RELEASE_KEYS`) — never a key from the answer
+   or the zip. Its `kx-manifest.json` must be of this module, of the version announced, of the running module's channel
+   and API host, for this PrestaShop and PHP, and list exactly the zip's files with their sha256. A version that is not
+   newer than the running one is never installed: a release that has to be withdrawn is followed by a newer one.
+3. The files are written to `modules/.kronixonconnect-next` and swapped in by two renames; the old folder waits as
+   `.kronixonconnect-prev`. The next request (the settings page the browser is sent to, or the cron URL) runs
+   PrestaShop's own upgrade (`upgrade/upgrade-<version>.php`) with the new code. When it fails, the old folder and the
+   module's version row come back. The platform hears `module.updated` or `module.update_failed` through the outbox.
+   A worker killed while writing leaves the old version running; killed after the swap, the next request finishes.
+   Only a kill between the two renames (two system calls apart; the time limit and a closed browser cannot cause it)
+   leaves no `modules/kronixonconnect`: rename `modules/.kronixonconnect-prev` back to it.
+4. A server that does not let PHP replace the module (read-only folder, too little disk space, OPcache that never
+   rechecks files while `opcache_invalidate()` is not allowed) gets the download link of the zip, to upload it in the
+   Module Manager.
+
+**Key rotation.** A shop trusts only the keys of the module it runs. To move to a new key, first release a version whose
+`RELEASE_KEYS` holds the key in use and then the next one (`build.php … <current>,<next>`), signed with the key in use;
+only once shops run it can a release be signed with the next key (listed first from then on). A shop that skipped the
+intermediate release refuses the new signature (`unknown_key`) and is updated by hand.
+
+`scripts/update-smoke.sh <ps>` plays all of this on a real shop with throw-away keys (the `matrix` workflow, every
+version).
