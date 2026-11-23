@@ -45,7 +45,7 @@ class Search
     public static function indexation($full = false, $id_product = false) {}
 }
 
-class StockAvailable
+class StockAvailable extends ObjectModel
 {
     /**
      * @param int $id_product

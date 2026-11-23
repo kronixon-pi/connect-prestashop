@@ -13,6 +13,7 @@ use Kronixon\Connect\Tests\Support\ProtocolSchemas;
 use Kronixon\Connect\Write\PendingWrites;
 use Kronixon\Connect\Write\StockBulk;
 use PHPUnit\Framework\TestCase;
+use RuntimeException;
 
 require_once dirname(__DIR__, 2).'/Support/prestashop-stubs.php';
 
@@ -26,10 +27,19 @@ final class StockBulkTest extends TestCase
     private $db;
 
     /** @var list<string> */
-    private $calls = [];
-
-    /** @var list<string> */
     private $hooks = [];
+
+    /** @var list<array{0: string, 1: array<string, mixed>, 2: bool}> each hook: name, parameters (the object as `object #<id>`), run inside a transaction */
+    private $seen = [];
+
+    /** @var list<string> the messages logged */
+    private $logged = [];
+
+    /** @var bool the shop is 8.1+: `actionUpdateQuantity` carries `delta_quantity` and `id_shop` */
+    private $hookShop = true;
+
+    /** @var string|null a hook that throws */
+    private $throwing;
 
     protected function setUp(): void
     {
@@ -43,8 +53,9 @@ final class StockBulkTest extends TestCase
         }
     }
 
-    public function test_safe_mode_goes_through_stock_available_and_the_answer_matches_the_schema(): void
+    public function test_safe_mode_writes_what_set_quantity_writes_and_runs_its_hooks_after_the_commit(): void
     {
+        $this->db->pdo->exec('UPDATE ps_stock_available SET physical_quantity = 50, reserved_quantity = 1');
         $data = $this->send([
             ['product_id' => '1', 'variant_id' => '0', 'quantity' => 9, 'location' => 'default', 'expected_quantity' => 5],
             ['product_id' => '2', 'variant_id' => '7', 'quantity' => 4, 'out_of_stock' => 1, 'location' => 'shelf-2', 'available_now' => ['en' => 'Now']],
@@ -53,9 +64,40 @@ final class StockBulkTest extends TestCase
 
         self::assertSame([], ProtocolSchemas::errors('stock-bulk.json', $data));
         self::assertSame([['ok', 'updated', 5, []], ['ok', 'updated', 1, ['location_ignored', 'available_texts_ignored']], ['ok', 'unchanged', 2, []]], self::results($data));
-        self::assertSame(['set 1:0=9@1', 'set 2:7=4@1'], $this->calls);
         self::assertSame(['1', '2'], array_column($this->db->rows('SELECT out_of_stock FROM ps_stock_available WHERE id_product = 2 AND id_product_attribute IN (7, 8) ORDER BY id_product_attribute'), 'out_of_stock'), 'the policy of the row sent, by primary key');
-        self::assertSame(['actionKxBulkStockUpdated'], $this->hooks);
+        self::assertSame([['9', '50', '1'], ['6', '50', '1'], ['4', '50', '1']], array_map('array_values', $this->db->rows('SELECT quantity, physical_quantity, reserved_quantity FROM ps_stock_available WHERE id_product_attribute IN (0, 7) ORDER BY id_stock_available')), 'the quantity alone, and the total 4 + 2, as setQuantity() writes them');
+
+        $object = ['actionObjectUpdateBefore', 'actionObjectStockAvailableUpdateBefore', 'actionObjectUpdateAfter', 'actionObjectStockAvailableUpdateAfter'];
+        self::assertSame(array_merge($object, ['actionUpdateQuantity'], $object, ['actionUpdateQuantity'], $object, ['actionUpdateQuantity'], ['actionKxBulkStockUpdated']), $this->hooks, 'each changed row, then the total of product 2; not the unchanged row');
+        self::assertSame([false], array_values(array_unique(array_column($this->seen, 2))), 'every hook after the commit');
+        $quantities = array_values(array_filter($this->seen, static function (array $hook): bool {
+            return $hook[0] === 'actionUpdateQuantity';
+        }));
+        self::assertSame([
+            ['id_product' => 1, 'id_product_attribute' => 0, 'quantity' => 9, 'delta_quantity' => 4, 'id_shop' => 1],
+            ['id_product' => 2, 'id_product_attribute' => 7, 'quantity' => 4, 'delta_quantity' => 3, 'id_shop' => 1],
+            ['id_product' => 2, 'id_product_attribute' => 0, 'quantity' => 6, 'delta_quantity' => 3, 'id_shop' => 1],
+        ], array_column($quantities, 1));
+        self::assertSame(['object' => 'object #1'], $this->seen[0][1], 'the StockAvailable of the row, read after the commit');
+    }
+
+    public function test_before_8_1_action_update_quantity_has_the_parameters_of_that_version(): void
+    {
+        $this->hookShop = false;
+        $this->send([['product_id' => '1', 'variant_id' => '0', 'quantity' => 9]]);
+
+        self::assertSame(['id_product' => 1, 'id_product_attribute' => 0, 'quantity' => 9], $this->seen[4][1]);
+    }
+
+    public function test_a_hook_that_throws_after_the_commit_is_logged_and_the_rows_stay_written(): void
+    {
+        $this->throwing = 'actionObjectStockAvailableUpdateAfter';
+        $data = $this->send([['product_id' => '1', 'variant_id' => '0', 'quantity' => 9]]);
+
+        self::assertSame([['ok', 'updated', 5, []]], self::results($data));
+        self::assertSame('9', $this->db->rows('SELECT quantity FROM ps_stock_available WHERE id_product = 1')[0]['quantity']);
+        self::assertContains('A hook after a bulk write failed', $this->logged);
+        self::assertContains('actionUpdateQuantity', $this->hooks, 'the hooks after it still run');
     }
 
     public function test_a_quantity_changed_in_the_shop_is_a_conflict_and_a_repeat_is_unchanged(): void
@@ -63,7 +105,8 @@ final class StockBulkTest extends TestCase
         $conflict = $this->send([['product_id' => '1', 'variant_id' => '0', 'quantity' => 9, 'expected_quantity' => 4]]);
         self::assertSame([['conflict', null, 5, []]], self::results($conflict));
         self::assertSame([5, 'quantity_changed'], [$conflict['results'][0]['current_quantity'], $conflict['results'][0]['code']]);
-        self::assertSame([], $this->calls);
+        self::assertSame([], $this->hooks);
+        self::assertSame('5', $this->db->rows('SELECT quantity FROM ps_stock_available WHERE id_product = 1')[0]['quantity']);
 
         $this->send([['product_id' => '1', 'variant_id' => '0', 'quantity' => 9, 'expected_quantity' => 5]]);
         $again = $this->send([['product_id' => '1', 'variant_id' => '0', 'quantity' => 9, 'expected_quantity' => 5]]);
@@ -81,7 +124,8 @@ final class StockBulkTest extends TestCase
         ]);
 
         self::assertSame(['validation_failed', 'not_found', 'shop_mismatch', 'validation_failed', 'product_not_found'], array_column($data['results'], 'code'));
-        self::assertSame([], $this->calls);
+        self::assertSame([], $this->hooks);
+        self::assertSame([], $this->db->bulks);
         self::assertSame([], ProtocolSchemas::errors('stock-bulk.json', $data));
     }
 
@@ -90,10 +134,13 @@ final class StockBulkTest extends TestCase
         $data = $this->send([['product_id' => '2', 'variant_id' => '7', 'quantity' => 10], ['product_id' => '1', 'variant_id' => '0', 'quantity' => -2]], ['mode' => 'fast', 'fire_hooks' => true]);
 
         self::assertSame([['ok', 'updated', 1, []], ['ok', 'updated', 5, []]], self::results($data));
-        self::assertSame([], $this->calls);
         self::assertSame(['10', '12', '-2'], array_column($this->db->rows('SELECT quantity FROM ps_stock_available WHERE (id_product = 2 AND id_product_attribute IN (7, 0)) OR id_product = 1 ORDER BY id_product DESC, id_product_attribute DESC'), 'quantity'));
         self::assertSame('10', $this->db->rows('SELECT physical_quantity FROM ps_stock_available WHERE id_product_attribute = 7')[0]['physical_quantity']);
-        self::assertSame(['actionUpdateQuantity', 'actionUpdateQuantity', 'actionKxBulkStockUpdated'], $this->hooks);
+        self::assertSame(['actionUpdateQuantity', 'actionUpdateQuantity', 'actionKxBulkStockUpdated'], $this->hooks, 'per row sent, not for the total');
+        self::assertSame([false], array_values(array_unique(array_column($this->seen, 2))), 'after the commit');
+
+        $this->send([['product_id' => '1', 'variant_id' => '0', 'quantity' => 3]], ['mode' => 'fast']);
+        self::assertSame(['actionKxBulkStockUpdated'], $this->hooks, 'without fire_hooks');
     }
 
     public function test_restore_if_hidden_shows_a_product_with_stock_again(): void
@@ -134,20 +181,70 @@ final class StockBulkTest extends TestCase
         }
     }
 
-    public function test_a_failed_totals_or_visibility_step_is_a_row_warning_and_a_repeat_sets_them(): void
+    public function test_a_failed_total_fails_the_whole_chunk_in_both_modes(): void
+    {
+        $this->db->pdo->exec("CREATE TRIGGER kx_refuse BEFORE UPDATE OF quantity ON ps_stock_available WHEN NEW.id_product_attribute = 0 AND NEW.id_product = 2 BEGIN SELECT RAISE(ABORT, 'refused'); END");
+        foreach (['safe', 'fast'] as $mode) {
+            $data = $this->send([['product_id' => '2', 'variant_id' => '7', 'quantity' => 10], ['product_id' => '1', 'variant_id' => '0', 'quantity' => 0]], ['mode' => $mode, 'fire_hooks' => true]);
+
+            self::assertSame(['module_error', 'module_error'], array_column($data['results'], 'code'), $mode.': the total is in the chunk\'s transaction');
+            self::assertSame(['5', '3', '1'], array_column($this->db->rows('SELECT quantity FROM ps_stock_available WHERE id_product_attribute IN (0, 7) ORDER BY id_stock_available'), 'quantity'), $mode.': nothing written');
+            self::assertSame([], $this->hooks, $mode.': no hook for what was rolled back');
+            self::assertSame([], ProtocolSchemas::errors('stock-bulk.json', $data));
+        }
+    }
+
+    public function test_a_failed_visibility_step_is_a_row_warning_and_a_repeat_sets_it(): void
     {
         $this->db->insert('kx_entity_map', ['entity_type' => 'product', 'external_id' => '1', 'kx_id' => '0192b2e4-2f7a-7c5b-8a1d-3e4f5a6b7c8d', 'flags' => 0]);
-        $this->db->pdo->exec("CREATE TRIGGER kx_refuse BEFORE UPDATE OF quantity ON ps_stock_available WHEN NEW.id_product_attribute = 0 AND NEW.id_product = 2 BEGIN SELECT RAISE(ABORT, 'refused'); END");
+        $this->db->pdo->exec("CREATE TRIGGER kx_refuse BEFORE UPDATE OF visibility ON ps_product_shop BEGIN SELECT RAISE(ABORT, 'refused'); END");
         $data = $this->send([['product_id' => '2', 'variant_id' => '7', 'quantity' => 10], ['product_id' => '1', 'variant_id' => '0', 'quantity' => 0]], ['mode' => 'fast', 'visibility_policy' => 'hide_when_zero']);
 
-        self::assertSame([['ok', 'updated', 1, ['totals_not_updated']], ['ok', 'updated', 5, ['totals_not_updated']]], self::results($data), 'the step is one transaction: the visibility of product 1 too');
-        self::assertSame(['10', '3'], array_column($this->db->rows('SELECT quantity FROM ps_stock_available WHERE id_product = 2 AND id_product_attribute IN (7, 0) ORDER BY id_product_attribute DESC'), 'quantity'));
+        self::assertSame([['ok', 'updated', 1, ['totals_not_updated']], ['ok', 'updated', 5, ['totals_not_updated']]], self::results($data), 'the step is one transaction for the chunk\'s products');
+        self::assertSame(['10', '12', '0'], array_column($this->db->rows('SELECT quantity FROM ps_stock_available WHERE id_product_attribute IN (0, 7) ORDER BY id_product DESC, id_product_attribute DESC'), 'quantity'), 'the quantities and the total are committed');
+        self::assertSame('both', $this->db->rows('SELECT visibility FROM ps_product_shop WHERE id_product = 1')[0]['visibility']);
         self::assertSame([], ProtocolSchemas::errors('stock-bulk.json', $data));
 
         $this->db->pdo->exec('DROP TRIGGER kx_refuse');
         $again = $this->send([['product_id' => '2', 'variant_id' => '7', 'quantity' => 10], ['product_id' => '1', 'variant_id' => '0', 'quantity' => 0]], ['mode' => 'fast', 'visibility_policy' => 'hide_when_zero']);
         self::assertSame([['ok', 'unchanged', 10, []], ['ok', 'unchanged', 0, ['visibility_hidden']]], self::results($again));
-        self::assertSame('12', $this->db->rows('SELECT quantity FROM ps_stock_available WHERE id_product = 2 AND id_product_attribute = 0')[0]['quantity']);
+    }
+
+    public function test_a_deadlock_after_a_write_rolls_the_chunk_back_and_runs_it_once_more(): void
+    {
+        // The second statement of the chunk (product 2's row, after product 1's) loses a deadlock.
+        $this->db->bulkDeadlocks = [2];
+        $data = $this->send([['product_id' => '1', 'variant_id' => '0', 'quantity' => 8, 'location' => 'shelf'], ['product_id' => '2', 'variant_id' => '7', 'quantity' => 6]]);
+
+        self::assertSame([['ok', 'updated', 5, ['location_ignored']], ['ok', 'updated', 1, []]], self::results($data), 'the second run\'s answer, its warnings once');
+        self::assertSame(['beginChunk', 'rollbackChunk', 'beginChunk', 'commitChunk'], $this->db->chunks);
+        self::assertSame(['8', '8', '6'], array_column($this->db->rows('SELECT quantity FROM ps_stock_available WHERE id_product_attribute IN (0, 7) ORDER BY id_stock_available'), 'quantity'));
+        self::assertSame(3, count(array_keys($this->hooks, 'actionUpdateQuantity', true)), 'the hooks of the committed run only: two rows and a total');
+
+        // Rolled back on the second run too: nothing written, the rows are sent again.
+        $this->db->chunks = [];
+        $this->db->bulkDeadlocks = [count($this->db->bulks) + 1, count($this->db->bulks) + 2];
+        $data = $this->send([['product_id' => '1', 'variant_id' => '0', 'quantity' => 1], ['product_id' => '2', 'variant_id' => '7', 'quantity' => 1]]);
+        self::assertSame(['rows_locked', 'rows_locked'], array_column($data['results'], 'code'));
+        self::assertTrue($data['continue']);
+        self::assertSame(['8', '8', '6'], array_column($this->db->rows('SELECT quantity FROM ps_stock_available WHERE id_product_attribute IN (0, 7) ORDER BY id_stock_available'), 'quantity'), 'nothing partial');
+        self::assertSame([], $this->hooks);
+    }
+
+    public function test_a_chunk_whose_marker_is_gone_at_the_commit_is_rolled_back_and_runs_once_more(): void
+    {
+        $this->db->lostChunks = 1;
+        $data = $this->send([['product_id' => '1', 'variant_id' => '0', 'quantity' => 8]]);
+        self::assertSame([['ok', 'updated', 5, []]], self::results($data));
+        self::assertSame(['beginChunk', 'commitChunk', 'rollbackChunk', 'beginChunk', 'commitChunk'], $this->db->chunks);
+        self::assertSame(1, count(array_keys($this->hooks, 'actionUpdateQuantity', true)));
+
+        $this->db->lostChunks = 2;
+        $data = $this->send([['product_id' => '1', 'variant_id' => '0', 'quantity' => 9]]);
+        self::assertSame(['error', 'module_error'], [$data['results'][0]['status'], $data['results'][0]['code']], 'never ok for a chunk the server rolled back');
+        self::assertSame('8', $this->db->rows('SELECT quantity FROM ps_stock_available WHERE id_product = 1')[0]['quantity']);
+        self::assertSame([], $this->hooks);
+        self::assertContains('A bulk chunk failed', $this->logged);
     }
 
     public function test_the_chunk_locks_exactly_its_stock_rows_by_primary_key_first_inside_its_transaction(): void
@@ -176,7 +273,7 @@ final class StockBulkTest extends TestCase
         $data = $this->send([['product_id' => '1', 'variant_id' => '0', 'quantity' => 8]]);
         self::assertSame([['ok', 'updated', 5, []]], self::results($data));
         self::assertCount(2, $this->db->locks);
-        self::assertSame(['set 1:0=8@1'], $this->calls);
+        self::assertSame('8', $this->db->rows('SELECT quantity FROM ps_stock_available WHERE id_product = 1')[0]['quantity']);
 
         $this->db->locks = [];
         $this->db->deadlocks = 2;
@@ -199,7 +296,27 @@ final class StockBulkTest extends TestCase
         $data = $this->send([['product_id' => '1', 'variant_id' => '0', 'quantity' => 4, 'out_of_stock' => 1]], ['mode' => 'fast']);
         self::assertSame([['ok', 'updated', 0, []]], self::results($data));
         self::assertSame([], $this->db->locks);
-        self::assertSame(['set 1:0=4@1', 'out 1:0=1@1'], $this->calls, 'a row the shop does not have goes through PrestaShop, which creates it');
+        self::assertSame([['1', '0', '1', '0', '4', '4', '1']], array_map('array_values', $this->db->rows('SELECT id_product, id_product_attribute, id_shop, id_shop_group, quantity, physical_quantity, out_of_stock FROM ps_stock_available WHERE id_product = 1')));
+        self::assertStringStartsWith('INSERT INTO `ps_stock_available`', $this->db->bulks[0], 'by the module, not through PrestaShop inside the transaction');
+        self::assertStringContainsString(' ON DUPLICATE KEY UPDATE quantity = 4, physical_quantity = reserved_quantity + 4, out_of_stock = 1', $this->db->bulks[0]);
+
+        // safe: as setQuantity() adds it (no physical quantity, the product's policy), with the hooks of an add.
+        $this->db->pdo->exec('DELETE FROM ps_stock_available WHERE id_product = 2 AND id_product_attribute = 8');
+        $this->db->pdo->exec('UPDATE ps_stock_available SET out_of_stock = 1 WHERE id_product = 2 AND id_product_attribute = 0');
+        $data = $this->send([['product_id' => '2', 'variant_id' => '8', 'quantity' => 5]]);
+        self::assertSame([['ok', 'updated', 0, []]], self::results($data));
+        self::assertSame(['5', '0', '1'], array_values($this->db->rows('SELECT quantity, physical_quantity, out_of_stock FROM ps_stock_available WHERE id_product = 2 AND id_product_attribute = 8')[0]));
+        self::assertSame('6', $this->db->rows('SELECT quantity FROM ps_stock_available WHERE id_product = 2 AND id_product_attribute = 0')[0]['quantity'], 'the total: 1 + 5');
+        self::assertSame(['actionObjectAddBefore', 'actionObjectStockAvailableAddBefore', 'actionObjectAddAfter', 'actionObjectStockAvailableAddAfter', 'actionUpdateQuantity'], array_slice($this->hooks, 0, 5));
+        self::assertSame(['id_product' => 2, 'id_product_attribute' => 8, 'quantity' => 5, 'delta_quantity' => null, 'id_shop' => 1], $this->seen[4][1], 'no delta for a row added, as PrestaShop');
+    }
+
+    public function test_a_combination_product_without_its_total_row_gets_one(): void
+    {
+        $this->db->pdo->exec('DELETE FROM ps_stock_available WHERE id_product = 2 AND id_product_attribute = 0');
+        $this->send([['product_id' => '2', 'variant_id' => '7', 'quantity' => 4]]);
+
+        self::assertSame('6', $this->db->rows('SELECT quantity FROM ps_stock_available WHERE id_product = 2 AND id_product_attribute = 0')[0]['quantity']);
     }
 
     public function test_every_stock_write_after_the_lock_goes_by_primary_key(): void
@@ -222,8 +339,7 @@ final class StockBulkTest extends TestCase
         self::assertSame(['1', '1'], array_column($this->db->rows('SELECT out_of_stock FROM ps_stock_available WHERE id_product = 1 ORDER BY id_product_attribute'), 'out_of_stock'), 'variant "0": every row of the product, as setProductOutOfStock()');
         self::assertSame(['2', '0', '2'], array_column($this->db->rows('SELECT out_of_stock FROM ps_stock_available WHERE id_product = 2 ORDER BY id_product_attribute DESC'), 'out_of_stock'), 'a combination: its row only');
         self::assertSame(['12', '6'], array_column($this->db->rows('SELECT quantity FROM ps_stock_available WHERE id_product_attribute = 0 ORDER BY id_product DESC'), 'quantity'), 'the total of product 2: 10 + 2');
-        self::assertCount(2, $this->db->locks, 'the chunk, then the totals: both by primary key');
-        self::assertStringContainsString('WHERE sa.id_stock_available IN (2,3,4) ORDER BY sa.id_stock_available', $this->db->locks[1][0]);
+        self::assertCount(1, $this->db->locks, 'the total is summed from the rows the chunk holds');
     }
 
     public function test_a_quantity_another_session_commits_while_the_chunk_waits_is_a_conflict_in_both_modes(): void
@@ -258,25 +374,27 @@ final class StockBulkTest extends TestCase
      */
     private function send(array $rows, array $options = []): array
     {
-        $this->calls = [];
         $this->hooks = [];
+        $this->seen = [];
         $request = Request::fromServer(['REQUEST_METHOD' => 'POST', 'QUERY_STRING' => 'path=stock/bulk'], (string) json_encode(['rows' => $rows] + ($options === [] ? [] : ['options' => $options])));
-        $log = new Log(static function (): void {
+        $log = new Log(function (array $row): void {
+            $this->logged[] = (string) $row['message'];
         });
-        $hook = function (string $name): void {
+        $hook = function (string $name, array $params = []): void {
             $this->hooks[] = $name;
-        };
-        $bulk = new StockBulk($this->db, $this->db->scope(), new PendingWrites($this->db, 1, $log, $hook), $log, true, $hook, function (int $product, int $variant, int $quantity, int $shop): void {
-            // As StockAvailable::setQuantity(): the row, then the product's total of its combinations.
-            $this->calls[] = 'set '.$product.':'.$variant.'='.$quantity.'@'.$shop;
-            $this->db->pdo->exec('UPDATE ps_stock_available SET quantity = '.$quantity.' WHERE id_product = '.$product.' AND id_product_attribute = '.$variant);
-            if ($variant !== 0) {
-                $this->db->pdo->exec('UPDATE ps_stock_available SET quantity = (SELECT SUM(quantity) FROM ps_stock_available WHERE id_product = '.$product.' AND id_product_attribute <> 0) WHERE id_product = '.$product.' AND id_product_attribute = 0');
+            if (isset($params['object']) && is_object($params['object'])) {
+                $params['object'] = 'object #'.$params['object']->id;
             }
-        }, function (int $product, int $policy, int $shop, int $variant): void {
-            $this->calls[] = 'out '.$product.':'.$variant.'='.$policy.'@'.$shop;
-        }, static function (): void {
-        });
+            $this->seen[] = [$name, $params, $this->db->pdo->inTransaction()];
+            if ($name === $this->throwing) {
+                throw new RuntimeException('hook');
+            }
+        };
+        $bulk = new StockBulk($this->db, $this->db->scope(), new PendingWrites($this->db, 1, $log, $hook), $log, true, $hook, static function (int $id): object {
+            // StockAvailable as committed.
+            return (object) ['id' => $id];
+        }, static function (array $products): void {
+        }, $this->hookShop);
         $response = $bulk->run($request, new Budget(new FixedClock(1790772000.0), 25));
         self::assertSame(200, $response->status());
 
