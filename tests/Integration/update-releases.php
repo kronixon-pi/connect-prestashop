@@ -10,7 +10,8 @@ declare(strict_types=1);
  *
  * - kronixonconnect-<MODULE_VERSION>.zip: the build installed first, which updates itself;
  * - 0.7.1 (its upgrade script sets KXTEST_UPGRADED_071), 0.7.2 (its upgrade script fails), 0.7.3 (its upgrade
- *   script waits while /tmp/kx-update-hold exists, after writing its pid to /tmp/kx-update-pid), 0.7.4;
+ *   script waits while /tmp/kx-update-hold exists, after writing its pid to /tmp/kx-update-pid), 0.7.4, 0.7.5 (its
+ *   upgrade script counts its runs in /tmp/kx-075-runs and dies of the memory limit, which PHP cannot catch);
  * - a 0.7.1 with one byte changed, and a 0.7.1 of the stable channel;
  * - latest-<case>.json: the answer of `GET /v1/module/latest` the stub gives for each case, the file on the stub;
  * - platform-key.txt: the pinned key a release build expects in the pair answer.
@@ -40,6 +41,7 @@ $scripts = [
     '0.7.2' => $upgrade('0.7.2', "    Configuration::updateGlobalValue('KXTEST_UPGRADED_072', 'tried');\n\n    return false;"),
     '0.7.3' => $upgrade('0.7.3', "    file_put_contents('/tmp/kx-update-runs', getmypid().' '.(\$_SERVER['REQUEST_URI'] ?? 'cli').' '.microtime(true).\"\\n\", FILE_APPEND);\n    file_put_contents('/tmp/kx-update-pid', (string) getmypid());\n    for (\$i = 0; \$i < 120 && is_file('/tmp/kx-update-hold'); \$i++) {\n        usleep(500000);\n    }\n\n    return (bool) Configuration::updateGlobalValue('KXTEST_UPGRADED_073', '1');"),
     '0.7.4' => $upgrade('0.7.4', "    return (bool) Configuration::updateGlobalValue('KXTEST_UPGRADED_074', '1');"),
+    '0.7.5' => $upgrade('0.7.5', "    file_put_contents('/tmp/kx-075-runs', getmypid().\"\\n\", FILE_APPEND);\n    ini_set('memory_limit', '128M');\n    \$eaten = [];\n    while (true) {\n        \$eaten[] = str_repeat('x', 1048576);\n    }"),
 ];
 // A later release carries the earlier scripts, the one of 0.7.2 fixed.
 $fixed072 = $upgrade('0.7.2', '    return true;');

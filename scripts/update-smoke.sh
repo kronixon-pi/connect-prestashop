@@ -10,7 +10,8 @@
 #
 #   up to date · read-only module folder · tampered zip (hash; signature) · a zip of another channel · a half stage a
 #   killed process left + update to 0.7.1 · an upgrade script that fails (rollback to 0.7.1) · a worker killed with
-#   SIGKILL during the upgrade to 0.7.3, finished by the next page · a swap nobody followed, finished by the cron URL.
+#   SIGKILL during the upgrade to 0.7.3, finished by the next page · a swap nobody followed, finished by the cron URL ·
+#   an upgrade script that dies of the memory limit (0.7.5): run twice, the cron URL still flushes, then rolled back.
 #
 # Needs docker, curl and jq on the host. Prints one line per check and an UPDATE-SMOKE summary.
 set -euo pipefail
@@ -229,10 +230,41 @@ curl -sS -o /dev/null -c "$jar" -b "$jar" --data-urlencode "kx_update_token=$tok
 cron="$(curl -sS "$base/index.php?fc=module&module=kronixonconnect&controller=cron&token=$(sql "SELECT value FROM ps_configuration WHERE name = 'KX_CRON_TOKEN'")")"
 expect_eq "0.7.4: the cron URL finishes the upgrade" "updated 0.7.4" "$(printf '%s' "$cron" | jq -r '"\(.update.outcome) \(.update.to)"' 2>/dev/null || echo "$cron")"
 expect_eq "0.7.4: files, module row, upgrade script" "0.7.4 0.7.4 1 1 1" "$(files_version) $(row) $(marker KXTEST_UPGRADED_074)"
+step "cron URL finish checked"
+
+# An upgrade script that dies where PHP cannot catch it (the memory limit): run twice, then rolled back. One connection
+# per request (see 0.7.3), so that curl does not send a request again by itself.
+cron_url="$base/index.php?fc=module&module=kronixonconnect&controller=cron&token=$(sql "SELECT value FROM ps_configuration WHERE name = 'KX_CRON_TOKEN'")"
+pending() { sql "SELECT COUNT(*) FROM ps_kx_outbox WHERE status = 'pending'"; }
+batches() { dc exec -T ps cat /tmp/kx-stub/state.json </dev/null | jq '.event_batches | length'; }
+offer 0.7.5
+action="$(grep -o '<form method="post" action="[^"]*"' "$page" | head -n 1 | sed 's/.*action="//; s/"$//; s/&amp;/\&/g')"
+token="$(grep -o 'name="kx_update_token" value="[^"]*"' "$page" | head -n 1 | sed 's/.*value="//; s/"$//')"
+swapped="$(curl -sS -o /dev/null -w '%{http_code}' -c "$jar" -b "$jar" --data-urlencode "kx_update_token=$token" -d submitKxUpdate=1 -d kx_update_version=0.7.5 "$action")"
+expect_eq "0.7.5: the click swaps the files and redirects" "302 0.7.5" "$swapped $(files_version)"
+first="$(curl -sS -L -H 'Connection: close' -o /dev/null -w '%{http_code}' -c "$jar" -b "$jar" "$cfg")"
+expect_eq "0.7.5: the first page dies in the upgrade, the attempt counted" "500 1" "$first $(sql "SELECT JSON_VALUE(value, '$.attempts') FROM ps_configuration WHERE name = 'KX_UPDATE_STATE'")"
+# The cron URL sends the store events first, then dies in the second attempt.
+sql "UPDATE ps_configuration SET value = '0' WHERE name = 'KX_OUTBOX_LAST_FLUSH'"
+waiting="$(pending)"
+sent="$(batches)"
+second="$(curl -sS -H 'Connection: close' -o /dev/null -w '%{http_code}' "$cron_url")"
+expect_eq "0.7.5: the cron URL dies in the second attempt, after its flush" "500 2 0 yes" \
+    "$second $(sql "SELECT JSON_VALUE(value, '$.attempts') FROM ps_configuration WHERE name = 'KX_UPDATE_STATE'") $(pending) $([ "$waiting" -gt 0 ] && [ "$(batches)" -gt "$sent" ] && echo yes || echo "no ($waiting pending before, $sent batches)")"
+open_page
+expect_eq "0.7.5: the third page rolls back instead of a third run — files, module row, runs" "0.7.4 0.7.4 1 1 2" "$(files_version) $(row) $(dc exec -T ps sh -c 'wc -l < /tmp/kx-075-runs' </dev/null | tr -d ' ')"
+expect_eq "0.7.5: the settings page answers again and names the rollback" "200 yes" \
+    "$(curl -sS -L -o "$page" -w '%{http_code}' -c "$jar" -b "$jar" "$cfg") $(text kx-update-result | grep -q '(upgrade_failed); the previous version was restored' && echo yes || echo no)"
+expect_eq "0.7.5: journal gone, nothing left next to the module" "0 " "$(sql "SELECT COUNT(*) FROM ps_configuration WHERE name = 'KX_UPDATE_STATE'") $(hidden)"
+expect_eq "0.7.5: the event says the upgrade died" "yes" "$(sql "SELECT payload FROM ps_kx_outbox WHERE type = 'module.update_failed' ORDER BY id_outbox DESC LIMIT 1" | grep -q '"error":"upgrade_failed: upgrade_died' && echo yes || echo no)"
+sql "UPDATE ps_configuration SET value = '0' WHERE name = 'KX_OUTBOX_LAST_FLUSH'"
+cron="$(curl -sS -H 'Connection: close' "$cron_url")"
+expect_eq "0.7.5: the cron URL flushes again, nothing left to finish" "0 null" "$(printf '%s' "$cron" | jq -r '"\(.flush.failed) \(.update)"' 2>/dev/null || echo "$cron")"
+step "upgrade that dies checked"
 
 # The events for the platform (module.updated / module.update_failed through the outbox).
 expect_eq "events: refusals, updates and the rollback, in order" \
-    "module.update_failed read_only|module.update_failed opcache_static|module.update_failed sha256_mismatch|module.update_failed bad_signature|module.update_failed channel_mismatch|module.updated $from>0.7.1|module.update_failed upgrade_failed|module.updated 0.7.1>0.7.3|module.updated 0.7.3>0.7.4|" \
+    "module.update_failed read_only|module.update_failed opcache_static|module.update_failed sha256_mismatch|module.update_failed bad_signature|module.update_failed channel_mismatch|module.updated $from>0.7.1|module.update_failed upgrade_failed|module.updated 0.7.1>0.7.3|module.updated 0.7.3>0.7.4|module.update_failed upgrade_failed|" \
     "$(events | sed -E 's/\{"from":"([^"]*)","to":"([^"]*)"\}/\1>\2/g; s/\{"from":"[^"]*","to":"[^"]*","error":"([a-z0-9_]*)[^"]*"\}/\1/g')"
 expect_eq "storefront home after the updates" "200" "$(curl -sL --max-redirs 3 -o /dev/null -w '%{http_code}' "$base/")"
 
