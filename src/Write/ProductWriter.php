@@ -39,7 +39,16 @@ final class ProductWriter extends ShopWriter
 
     private const GROUPS = ['identity', 'content', 'seo', 'categories', 'brand', 'attributes', 'tags', 'visibility', 'suppliers', 'pricing', 'physical'];
 
-    /** identity member => [column of `product`, its length] */
+    /** group => fields it carries under their own name, for the `field` of an error */
+    private const MEMBERS = [
+        'content' => ['name', 'description', 'description_short', 'available_now', 'available_later'],
+        'seo' => ['link_rewrite', 'meta_title', 'meta_description'],
+        'visibility' => ['active', 'visibility', 'available_for_order', 'show_price', 'condition', 'online_only', 'indexed'],
+        'pricing' => ['price', 'wholesale_price', 'unit_price', 'unity'],
+        'physical' => ['weight', 'width', 'height', 'depth'],
+    ];
+
+    /** identity member => its length in `product` */
     private const CODES = ['reference' => 64, 'ean13' => 13, 'mpn' => 40, 'upc' => 12, 'isbn' => 32, 'supplier_reference' => 64];
 
     /** @var ProductRelations */
@@ -71,7 +80,7 @@ final class ProductWriter extends ShopWriter
             return $this->match($item);
         });
         $product = new Product($id, false, null, $this->shop->scope->shopId);
-        $fields = $this->shop->fields($product);
+        $fields = $this->shop->fields($product)->sentAs(self::members());
         $creating = $id === null;
         if ($creating) {
             $product->price = 0.0;
@@ -105,7 +114,7 @@ final class ProductWriter extends ShopWriter
         }
         $related = $categories !== null && $this->relations->categories($product, $categories);
         $related = isset($groups['attributes']) && $this->relations->features($product, $groups['attributes'], $features) || $related;
-        $related = $this->relations->tags($product, $tags) || $related;
+        $related = isset($groups['tags']) && $this->relations->tags($product, $groups['tags'], $tags) || $related;
         $related = isset($groups['suppliers']) && $this->relations->suppliers($product, $groups['suppliers'], $suppliers) || $related;
         $this->searchable = $creating || $related || $fields->changed(['name', 'description', 'description_short', 'id_manufacturer', 'reference', 'ean13', 'upc', 'isbn', 'mpn', 'active', 'visibility']);
         if ($creating) {
@@ -132,12 +141,28 @@ final class ProductWriter extends ShopWriter
 
     public function finish(): void
     {
+        parent::finish();
         Product::flushPriceCache();
     }
 
     protected function reader(): Reader
     {
         return new ProductReader($this->shop->db, $this->shop->scope, $this->shop->urls);
+    }
+
+    /**
+     * @return array<string, string> field => the member it is sent as
+     */
+    private static function members(): array
+    {
+        $members = ['id_manufacturer' => 'brand.id', 'id_supplier' => 'suppliers.default_id', 'id_category_default' => 'categories.default_id', 'id_tax_rules_group' => 'pricing.tax_rules_group_id'];
+        foreach (self::MEMBERS + ['identity' => array_keys(self::CODES)] as $group => $fields) {
+            foreach ($fields as $field) {
+                $members[$field] = $group.'.'.$field;
+            }
+        }
+
+        return $members;
     }
 
     /**
@@ -221,7 +246,7 @@ final class ProductWriter extends ShopWriter
             $fields->text('meta_description', $texts->meta($groups['seo'], 'meta_description', $lengths['meta_description']));
             $redirect = $groups['seo']->object('redirect');
             if ($redirect !== null && $redirect->has('type')) {
-                ProductRedirect::set($this->shop, $fields, $redirect, 'type', 'target_id');
+                ProductRedirect::set($this->shop, $fields, $product, $redirect, 'type', 'target_id', false);
             }
         }
     }

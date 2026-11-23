@@ -22,6 +22,7 @@ use Context;
 use Kronixon\Connect\Catalog\ImageUrls;
 use Kronixon\Connect\Catalog\Scope;
 use Kronixon\Connect\Compat\CompatInterface;
+use Kronixon\Connect\Redirect\Pages;
 use Kronixon\Connect\Redirect\RedirectStore;
 use ObjectModel;
 use Tools;
@@ -52,6 +53,9 @@ final class Shop
     /** @var RedirectStore */
     public $redirects;
 
+    /** @var Pages */
+    public $pages;
+
     /** @var EntityMap */
     public $map;
 
@@ -67,9 +71,10 @@ final class Shop
     /** @var array<string, array<string, list<int>>> match_by lists read in this request */
     private $names = [];
 
-    public function __construct(Context $context, Scope $scope, CompatInterface $compat, Database $db, ImageUrls $urls, RedirectStore $redirects, PendingWrites $pending, Warnings $warnings, bool $strictLanguages)
+    public function __construct(Context $context, Scope $scope, CompatInterface $compat, Database $db, ImageUrls $urls, RedirectStore $redirects, Pages $pages, PendingWrites $pending, Warnings $warnings, bool $strictLanguages)
     {
         $this->redirects = $redirects;
+        $this->pages = $pages;
         $this->context = $context;
         $this->scope = $scope;
         $this->compat = $compat;

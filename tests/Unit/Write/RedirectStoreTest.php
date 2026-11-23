@@ -57,6 +57,28 @@ final class RedirectStoreTest extends TestCase
         self::assertNull($one->find('/old'));
     }
 
+    public function test_the_flag_goes_with_the_last_row_of_any_shop(): void
+    {
+        $db = new CatalogDb();
+        $settings = new MemorySettings();
+        $one = new RedirectStore($db, $settings, 1);
+        $two = new RedirectStore($db, $settings, 2);
+        $one->put('/old', 'product', 5, 301);
+        $two->put('/old', 'product', 5, 301);
+
+        $one->remove(['/old']);
+        $one->sync();
+        self::assertTrue($one->any(), 'shop 2 has one');
+        $two->remove(['/old']);
+        $two->sync();
+        self::assertFalse($one->any());
+        $queries = $db->queries;
+        $one->sync();
+        self::assertSame($queries, $db->queries, 'a shop without redirects pays nothing');
+        $one->put('/new', 'product', 5, 301);
+        self::assertTrue($one->any());
+    }
+
     public function test_a_changed_address_keeps_leading_to_its_page_without_a_loop(): void
     {
         $store = new RedirectStore(new CatalogDb(), new MemorySettings(), 1);

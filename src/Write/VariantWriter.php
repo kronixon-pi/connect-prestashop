@@ -41,6 +41,9 @@ final class VariantWriter extends ShopWriter
     /** @var OptionGroups */
     private $options;
 
+    /** @var int the product of the item being written */
+    private $productId = 0;
+
     public function __construct(Shop $shop)
     {
         parent::__construct($shop);
@@ -62,8 +65,12 @@ final class VariantWriter extends ShopWriter
         if ($combinations === null || ! $item->has('option_groups')) {
             throw ItemError::invalid($combinations === null ? 'combinations' : 'option_groups');
         }
-        $this->options->read($item->objects('option_groups') ?? []);
+        $this->productId = $productId;
         $current = $this->current($productId);
+        if ($this->left(array_keys($current)) !== []) {
+            throw ItemError::leftOver('product_id');
+        }
+        $this->options->read($item->objects('option_groups') ?? []);
         $refs = $this->check($combinations, $current);
 
         $changed = $this->options->create();
@@ -95,9 +102,62 @@ final class VariantWriter extends ShopWriter
         return self::done($productId, false, $changed) + $this->options->ids() + ['combinations' => (object) array_map('strval', $ids)];
     }
 
+    public function prepare(Item $item): void
+    {
+        parent::prepare($item);
+        $this->productId = 0;
+    }
+
+    public function rolledBack(Item $item): bool
+    {
+        $clean = parent::rolledBack($item);
+        if (! $clean && $this->productId > 0) {
+            $this->noHalfDefault($this->productId);
+        }
+
+        return $clean;
+    }
+
     protected function reader(): Reader
     {
         return new ProductReader($this->shop->db, $this->shop->scope, $this->shop->urls);
+    }
+
+    /**
+     * The combinations a failed item left.
+     *
+     * @param  list<int>  $ids
+     * @return list<int>
+     */
+    private function left(array $ids): array
+    {
+        return array_values(array_filter($ids, function (int $id): bool {
+            return $this->shop->pending->isLeft('product_attribute', $id);
+        }));
+    }
+
+    /** PrestaShop makes any combination that is there the default one: never a half-written one. */
+    private function noHalfDefault(int $productId): void
+    {
+        $ids = array_keys($this->current($productId));
+        $left = $this->left($ids);
+        if ($left === []) {
+            return;
+        }
+        $whole = array_values(array_diff($ids, $left));
+        Cache::clean('objectmodel_Product_'.$productId.'_*');
+        $product = new Product($productId, false, null, $this->shop->scope->shopId);
+        $default = $whole === [] ? [] : $this->shop->db->rows('SELECT id_product_attribute FROM '.$this->shop->db->table('product_attribute_shop')
+            .' WHERE default_on = 1 AND id_shop = '.$this->shop->scope->shopId.' AND id_product_attribute IN ('.implode(',', $whole).')');
+        $product->deleteDefaultAttributes();
+        if ($whole !== []) {
+            $product->setDefaultAttribute((int) ($default[0]['id_product_attribute'] ?? $whole[0]));
+
+            return;
+        }
+        $fields = $this->shop->fields($product);
+        $fields->set('cache_default_attribute', 0);
+        $fields->save('product');
     }
 
     /**
@@ -134,7 +194,8 @@ final class VariantWriter extends ShopWriter
 
     private function fields(Combination $combination, Item $item, int $productId): Fields
     {
-        $fields = $this->shop->fields($combination);
+        $fields = $this->shop->fields($combination)->sentAs(['reference' => $item->at('reference'), 'ean13' => $item->at('ean13'), 'mpn' => $item->at('mpn'), 'price' => $item->at('price_impact'),
+            'wholesale_price' => $item->at('wholesale_price'), 'weight' => $item->at('weight_impact'), 'minimal_quantity' => $item->at('minimal_quantity'), ]);
         $creating = $fields->creating();
         if ($creating) {
             $fields->set('id_product', $productId);

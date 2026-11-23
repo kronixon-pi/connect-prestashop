@@ -127,7 +127,7 @@
         "tags": {
           "type": "object",
           "properties": {
-            "mode": { "const": "replace" },
+            "mode": { "$ref": "../common.json#/$defs/mode" },
             "values": { "$ref": "../common.json#/$defs/multilang_list" }
           }
         },

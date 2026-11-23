@@ -96,7 +96,7 @@ $r = $send('products', [$full, ['key' => 'n', 'groups' => ['identity'], 'identit
 $id = (int) ($r['p']['external_id'] ?? 0);
 $kx->check('products: created with every group', ($r['p']['status'] ?? '') === 'ok' && $r['p']['action'] === 'created' && $r['p']['kx_id'] === $kxId && $r['p']['link_rewrite'] === "ssd-$tag" && strpos($r['p']['url'], "ssd-$tag") !== false && $r['p']['warnings'] === ['meta_description_cut'], (string) json_encode($r));
 $kx->check('products: refused items name code and field', ($r['n']['field'] ?? '') === 'content.name' && ($r['bg']['field'] ?? '') === 'content.name.en' && ($r['x']['code'] ?? '') === 'not_found' && ($r['g']['field'] ?? '') === 'content'
-    && ($r['cat']['code'] ?? '') === 'category_not_found' && ($r['fv']['code'] ?? '') === 'feature_value_not_found' && ($r['bad']['code'] ?? '') === 'validation_failed' && ($r['bad']['field'] ?? '') === 'ean13', (string) json_encode($r));
+    && ($r['cat']['code'] ?? '') === 'category_not_found' && ($r['fv']['code'] ?? '') === 'feature_value_not_found' && ($r['bad']['code'] ?? '') === 'validation_failed' && ($r['bad']['field'] ?? '') === 'identity.ean13', (string) json_encode($r));
 $kx->check('products: refused items left nothing', $value("SELECT COUNT(*) FROM {$p}product") === $before + 1 && $value("SELECT COUNT(*) FROM {$p}product_lang WHERE name = 'Half $tag'") === 0);
 $item = $product($id);
 $kx->check('products: the read shows what was sent', $item['reference'] === "R-$tag" && $item['ean13'] === $ean && $item['name'] === ['en' => "SSD $tag", 'bg' => "Диск $tag"] && $item['default_category_id'] === $catA && $item['category_ids'] === [$catA] && $item['brand_id'] === $brand
@@ -214,7 +214,7 @@ $s = $send('seo/redirects', [
 ]);
 $kx->check('redirects: a product\'s own, with the hash of the read', $s['p']['action'] === 'updated' && $product($id)['redirect'] === ['type' => '301-product', 'target_id' => (string) $other] && $s['p']['content_hash'] === $hash($id), (string) json_encode($s));
 $kx->check('redirects: 410 from PrestaShop 8, before it 404 with a warning', $product($other)['redirect']['type'] === ($modern ? '410' : '404') && $s['410']['warnings'] === ($modern ? [] : ['redirect_410_unsupported']), (string) json_encode($s));
-$kx->check('redirects: refused ones', ($s['root']['field'] ?? '') === 'path_from' && ($s['loop']['code'] ?? '') === 'redirect_loop' && ($s['self']['code'] ?? '') === 'category_active' && ($s['t']['code'] ?? '') === 'redirect_target_not_found', (string) json_encode($s));
+$kx->check('redirects: refused ones', ($s['root']['field'] ?? '') === 'path_from' && ($s['loop']['code'] ?? '') === 'redirect_loop' && ($s['self']['code'] ?? '') === 'category_active' && ($s['t']['code'] ?? '') === 'target_not_found', (string) json_encode($s));
 [$status, $where] = $visit("/en/kx-old-$tag?utm=1");
 $kx->check('redirects: an old path is served', $s['s']['action'] === 'created' && $status === 301 && RedirectPath($where) === RedirectPath($otherUrl), "$status $where (want $otherUrl)");
 $catUrl = (string) parse_url(Context::getContext()->link->getCategoryLink((int) $catA, null, $en), PHP_URL_PATH);
@@ -231,6 +231,126 @@ $send('categories', [['key' => 'a', 'external_id' => $catA, 'name' => ['en' => "
 [$status] = $visit($catUrl);
 $kx->check('redirects: a category active again answers itself', $status === 200 && $value("SELECT COUNT(*) FROM {$p}kx_redirect WHERE path_from = '".pSQL($catUrl)."'") === 0, (string) $status);
 $kx->check('redirects: the changed slug of seo.redirect.auto is kept', $value("SELECT COUNT(*) FROM {$p}kx_redirect WHERE path_from LIKE '%ssd-$tag%' AND target_type = 'product' AND target_id = $id AND code = 301") === 1);
+
+// Redirects that would loop, chain or lead nowhere.
+$link = Context::getContext()->link;
+$codes = static function (array $results): array {
+    return array_map(static function (array $result): string {
+        return $result['code'] ?? $result['action'];
+    }, $results);
+};
+$c = $send('categories', array_map(static function (string $key) use ($tag): array {
+    return ['key' => $key, 'name' => ['en' => "Redirect $key $tag"], 'active' => $key === 'd'];
+}, ['a', 'b', 'c', 'd']));
+[$ra, $rb, $rc, $rd] = array_column($c, 'external_id');
+$active = static function (string $id, string $name, bool $on) use ($send, $tag): void {
+    $send('categories', [['key' => 'x', 'external_id' => $id, 'name' => ['en' => "Redirect $name $tag"], 'active' => $on]]);
+};
+$category = static function (string $key, string $from, string $to): array {
+    return ['key' => $key, 'entity' => 'category', 'external_id' => $from, 'type' => '301-category', 'target_id' => $to];
+};
+$s = $send('seo/redirects', [$category('self', $ra, $ra), $category('inactive', $ra, $rb), $category('gone', $ra, '99999999'), $category('ok', $ra, $rd), $category('chain', $rb, $ra)]);
+$kx->check('redirects: to itself, to an inactive, a missing and a redirected target are refused, to an active one kept', $codes($s) === ['self' => 'redirect_loop', 'inactive' => 'target_inactive', 'gone' => 'target_not_found', 'ok' => 'created', 'chain' => 'redirect_chain'], (string) json_encode($s));
+$pathA = RedirectPath($link->getCategoryLink((int) $ra, null, $en));
+[$status, $where] = $visit($pathA);
+$kx->check('redirects: served while the target is active', $status === 301 && RedirectPath($where) === RedirectPath($link->getCategoryLink((int) $rd, null, $en)), "$status $where");
+$active($rd, 'd', false);
+$s = $send('seo/redirects', [$category('loop', $rd, $ra)]);
+$kx->check('redirects: one that leads back through the target is a loop', $codes($s) === ['loop' => 'redirect_loop'], (string) json_encode($s));
+[$status, $where] = $visit($pathA);
+// From 9.1 PrestaShop itself sends an inactive category to its parent.
+$kx->check('redirects: not served once the target is inactive', $where === '' ? $status === 404 : RedirectPath($where) === RedirectPath($link->getCategoryLink($home, null, $en)), "$status $where");
+$new = static function (string $key, bool $on = true) use ($send, $tag): array {
+    $r = $send('products', [['key' => 'p', 'groups' => ['identity', 'content', 'visibility'], 'identity' => ['reference' => "RD-$key-$tag"], 'content' => ['name' => ['en' => "Redirected $key $tag"]], 'visibility' => ['active' => $on]]]);
+
+    return [(string) $r['p']['external_id'], RedirectPath((string) $r['p']['url'])];
+};
+[[$p1, $path1], [$p2, $path2], [$p3], [$p4]] = [$new('1'), $new('2'), $new('3'), $new('4', false)];
+$own = static function (string $key, string $from, string $to, string $type = '301-product'): array {
+    return ['key' => $key, 'entity' => 'product', 'external_id' => $from, 'type' => $type, 'target_id' => $to];
+};
+$s = $send('seo/redirects', [$own('1', $p1, $p2), $own('2', $p2, $p3), $own('back', $p2, $p1), $own('long', $p3, $p1), $own('self', $p3, $p3), $own('off', $p3, $p4), $own('cat', $p3, $rd, '302-category')]);
+$kx->check('redirects: products, also active ones whose redirects would close a loop later', $codes($s) === ['1' => 'updated', '2' => 'updated', 'back' => 'redirect_loop', 'long' => 'redirect_loop', 'self' => 'redirect_loop', 'off' => 'target_inactive', 'cat' => 'target_inactive'], (string) json_encode($s));
+$s = $send('products', [['key' => 'off', 'external_id' => $p3, 'groups' => ['seo'], 'seo' => ['redirect' => ['type' => '301-product', 'target_id' => $p4]]], ['key' => 'loop', 'external_id' => $p3, 'groups' => ['seo'], 'seo' => ['redirect' => ['type' => '302-product', 'target_id' => $p1]]]]);
+$kx->check('products: seo.redirect follows the same rules', $codes($s) === ['off' => 'target_inactive', 'loop' => 'redirect_loop'] && $s['off']['field'] === 'seo.redirect.target_id', (string) json_encode($s));
+$send('products', [['key' => 'p', 'external_id' => $p3, 'groups' => ['visibility'], 'visibility' => ['active' => false]]]);
+$s = $send('products', [['key' => 'p', 'external_id' => $p2, 'groups' => ['seo', 'content'], 'content' => ['name' => ['en' => "Redirected two $tag"]], 'seo' => ['redirect' => ['type' => '301-product', 'target_id' => $p3]]]]);
+$kx->check('products: a redirect they have already does not refuse them when its target is inactive', $codes($s) === ['p' => 'updated'], (string) json_encode($s));
+
+// type slug: every page of the shop keeps its address.
+$send('products', [['key' => 'p', 'external_id' => $p2, 'groups' => ['visibility'], 'visibility' => ['active' => true]]]);
+$cms = $value("SELECT MIN(c.id_cms) FROM {$p}cms c INNER JOIN {$p}cms_shop s ON s.id_cms = c.id_cms AND s.id_shop = $shop WHERE c.active = 1");
+$brandOn = $send('brands', [['key' => 'b', 'name' => "Slug $tag"]])['b']['external_id'];
+$taken = [$path1, RedirectPath($link->getCategoryLink((int) $catB, null, $en)), RedirectPath($link->getCMSLink(new CMS($cms, $en), null, null, $en)), RedirectPath($link->getManufacturerLink(new Manufacturer((int) $brandOn, $en), null, $en)),
+    '/', '/index.php', '/en/', '/en', '/bg/', '/admin-dev/', '/modules/x', '/module/kronixonconnect/api', '/en/module/kronixonconnect/api', ];
+foreach ($db->executeS("SELECT DISTINCT url_rewrite FROM {$p}meta_lang WHERE id_lang = $en AND id_shop = $shop AND url_rewrite <> ''", true, false) as $row) {
+    $taken[] = '/'.$row['url_rewrite'];
+    $taken[] = '/en/'.$row['url_rewrite'];
+}
+$slug = static function (string $path, string $target) use ($send): string {
+    $r = $send('seo/redirects', [['key' => 's', 'entity' => 'product', 'type' => 'slug', 'path_from' => $path, 'target_id' => $target]])['s'];
+
+    return ($r['code'] ?? $r['action']).' '.($r['field'] ?? '');
+};
+$rows = $value("SELECT COUNT(*) FROM {$p}kx_redirect");
+$answers = array_unique(array_map(static function (string $path) use ($slug, $p2): string {
+    return $slug($path, $p2);
+}, $taken));
+$kx->check('redirects: the address of a page (product, category, CMS, brand, language, controller, folder) is slug_taken: '.count($taken), array_values($answers) === ['slug_taken path_from'] && in_array('/cart', $taken, true) && in_array('/en/order', $taken, true) && in_array('/en/login', $taken, true) && $value("SELECT COUNT(*) FROM {$p}kx_redirect") === $rows, (string) json_encode([$answers, $taken]));
+[$status] = $visit($path1);
+[$status2, $where] = $visit('/en/');
+// From 9.x the default language has no prefix: /en/ leads to the home page.
+$kx->check('redirects: and those pages answer', $status === 200 && ($status2 === 200 || RedirectPath($where) === '/'), "$status $status2 $where");
+$kx->check('redirects: a path with dots is refused', $slug('/en/../admin-dev/', $p2) === 'validation_failed path_from' && $slug("/old/./$tag", $p2) === 'validation_failed path_from');
+$kx->check('redirects: a slug to an inactive or missing target is refused', $slug("/en/gone-$tag", $p4) === 'target_inactive target_id' && $slug("/en/gone-$tag", '99999999') === 'target_not_found target_id');
+$oldOwn = str_replace('redirected-2', 'an-old-name', $path2);
+$kx->check('redirects: an old address of the target itself, of nobody, of an inactive entity is free', $oldOwn !== $path2 && $slug($oldOwn, $p2) === 'created ' && $slug("/en/gone-$tag", $p2) === 'created ' && $slug(RedirectPath($link->getCategoryLink((int) $rc, null, $en)), $p2) === 'created ');
+[$status, $where] = $visit("/en/gone-$tag");
+$kx->check('redirects: which is served', $status === 301 && strpos($where, "/$p2-") !== false, "$status $where");
+$active($rc, 'c', true);
+[$status] = $visit(RedirectPath($link->getCategoryLink((int) $rc, null, $en)));
+$kx->check('redirects: a page the shop shows again at such a path wins', $status === 200, (string) $status);
+[$last] = $new('5');
+$slug("/en/last-$tag", $last);
+(new Product((int) $last))->delete();
+[$status, $where] = $visit("/en/last-$tag");
+$kx->check('redirects: a deleted target is the shop\'s own 404', $status === 404 && $where === '', "$status $where");
+
+// The flag that costs the storefront a lookup goes with the last row.
+$flag = static function () use ($text, $p): string {
+    return $text("SELECT value FROM {$p}configuration WHERE name = 'KX_REDIRECTS'");
+};
+$before = $flag();
+$db->execute("DELETE FROM {$p}kx_redirect");
+$send('seo/redirects', [['key' => 'x', 'entity' => 'product', 'external_id' => $p4, 'type' => '404']]);
+$off = $flag();
+$slug("/en/flag-$tag", $p2);
+$kx->check('redirects: KX_REDIRECTS is 1 only while there are any', [$before, $off, $flag()] === ['1', '0', '1'], (string) json_encode([$before, $off, $flag()]));
+
+// Tags: only mode replace removes.
+$tags = static function (array $group, array $options = []) use ($send, $p1): string {
+    $r = $send('products', [['key' => 'p', 'external_id' => $p1, 'groups' => ['tags'], 'tags' => $group]], $options)['p'];
+
+    return ($r['code'] ?? $r['action']).' '.($r['field'] ?? '');
+};
+$have = static function () use ($product, $p1): array {
+    return (array) $product((int) $p1)['tags'];
+};
+$steps = [[$tags(['mode' => 'replace', 'values' => ['en' => ["a$tag", "b$tag"], 'bg' => ["v$tag"]]]), $have()], [$tags(['values' => ['en' => ["c$tag"]]]), $have()], [$tags(['mode' => 'merge', 'values' => ['en' => ["d$tag", "a$tag"]]]), $have()],
+    [$tags(['mode' => 'merge', 'values' => ['en' => ["d$tag"], 'bg' => []]]), $have()], [$tags(['values' => ['en' => []]]), $have()], [$tags(['mode' => 'replace', 'values' => ['en' => ["d$tag"]]]), $have()], ];
+$all = ['en' => ["a$tag", "b$tag", "c$tag", "d$tag"], 'bg' => ["v$tag"]];
+$kx->check('tags: no mode and merge add, replace replaces the languages sent', $steps === [['updated ', ['en' => ["a$tag", "b$tag"], 'bg' => ["v$tag"]]], ['updated ', ['en' => ["a$tag", "b$tag", "c$tag"], 'bg' => ["v$tag"]]], ['updated ', $all], ['unchanged ', $all], ['unchanged ', $all],
+    ['updated ', ['en' => ["d$tag"], 'bg' => ["v$tag"]]], ], (string) json_encode($steps));
+$kx->check('tags: strict_languages refuses a language the shop lacks', $tags(['mode' => 'replace', 'values' => ['fr' => ['x']]], ['strict_languages' => true]) === 'language_unknown tags.values.fr' && $tags(['values' => ['fr' => ['x']]]) === 'unchanged ');
+
+// The member of the item PrestaShop refuses.
+$s = $send('products', [['key' => 'name', 'groups' => ['content'], 'content' => ['name' => ['en' => 'ok', 'bg' => 'a<b>']]], ['key' => 'script', 'groups' => ['content'], 'content' => ['name' => ['en' => 'ok'], 'description' => ['en' => '<p onclick="x()">a</p><script>1</script>']]],
+    ['key' => 'ean', 'groups' => ['content', 'identity'], 'content' => ['name' => ['en' => 'ok']], 'identity' => ['ean13' => 'abc']], ['key' => 'price', 'groups' => ['content', 'pricing'], 'content' => ['name' => ['en' => 'ok']], 'pricing' => ['price' => '-1']], ]);
+$kx->check('products: a value PrestaShop refuses is named by its path', array_column($s, 'field') === ['content.name.bg', 'content.description.en', 'identity.ean13', 'pricing.price'], (string) json_encode($s));
+foreach ([$p1, $p2, $p3, $p4] as $gone) {
+    (new Product((int) $gone))->delete();
+}
+$db->execute("DELETE FROM {$p}kx_redirect");
 
 // After multistore.php: a product two shops share, linked by shop 2 to entities of its own.
 $shared = $value("SELECT MIN(id_product) FROM {$p}product_shop WHERE id_shop <> $shop AND id_product IN (SELECT id_product FROM {$p}product_attribute)");

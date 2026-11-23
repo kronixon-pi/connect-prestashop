@@ -61,6 +61,7 @@ abstract class ShopWriter implements Writer
 
     public function finish(): void
     {
+        $this->shop->redirects->sync();
     }
 
     public function hashes(array $results): array

@@ -105,6 +105,32 @@ $kinds = [
         },
     ],
 ];
+$textFeature = (string) ($kx->post('attributes', ['items' => [['key' => 'f', 'kind' => 'feature', 'name' => ['en' => "Text $tag"]]]])['data']['results'][0]['external_id'] ?? '');
+$category = (string) ($kx->post('categories', ['items' => [['key' => 'c', 'name' => ['en' => "Failed $tag"]]]])['data']['results'][0]['external_id'] ?? '');
+$kinds['product'] = [
+    'products',
+    static function (string $name) use ($textFeature, $category): array {
+        return ['type' => 'simple', 'groups' => ['identity', 'content', 'categories', 'attributes', 'tags', 'visibility'], 'identity' => ['reference' => $name], 'content' => ['name' => ['en' => $name]],
+            'categories' => ['default_id' => $category, 'ids' => [$category], 'mode' => 'replace'], 'attributes' => ['mode' => 'replace', 'values' => [['feature_id' => $textFeature, 'custom' => ['en' => "custom $name"]]]],
+            'tags' => ['mode' => 'replace', 'values' => ['en' => [substr("t $name", 0, 32)]]], 'visibility' => ['active' => true], 'stock_initial' => ['quantity' => 7], 'match_by' => ['reference'], ];
+    },
+    static function (string $name) use ($list, $p): array {
+        return $list("SELECT id_product AS id FROM {$p}product WHERE reference = '$name'");
+    },
+    static function (int $id) use ($value, $p): int {
+        $sum = 0;
+        foreach (['product', 'product_shop', 'product_lang', 'category_product', 'feature_product', 'product_tag', 'stock_available'] as $table) {
+            $sum += $value("SELECT COUNT(*) FROM $p$table WHERE id_product = $id");
+        }
+
+        return $sum;
+    },
+    static function (int $id, string $name) use ($value, $p, $category): bool {
+        return $value("SELECT quantity FROM {$p}stock_available WHERE id_product = $id AND id_product_attribute = 0") === 7 && $value("SELECT COUNT(*) FROM {$p}category_product WHERE id_product = $id AND id_category = $category") === 1
+            && $value("SELECT COUNT(*) FROM {$p}feature_product fp INNER JOIN {$p}feature_value_lang fl ON fl.id_feature_value = fp.id_feature_value WHERE fp.id_product = $id AND fl.value = 'custom $name'") > 0
+            && $value("SELECT COUNT(*) FROM {$p}product_tag WHERE id_product = $id") === 1 && $value("SELECT COUNT(DISTINCT id_feature_value) FROM {$p}feature_value_lang WHERE value = 'custom $name'") === 1;
+    },
+];
 
 foreach ($kinds as $kind => [$endpoint, $fields, $ids, $rows, $whole]) {
     $batch = static function (string $name) use ($fields): array {
@@ -159,6 +185,91 @@ foreach ($kinds as $kind => [$endpoint, $fields, $ids, $rows, $whole]) {
         $now = $ids("BOOM $name");
         $kx->check("$kind, the request dies in the hook ($how): the repeat makes exactly one, whole", count($half) === 1 && array_values($short($again)) === ['unchanged', 'unchanged', 'created', 'created', 'created'] && count($now) === 1 && $now !== $half && $whole($now[0], "BOOM $name") && $rows($half[0] ?? 0) === 0 && $pending() === 0, json_encode([$half, $now]).$again['raw']);
     }
+}
+
+// A product whose last hooks fail, after add() has returned and all of it is written.
+$name = "product added $tag";
+$body = ['items' => [['key' => 'p', 'external_id' => null, 'kx_id' => SignedClient::uuid()] + $kinds['product'][1]("BOOM $name")]];
+$probe(['added' => 'error']);
+$failed = $short($kx->post('products', $body));
+$left = $kinds['product'][2]("BOOM $name");
+$probe([]);
+$again = $short($kx->post('products', $body));
+$now = $kinds['product'][2]("BOOM $name");
+$kx->check('product, a hook after add() throws: nothing of it stays, the repeat makes one', $failed === ['p' => 'module_error'] && $left === [] && $again === ['p' => 'created'] && count($now) === 1 && $kinds['product'][4]($now[0], "BOOM $name"), (string) json_encode([$failed, $left, $again, $now]));
+
+// Combinations: the second of three fails.
+$product = static function (string $name) use ($kx): string {
+    return (string) ($kx->post('products', ['items' => [['key' => 'p', 'type' => 'variable', 'groups' => ['identity', 'content'], 'identity' => ['reference' => $name], 'content' => ['name' => ['en' => $name]]]]])['data']['results'][0]['external_id'] ?? '');
+};
+$variants = static function (string $id, string $name, array $references): array {
+    $values = [];
+    $combinations = [];
+    foreach ($references as $i => $reference) {
+        $values[] = ['key' => "v$i", 'name' => ['en' => "val $name $i"]];
+        $combinations[] = ['key' => "c$i", 'values' => ["g:v$i"], 'reference' => $reference, 'quantity_initial' => 3];
+    }
+
+    return ['items' => [['key' => 'v', 'product_id' => $id, 'option_groups' => [['key' => 'g', 'name' => ['en' => "Opt $name"], 'values' => $values]], 'combinations' => $combinations]]];
+};
+// id, reference, attributes, default, stock of a product's combinations; and what the product says is its default.
+$combinations = static function (string $id) use ($db, $p): array {
+    return $db->executeS("SELECT pa.id_product_attribute AS id, pa.reference, (SELECT COUNT(*) FROM {$p}product_attribute_combination c WHERE c.id_product_attribute = pa.id_product_attribute) AS attributes, pas.default_on AS is_default,
+        (SELECT SUM(s.quantity) FROM {$p}stock_available s WHERE s.id_product_attribute = pa.id_product_attribute) AS stock FROM {$p}product_attribute pa INNER JOIN {$p}product_attribute_shop pas ON pas.id_product_attribute = pa.id_product_attribute
+        WHERE pa.id_product = $id ORDER BY pa.id_product_attribute", true, false) ?: [];
+};
+$defaultOf = static function (string $id) use ($value, $p): array {
+    return [$value("SELECT cache_default_attribute FROM {$p}product_shop WHERE id_product = $id AND id_shop = ".(int) Configuration::get('PS_SHOP_DEFAULT')), $value("SELECT cache_default_attribute FROM {$p}product WHERE id_product = $id")];
+};
+$wholeSet = static function (string $id, int $count) use ($combinations, $defaultOf): bool {
+    $rows = $combinations($id);
+    $defaults = array_map('intval', array_column(array_filter($rows, static function (array $row): bool {
+        return (int) $row['is_default'] === 1;
+    }), 'id'));
+
+    return count($rows) === $count && array_unique(array_map('intval', array_column($rows, 'attributes'))) === [1] && array_unique(array_map('intval', array_column($rows, 'stock'))) === [3] && count($defaults) === 1 && $defaultOf($id) === [$defaults[0], $defaults[0]];
+};
+$groupRows = static function (string $name) use ($value, $p): int {
+    return $value("SELECT COUNT(*) FROM {$p}attribute_group_lang WHERE name = 'Opt $name'") + $value("SELECT COUNT(*) FROM {$p}attribute_lang WHERE name LIKE 'val $name %'");
+};
+foreach (['error', 'exception', 'exit', 'kill'] as $how) {
+    $name = "combo $how $tag";
+    $id = $product($name);
+    $body = $variants($id, $name, ["A $name", "BOOM $name", "C $name"]);
+    $probe(['add' => $how]);
+    if (in_array($how, ['error', 'exception'], true)) {
+        $got = $short($kx->post('variants', $body));
+        $kx->check("combination, the add hook throws $how: the item is an error, nothing of it stays", $got === ['v' => 'updated'] && $how === 'exception' || $got === ['v' => 'module_error'] && $combinations($id) === [] && $defaultOf($id) === [0, 0] && $groupRows($name) === 0 && $pending() === 0, json_encode([$got, $combinations($id), $defaultOf($id), $groupRows($name)]).'');
+    } else {
+        $kx->lose('variants', $body, SignedClient::uuid());
+        $kx->check("combination, the request dies in the hook ($how): something is left", $combinations($id) !== [] && $pending() > 0);
+    }
+    $probe([]);
+    $again = $kx->post('variants', $body);
+    $kx->check("combination, $how: the repeat makes exactly the three, one the default", in_array($short($again), [['v' => 'updated'], ['v' => 'unchanged']], true) && $wholeSet($id, 3) && $pending() === 0 && $groupRows($name) % 4 === 0, $again['raw'].json_encode($combinations($id)));
+}
+foreach ([0, 1] as $before) {
+    $name = "combo left $before $tag";
+    $id = $product($name);
+    if ($before === 1) {
+        $kx->post('variants', $variants($id, $name, ["A $name"]));
+    }
+    $whole = $combinations($id);
+    $body = $variants($id, $name, ["A $name", "BOOM $name", "C $name"]);
+    $probe(['add' => 'error', 'delete' => 'error']);
+    $got = $short($kx->post('variants', $body));
+    $rows = $combinations($id);
+    $half = array_values(array_filter($rows, static function (array $row): bool {
+        return (int) $row['attributes'] === 0;
+    }));
+    $default = $before === 1 ? (int) $whole[0]['id'] : 0;
+    $kx->check("combination, the clean-up throws too ($before whole before): cleanup_failed, the half one is never the default", $got === ['v' => 'cleanup_failed'] && count($half) === 1 && (int) $half[0]['is_default'] === 0 && $defaultOf($id) === [$default, $default]
+        && count($rows) === $before + 1 && $pending() > 0, json_encode([$got, $rows, $defaultOf($id)]).'');
+    $got = $short($kx->post('variants', $body));
+    $kx->check("combination ($before whole before): nothing is written as long as it cannot be removed", $got === ['v' => 'cleanup_failed'] && $combinations($id) === $rows && $defaultOf($id) === [$default, $default], json_encode([$got, $combinations($id)]).'');
+    $probe([]);
+    $again = $kx->post('variants', $body);
+    $kx->check("combination ($before whole before): then the repeat makes exactly the three", $short($again) === ['v' => 'updated'] && $wholeSet($id, 3) && $pending() === 0, $again['raw'].json_encode($combinations($id)));
 }
 
 echo 'FAILED-WRITES failures=', $kx->failures(), "\n";

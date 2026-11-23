@@ -23,7 +23,8 @@ use Kronixon\Connect\Write\Database;
 
 /**
  * `kx_redirect`: old paths of one shop and where they lead (a product, a category, or nowhere: 410).
- * KX_REDIRECTS is `1` while the table holds any, so a shop without redirects pays no query for them.
+ * KX_REDIRECTS is `1` while the table may hold any (sync()), so a shop without redirects pays no query
+ * for them.
  */
 final class RedirectStore
 {
@@ -118,5 +119,16 @@ final class RedirectStore
     public function any(): bool
     {
         return $this->settings->get(self::FLAG) === '1';
+    }
+
+    /**
+     * Once after a write request, under its lock: the flag goes with the last row of any shop. Nobody else
+     * adds rows, so none can appear unnoticed; a row removed in the back office is noticed by the next write.
+     */
+    public function sync(): void
+    {
+        if ($this->any() && $this->db->rows('SELECT 1 FROM '.$this->db->table('kx_redirect').' LIMIT 1') === []) {
+            $this->settings->set(self::FLAG, '0');
+        }
     }
 }

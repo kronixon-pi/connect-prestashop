@@ -108,6 +108,7 @@ final class CategoryWriter extends ShopWriter
 
     public function finish(): void
     {
+        parent::finish();
         if ($this->treeChanged && $this->regenerate) {
             Category::regenerateEntireNtree();
         }

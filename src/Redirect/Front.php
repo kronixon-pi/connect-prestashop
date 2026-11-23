@@ -40,11 +40,15 @@ final class Front
     /** @var Scope */
     private $scope;
 
-    public function __construct(RedirectStore $redirects, Context $context, Scope $scope)
+    /** @var Pages */
+    private $pages;
+
+    public function __construct(RedirectStore $redirects, Context $context, Scope $scope, Pages $pages)
     {
         $this->redirects = $redirects;
         $this->context = $context;
         $this->scope = $scope;
+        $this->pages = $pages;
     }
 
     /**
@@ -67,11 +71,20 @@ final class Front
         if ($path === null || $row === null) {
             return;
         }
+        // A page the shop has come to show at the path is served; the target's own answers any old slug.
+        $page = $this->pages->at($path);
+        if ($page !== null && $page !== [$row['target_type'], $row['target_id']]) {
+            return;
+        }
         if ($row['target_type'] === '') {
             header('HTTP/1.1 410 Gone');
             header('X-Robots-Tag: noindex');
             echo 'Gone';
             exit;
+        }
+        // A target that is gone or inactive by now would be a 404 or another redirect: the shop's own 404.
+        if ($this->pages->active($row['target_type'], $row['target_id']) !== true) {
+            return;
         }
         $url = $this->target($row['target_type'], $row['target_id'], $this->languageOf($path));
         if ($url !== '' && RedirectStore::path($url) !== $path) {

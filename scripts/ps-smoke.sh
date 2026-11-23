@@ -96,6 +96,13 @@ step "uninstall + reinstall checked"
 # The hook that marks what a write creates: registered, before every other module of it.
 added() { sql "SELECT COUNT(*), COALESCE(MIN(hm.position <= (SELECT MIN(o.position) FROM ps_hook_module o WHERE o.id_hook = hm.id_hook AND o.id_shop = hm.id_shop)), 0) FROM ps_hook_module hm JOIN ps_hook h ON h.id_hook = hm.id_hook JOIN ps_module m ON m.id_module = hm.id_module WHERE m.name = 'kronixonconnect' AND h.name = 'actionObjectAddAfter'"; }
 expect_eq "actionObjectAddAfter registered, first" "1	1" "$(added)"
+# An install of 0.3.2 (without kx_pending and that hook) upgraded by PrestaShop itself.
+sql "DROP TABLE ps_kx_pending; DELETE hm FROM ps_hook_module hm JOIN ps_hook h ON h.id_hook = hm.id_hook JOIN ps_module m ON m.id_module = hm.id_module WHERE m.name = 'kronixonconnect' AND h.name = 'actionObjectAddAfter'; UPDATE ps_module SET version = '0.3.2' WHERE name = 'kronixonconnect'"
+console prestashop:module upgrade kronixonconnect
+expect_eq "kx_ tables after the upgrade from 0.3.2" "8" "$(sql "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'prestashop' AND table_name LIKE 'ps\_kx\_%'")"
+expect_eq "actionObjectAddAfter after the upgrade" "1	1" "$(added)"
+expect_eq "registered hooks after the upgrade" "20" "$(sql "SELECT COUNT(*) FROM ps_hook_module hm JOIN ps_module m ON m.id_module = hm.id_module WHERE m.name = 'kronixonconnect'")"
+step "upgrade checked"
 
 check() { # name expected-status expected-error-code curl-args...
     local name="$1" want_status="$2" want_code="$3"

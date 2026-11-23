@@ -28,8 +28,9 @@ use Validate;
 /**
  * What a product is linked to: categories, feature values, tags and suppliers. The wanted*() methods
  * check what was sent before anything is written; the others compare it with what the paired shop has
- * and call PrestaShop's own methods only when they differ (true: changed); links to entities of other shops are neither read nor touched. Only `mode: replace`
- * removes a link that was not sent (a tag list always replaces its language's tags).
+ * and call PrestaShop's own methods only when they differ (true: changed); links to entities of other
+ * shops are neither read nor touched. Only `mode: replace` removes a link that was not sent (of tags: in
+ * the languages sent).
  */
 final class ProductRelations
 {
@@ -142,7 +143,7 @@ final class ProductRelations
                 $value->id_feature = $feature;
                 $value->custom = 1;
                 $value->value = $texts;
-                $ok = $value->add() && $ok;
+                $ok = $this->shop->pending->add($value) && $ok;
                 $product->addFeaturesToDB($feature, (int) $value->id);
             }
         }
@@ -162,9 +163,8 @@ final class ProductRelations
     {
         $wanted = [];
         foreach ($group->lists('values') ?? [] as $iso => $names) {
-            $langId = $this->shop->texts->languageId((string) $iso);
+            $langId = $this->shop->texts->known((string) $iso, 'tags.values');
             if ($langId === null) {
-                $this->shop->warnings->add('language_unknown');
                 continue;
             }
             $wanted[$langId] = [];
@@ -181,12 +181,14 @@ final class ProductRelations
     }
 
     /**
-     * PrestaShop deletes a tag no product has when a product's tags change (its own rule).
+     * `mode: replace` makes the list sent a language's tags; `merge`, and no mode, adds to them.
+     * PrestaShop deletes a tag no product has when a product's tags are replaced (its own rule).
      *
      * @param  array<int, array<string, string>>  $tags  wantedTags()
      */
-    public function tags(Product $product, array $tags): bool
+    public function tags(Product $product, Item $group, array $tags): bool
     {
+        $replace = $group->choice('mode', ['replace', 'merge']) === 'replace';
         $changed = false;
         foreach ($tags as $langId => $wanted) {
             $current = [];
@@ -194,11 +196,15 @@ final class ProductRelations
                 .' t ON t.id_tag = pt.id_tag WHERE pt.id_product = '.(int) $product->id.' AND pt.id_lang = '.$langId) as $row) {
                 $current[Texts::matchKey((string) $row['name'])] = true;
             }
-            if (array_diff_key($wanted, $current) === [] && array_diff_key($current, $wanted) === []) {
+            $missing = array_diff_key($wanted, $current);
+            if ($missing === [] && (! $replace || array_diff_key($current, $wanted) === [])) {
                 continue;
             }
-            Tag::deleteProductTagsInLang((int) $product->id, $langId);
-            if ($wanted !== [] && ! Tag::addTags($langId, (int) $product->id, array_values($wanted))) {
+            if ($replace) {
+                Tag::deleteProductTagsInLang((int) $product->id, $langId);
+            }
+            $add = $replace ? $wanted : $missing;
+            if ($add !== [] && ! Tag::addTags($langId, (int) $product->id, array_values($add))) {
                 throw ItemError::notSaved('product tags');
             }
             $changed = true;

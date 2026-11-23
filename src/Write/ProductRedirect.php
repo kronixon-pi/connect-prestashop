@@ -18,6 +18,8 @@ declare(strict_types=1);
 
 namespace Kronixon\Connect\Write;
 
+use Product;
+
 /**
  * What the shop answers for a product that is not active: `Product::$redirect_type` and
  * `$id_type_redirected` (POST products `seo.redirect`, POST seo/redirects).
@@ -28,7 +30,11 @@ final class ProductRedirect
     {
     }
 
-    public static function set(Shop $shop, Fields $fields, Item $item, string $typeMember, string $targetMember): void
+    /**
+     * @param  bool  $unchangedToo  false: a redirect the product already has is not checked again, so a write
+     *                              that repeats it does not fail when its target was deactivated since
+     */
+    public static function set(Shop $shop, Fields $fields, Product $product, Item $item, string $typeMember, string $targetMember, bool $unchangedToo): void
     {
         $type = (string) $item->string($typeMember);
         if ($type === '410' && ! in_array('410', $shop->compat->redirectTypes(), true)) {
@@ -38,15 +44,20 @@ final class ProductRedirect
         if (! in_array($type, array_merge($shop->compat->redirectTypes(), $shop->compat->displayedRedirectTypes()), true)) {
             throw ItemError::invalid($item->at($typeMember));
         }
-        $target = 0;
-        if (preg_match('/-(product|category)\z/', $type, $m) === 1) {
-            $target = $item->id($targetMember) ?? 0;
-            // "0" is the product's own default category; a product needs a target.
-            if (($target === 0 && $m[1] === 'product') || ($target !== 0 && ! $shop->holds($m[1], $target))) {
-                throw ItemError::missing($item->at($targetMember), 'redirect_target_not_found');
-            }
-        }
+        $leads = preg_match('/-(product|category)\z/', $type, $m) === 1;
+        $target = $leads ? $item->id($targetMember) ?? 0 : 0;
+        $fields->sentAs(['redirect_type' => $item->at($typeMember), 'id_type_redirected' => $item->at($targetMember)]);
         $fields->set('redirect_type', $type);
         $fields->set('id_type_redirected', $target);
+        if (! $leads || ! ($unchangedToo || $fields->changed(['redirect_type', 'id_type_redirected']))) {
+            return;
+        }
+        $checks = new RedirectTarget($shop);
+        if ($target !== 0 || $m[1] === 'product') {
+            $checks->check('product', (int) $product->id, $m[1], $target, $item->at($targetMember));
+        } elseif ($checks->leadsTo(['category', (int) $product->id_category_default], ['product', (int) $product->id])) {
+            // "0" is the product's own default category.
+            throw new ItemError('redirect_loop', 'The redirects would lead back', $item->at($targetMember));
+        }
     }
 }
