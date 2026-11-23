@@ -106,6 +106,37 @@ $kinds = [
     ],
 ];
 
+/*
+ * kind => its table, its GET catalog/* and profile counter, and for one with a storefront page that page
+ * by id: what a dead request left is read by neither until the clean-up removes it.
+ */
+$reads = [
+    'category' => ['category', 'catalog/categories', 'categories', static function (int $id): string {
+        return "index.php?id_category=$id&controller=category";
+    }],
+    'brand' => ['manufacturer', 'catalog/brands', 'manufacturers', static function (int $id): string {
+        return "index.php?id_manufacturer=$id&controller=manufacturer";
+    }],
+    'feature' => ['feature', 'catalog/attributes', 'features', null],
+];
+/** The storefront's answer to a page, redirects followed: the status and the URL that answered it. */
+$front = static function (string $path) use ($argv): array {
+    $base = rtrim((string) ($argv[1] ?? ''), '/');
+    $parts = parse_url($base);
+    $curl = curl_init($base.'/'.$path);
+    curl_setopt_array($curl, [CURLOPT_RETURNTRANSFER => true, CURLOPT_FOLLOWLOCATION => true, CURLOPT_MAXREDIRS => 5, CURLOPT_TIMEOUT => 60,
+        CURLOPT_CONNECT_TO => [$parts['host'].':'.($parts['port'] ?? 80).':'.(string) ($argv[2] ?? '')], ]);
+    curl_exec($curl);
+
+    return [(int) curl_getinfo($curl, CURLINFO_RESPONSE_CODE), (string) curl_getinfo($curl, CURLINFO_EFFECTIVE_URL)];
+};
+/** Whether the storefront shows entity $id's own page (its id in the friendly or the plain URL). */
+$shows = static function (array $answer, int $id): bool {
+    return $answer[0] === 200 && preg_match('#/'.$id.'-|[?&]id_[a-z]+='.$id.'(&|$)#', $answer[1]) === 1;
+};
+// The write lock of the module (DbGuards): held here, a read cannot clean up and has to leave the object out.
+$lock = "'kx_write_".substr(sha1(_DB_NAME_.'.'._DB_PREFIX_), 0, 32)."'";
+
 foreach ($kinds as $kind => [$endpoint, $fields, $ids, $rows, $whole]) {
     $batch = static function (string $name) use ($fields): array {
         $items = [];
@@ -155,9 +186,34 @@ foreach ($kinds as $kind => [$endpoint, $fields, $ids, $rows, $whole]) {
         $kx->lose($endpoint, $body, $key);
         $half = $ids("BOOM $name");
         $probe([]);
+        $id = $half[0] ?? 0;
+
+        // Before any further write, and before any request that can clean up: the reads leave it out.
+        [$table, $read, $counter, $page] = $reads[$kind];
+        $locked = (string) $db->getValue("SELECT GET_LOCK($lock, 10)", false) === '1';
+        $answer = $kx->get($read, ['cursor' => rtrim(strtr(base64_encode('{"id":'.($id - 1).'}'), '+/', '-_'), '='), 'until_id' => (string) $id]);
+        $listed = array_column(array_filter($answer['data']['data'] ?? [], static function (array $item): bool {
+            return ($item['kind'] ?? 'feature') === 'feature';
+        }), 'external_id');
+        $count = $kx->get('profile')['data']['counts'][$counter] ?? -1;
+        $kx->check("$kind, the request dies in the hook ($how): until the clean-up, $read, its max_id and the profile count leave it out", $locked && $id > 0 && $answer['status'] === 200
+            && ! in_array((string) $id, $listed, true) && ($answer['data']['meta']['max_id'] ?? '') !== (string) $id
+            && $count === $value("SELECT COUNT(*) FROM {$p}$table") - 1 && $rows($id) > 0 && $pending() === 1, json_encode([$half, $listed, $count]).$answer['raw']);
+        if ($page !== null) {
+            $shown = $front($page($id));
+            $kx->check("$kind, $how: the storefront does not show it ($shown[0] $shown[1])", $value("SELECT active FROM {$p}$table WHERE id_$table = $id") === 0 && ! $shows($shown, $id), (string) json_encode($shown));
+        }
+        $db->getValue("SELECT RELEASE_LOCK($lock)", false);
+        $health = $kx->get('health');
+        $kx->check("$kind, $how: a read removes it, no write needed", $health['status'] === 200 && $rows($id) === 0 && $pending() === 0, $health['raw']);
+
         $again = $kx->post($endpoint, $body, $key);
         $now = $ids("BOOM $name");
-        $kx->check("$kind, the request dies in the hook ($how): the repeat makes exactly one, whole", count($half) === 1 && array_values($short($again)) === ['unchanged', 'unchanged', 'created', 'created', 'created'] && count($now) === 1 && $now !== $half && $whole($now[0], "BOOM $name") && $rows($half[0] ?? 0) === 0 && $pending() === 0, json_encode([$half, $now]).$again['raw']);
+        $kx->check("$kind, the request dies in the hook ($how): the repeat makes exactly one, whole", count($half) === 1 && array_values($short($again)) === ['unchanged', 'unchanged', 'created', 'created', 'created'] && count($now) === 1 && $now !== $half && $whole($now[0], "BOOM $name") && $rows($id) === 0 && $pending() === 0, json_encode([$half, $now]).$again['raw']);
+        if ($page !== null) {
+            $shown = $front($page($now[0] ?? 0));
+            $kx->check("$kind, $how: the storefront shows the complete one ($shown[0] $shown[1])", $shows($shown, $now[0] ?? 0), (string) json_encode($shown));
+        }
     }
 }
 
