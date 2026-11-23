@@ -9,8 +9,8 @@ declare(strict_types=1);
  * Delivery of store events on a real shop to platform-stub.php (scripts/ps-smoke.sh, inside the shop
  * container as www-data, after pair.php): the cron URL, coalescing on the wire, an order, the platform
  * down and back (backoff, Retry-After), a flush killed while it waits for the platform, a flush after a
- * page view, the heartbeat, a gap, refused events, and the batches against the protocol schema. One line
- * per check; exit 1 on any failure.
+ * page view, the heartbeat, a gap, refused events, no PHP warning from a flush, and the batches against
+ * the protocol schema. One line per check; exit 1 on any failure.
  *
  *   php events-delivery.php <shop base URL> <apache address, e.g. 127.0.0.1:80>
  */
@@ -314,6 +314,30 @@ $batches = count($stub()['event_batches'] ?? []);
 $cron($token);
 $kx->check('a rejected event fails and is not sent again', $rows('failed') > 0 && $rows('pending') === 0 && count($stub()['event_batches'] ?? []) === $batches
     && strpos($text("SELECT last_error FROM {$p}kx_outbox WHERE status = 'failed'"), 'rejected_by_stub') !== false);
+
+// A flush raises no PHP warning or notice: one that sends, one with nothing to send, and one that finds
+// another flush holding the lock. The cron and page-view requests run the same Services::flushOutbox();
+// ps-smoke.sh checks the server log for them.
+$edit($a, "DL-$tag-quiet");
+$raised = [];
+set_error_handler(static function (int $level, string $message, string $file = '', int $line = 0) use (&$raised): bool {
+    $raised[] = "$level $message ($file:$line)";
+
+    return true;
+}, E_ALL);
+$sends = Services::flushOutbox($context, 10);
+$idle = Services::flushOutbox($context, 10);
+$class = Db::getClass();
+$holder = new $class(_DB_SERVER_, _DB_USER_, _DB_PASSWD_, _DB_NAME_, true);
+$lock = "'kx_outbox_".substr(sha1(_DB_NAME_.'.'._DB_PREFIX_), 0, 24)."'";
+$held = (int) $holder->getValue('SELECT GET_LOCK('.$lock.', 0)', false) === 1;
+$locked = Services::flushOutbox($context, 10);
+$holder->getValue('SELECT RELEASE_LOCK('.$lock.')', false);
+unset($holder);
+gc_collect_cycles();
+restore_error_handler();
+$kx->check('a flush raises no PHP warning or notice: sending, idle, or without the lock', $raised === [] && ($sends['sent'] ?? null) === 1
+    && ($idle['sent'] ?? null) === 0 && $held && $locked === null, json_encode([$raised, $sends, $idle, $held, $locked]));
 
 // Every batch the stub got, against platform/store-events.json.
 $validation = [];

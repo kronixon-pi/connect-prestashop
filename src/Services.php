@@ -340,39 +340,37 @@ final class Services
         if ($storeId === null || $base === null) {
             return null;
         }
+        // Db::__destruct() closes this connection when the call ends. Not disconnect(): the destructor
+        // then reads the unset `$link`, and PHP logs a warning (a notice on 7.4) on every flush.
         $class = Db::getClass();
         $own = new $class(_DB_SERVER_, _DB_USER_, _DB_PASSWD_, _DB_NAME_, true);
         $lock = "'kx_outbox_".substr(sha1(_DB_NAME_.'.'._DB_PREFIX_), 0, 24)."'";
+        if ((int) $own->getValue('SELECT GET_LOCK('.$lock.', 0)', false) !== 1) {
+            return null;
+        }
         try {
-            if ((int) $own->getValue('SELECT GET_LOCK('.$lock.', 0)', false) !== 1) {
-                return null;
-            }
-            try {
-                // A row a checkout holds is waited for briefly; the batch is tried again later.
-                $own->execute('SET SESSION innodb_lock_wait_timeout = 5', false);
-                $db = new ShopDatabase($own, _DB_PREFIX_);
-                $store = new OutboxStore($db);
-                $compat = Version::select(_PS_VERSION_);
-                $clock = new SystemClock();
-                $client = new PlatformClient(new CurlTransport(), $secrets, $clock);
-                $heartbeat = self::heartbeat($context, $db, $store, $clock);
+            // A row a checkout holds is waited for briefly; the batch is tried again later.
+            $own->execute('SET SESSION innodb_lock_wait_timeout = 5', false);
+            $db = new ShopDatabase($own, _DB_PREFIX_);
+            $store = new OutboxStore($db);
+            $compat = Version::select(_PS_VERSION_);
+            $clock = new SystemClock();
+            $client = new PlatformClient(new CurlTransport(), $secrets, $clock);
+            $heartbeat = self::heartbeat($context, $db, $store, $clock);
 
-                return (new Flusher(
-                    $store,
-                    new Events(new CatalogEnricher($db, PrestaShopScope::of($context, $compat), new PrestaShopImageUrls($context->link))),
-                    static function (array $body, int $timeout) use ($client, $base, $storeId): array {
-                        return $client->signed($base, 'POST', '/v1/stores/'.$storeId.'/events', $body, $timeout);
-                    },
-                    self::settings(),
-                    $clock,
-                    $heartbeat,
-                    self::log()
-                ))->run(new Budget($clock, $budgetSeconds));
-            } finally {
-                $own->getValue('SELECT RELEASE_LOCK('.$lock.')', false);
-            }
+            return (new Flusher(
+                $store,
+                new Events(new CatalogEnricher($db, PrestaShopScope::of($context, $compat), new PrestaShopImageUrls($context->link))),
+                static function (array $body, int $timeout) use ($client, $base, $storeId): array {
+                    return $client->signed($base, 'POST', '/v1/stores/'.$storeId.'/events', $body, $timeout);
+                },
+                self::settings(),
+                $clock,
+                $heartbeat,
+                self::log()
+            ))->run(new Budget($clock, $budgetSeconds));
         } finally {
-            $own->disconnect();
+            $own->getValue('SELECT RELEASE_LOCK('.$lock.')', false);
         }
     }
 
