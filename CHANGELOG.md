@@ -11,6 +11,8 @@ All notable changes of the module are listed here; versions follow [Semantic Ver
   capabilities `categories`, `attributes` and `tags`.
 - `Idempotency-Key` on every `POST`/`DELETE`: a repeated request gets the stored answer for 24 hours, another request
   with the same key `409 idempotency_conflict`. A key that is not a UUID is now refused (`400`).
+- `kx_pending` and the hook `actionObjectAddAfter`: what a failed item or a request that died has left half-written is
+  removed, at the latest before the next write (`cleanup_failed` until then). An upgrade adds both.
 - Releases are built reproducibly and signed ([docs/RELEASING.md](docs/RELEASING.md)); the first one is 0.3.2 on the
   staging channel.
 

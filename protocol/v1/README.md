@@ -185,8 +185,9 @@ Writes of entities (`POST products`, `variants`, `categories`, `attributes`, `at
   has); anything wrong with one item is that item's `error` with `code` and `field`.
 - Identity: `external_id` → `kx_id` → `match_by` → create. An `external_id` that does not exist is `not_found`,
   never a create; more than one match is `match_ambiguous` with `candidates`.
-- A member that is absent is left alone. Only `mode: replace` removes a link or a combination that was not sent;
-  `merge`, and no `mode`, adds and updates.
+- A member that is absent is left alone, with one exception: a category without `parent_external_id` and `parent_key`
+  belongs under the shop's Home category, on an update too (one that stands directly under the Root stays there). Only
+  `mode: replace` removes a link, a tag or a combination that was not sent; `merge`, and no `mode`, adds and updates.
 - An item equal to what the shop holds is `unchanged`: nothing is saved.
 - An `ok` result may carry `content_hash`: the entity's hash in the shop when the batch ends. It is the read's own
   `content_hash` where `GET catalog/*` answers one (products, categories; for `variants` it is the product's), else
@@ -197,7 +198,12 @@ Writes of entities (`POST products`, `variants`, `categories`, `attributes`, `at
   `currency_not_found`, `tax_rules_group_not_found`, `feature_not_found`, `feature_value_not_found`,
   `product_not_found`, `product_type_unsupported`, `combination_duplicate`, `redirect_target_not_found`,
   `redirect_loop`, `category_active`, `friendly_urls_off`, `language_unknown`, `download_failed`, `sha256_mismatch`,
-  `image_invalid`, `save_failed`, `time_budget` (skipped). Clients treat an unknown code as an error of the item.
+  `image_invalid`, `save_failed`, `cleanup_failed`, `time_budget` (skipped). Clients treat an unknown code as an error
+  of the item.
+- `cleanup_failed`: the item failed after the shop had stored part of what it creates, and that part could not be
+  removed (a module of the shop stopped it), or the item names what an earlier one left so. It is neither adopted nor
+  created a second time; every write request tries the removal again first, so the item is worth resending later. The
+  same holds for a request that died: the repeat removes what it left before it writes.
 
 ### 6.1 Module endpoints
 
