@@ -84,11 +84,19 @@ $http = static function (string $url) use ($connectTo): array {
     $body = (string) curl_exec($curl);
     $status = (int) curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
 
-    return ['status' => $status, 'data' => json_decode($body, true), 'raw' => $body, 'ms' => (microtime(true) - $start) * 1000];
+    return ['status' => $status, 'data' => json_decode($body, true), 'raw' => $body, 'ms' => (microtime(true) - $start) * 1000,
+        'ttfb' => (float) curl_getinfo($curl, CURLINFO_STARTTRANSFER_TIME) * 1000];
 };
-$cron = static function (string $token = '') use ($http, $base): array {
+// A cron call; unless $soon, the last flush is made older than the cron URL's 10 s floor first.
+$cron = static function (string $token = '', bool $soon = false) use ($http, $base): array {
+    if (! $soon) {
+        Configuration::deleteByName(Flusher::LAST_FLUSH);
+    }
+
     return $http($base.'/index.php?fc=module&module=kronixonconnect&controller=cron&token='.rawurlencode($token));
 };
+// ps-smoke.sh sets KX_FPM=1 on the nginx + PHP-FPM leg: there a page view can flush after its answer.
+$fpm = getenv('KX_FPM') === '1';
 $received = static function () use ($stub): array {
     return array_values($stub()['events'] ?? []);
 };
@@ -123,6 +131,21 @@ $kx->check('the cron call sends a back-office edit', $answer['status'] === 200 &
     && $events[0]['type'] === 'product.updated' && $events[0]['external_id'] === (string) $a && ($events[0]['payload']['content_hash'] ?? null) === ($read['content_hash'] ?? 'x')
     && $events[0]['kx_id'] === ($read['kx_id'] ?? 'x') && $rows('pending') === 0 && $rows('sent') > 0, $answer['raw'].' '.json_encode($events));
 printf("  time  cron call with one event: %.0f ms\n", $answer['ms']);
+$kx->check('the cron answer says whether page views can deliver here ('.($fpm ? 'PHP-FPM' : 'mod_php').')', ($answer['data']['page_views'] ?? null) === $fpm, $answer['raw']);
+
+// Within 10 s of the last flush the cron URL answers at once and writes nothing.
+$edit($a, "DL-$tag-soon");
+Configuration::updateGlobalValue(Heartbeat::CRON_AT, '1');
+$soon = $cron($token, true);
+$kx->check('a cron call right after a flush answers too_soon and does nothing', ($soon['data']['flush']['state'] ?? null) === 'too_soon' && $rows('pending') > 0
+    && $setting(Heartbeat::CRON_AT) === '1', $soon['raw'].' pending '.$rows('pending').' cron_at '.$setting(Heartbeat::CRON_AT));
+printf("  time  cron call too soon: %.0f ms\n", $soon['ms']);
+$cron($token);
+
+// A new token: the old URL answers 403, the new one works.
+$old = $token;
+$token = Services::rotateCronToken();
+$kx->check('a new cron token retires the old URL', $cron($old)['status'] === 403 && $cron($token)['status'] === 200 && $old !== $token);
 
 // A hundred edits and an order: two events.
 for ($i = 0; $i < 100; $i++) {
@@ -207,25 +230,34 @@ $kx->check('a flush killed mid request leaves its batch claimed', $sending > 0 &
 $kx->check('… which goes again with the same batch and event ids: a duplicate, not a new event', ($again['batch_id'] ?? 'x') === ($first['batch_id'] ?? 'y')
     && ($again['event_ids'] ?? []) === ($first['event_ids'] ?? ['y']) && $rows('sending') === 0 && $rows('pending') === 0, json_encode([$first, $again, $answer['raw']]));
 
-// A page view flushes after its answer when no cron runs (at most once a minute).
-Configuration::updateGlobalValue(Flusher::LAST_FLUSH, '0');
-Configuration::deleteByName(Heartbeat::CRON_AT);
+// A page view flushes after its answer when no cron runs (at most once a minute), and only when PHP can
+// finish the answer first (PHP-FPM); under mod_php it never flushes, so the visitor never waits.
 $edit($a, "DL-$tag-visit");
+// The first page after an edit rebuilds caches: view it once with no flush due, so the times compare.
+Configuration::updateGlobalValue(Flusher::LAST_FLUSH, (string) time());
+$warm = $http($base.'/index.php');
+Configuration::deleteByName(Flusher::LAST_FLUSH);
+Configuration::deleteByName(Heartbeat::CRON_AT);
 $before = count($received());
 $page = $http($base.'/index.php');
-$deadline = microtime(true) + 8;
+$deadline = microtime(true) + ($fpm ? 8 : 3);
 while (count($received()) === $before && microtime(true) < $deadline) {
     usleep(200000);
 }
-$kx->check('a page view sends the outbox after its answer', $page['status'] === 200 && count($received()) === $before + 1 && $rows('pending') === 0, (string) $page['status']);
+if ($fpm) {
+    $kx->check('PHP-FPM: a page view sends the outbox after its answer', $page['status'] === 200 && count($received()) === $before + 1 && $rows('pending') === 0, (string) $page['status']);
+} else {
+    $kx->check('mod_php: a page view sends nothing, the rows wait for the cron or the pull', $page['status'] === 200 && count($received()) === $before && $rows('pending') > 0
+        && (int) $setting(Flusher::LAST_FLUSH) === 0, $page['status'].' pending '.$rows('pending').' last_flush '.$setting(Flusher::LAST_FLUSH));
+}
 $second = $http($base.'/index.php');
-printf("  time  page view that flushed: %.0f ms; the next one: %.0f ms\n", $page['ms'], $second['ms']);
+printf("  time  page view TTFB: no flush due %.0f ms; flush due %.0f ms (total %.0f ms); the next one %.0f ms\n", $warm['ttfb'], $page['ttfb'], $page['ms'], $second['ttfb']);
 $edit($a, "DL-$tag-visit2");
 $http($base.'/index.php');
 usleep(1500000);
 $kx->check('… at most once a minute', $rows('pending') > 0);
 Configuration::updateGlobalValue(Heartbeat::CRON_AT, (string) time());
-Configuration::updateGlobalValue(Flusher::LAST_FLUSH, '0');
+Configuration::deleteByName(Flusher::LAST_FLUSH);
 $http($base.'/index.php');
 usleep(1500000);
 $kx->check('… and not while a cron calls', $rows('pending') > 0);
@@ -240,7 +272,30 @@ $new = array_slice($received(), $before);
 $types = array_column($new, 'type');
 $heartbeat = $new[array_search('module.heartbeat', $types, true)]['payload'] ?? [];
 $kx->check('a gap is module.outbox_overflow and the day starts with module.heartbeat', $types === ['module.outbox_overflow', 'module.heartbeat']
-    && ($heartbeat['ps_version'] ?? null) === _PS_VERSION_ && ($heartbeat['counts']['products'] ?? 0) > 0 && ($heartbeat['cron']['configured'] ?? null) === true, json_encode($new));
+    && ($heartbeat['ps_version'] ?? null) === _PS_VERSION_ && ($heartbeat['counts']['products'] ?? 0) > 0 && ($heartbeat['cron']['configured'] ?? null) === true
+    && ($heartbeat['delivery'] ?? null) === 'cron', json_encode($new));
+
+// The gap goes before the changes already waiting, in a batch of its own.
+$edit($a, "DL-$tag-gap-first");
+Configuration::updateGlobalValue(Recorder::GAP, (string) (time() - 30));
+$before = count($received());
+$cron($token);
+$kx->check('a gap goes before the changes that wait', array_column(array_slice($received(), $before), 'type') === ['module.outbox_overflow', 'product.updated']
+    && count($stub()['event_batches'] ?? []) >= 2, json_encode(array_slice($received(), $before)));
+
+// No cron for an hour: a pull records the heartbeat, which says how this shop delivers now.
+Configuration::updateGlobalValue(Heartbeat::CRON_AT, (string) (time() - 7200));
+Configuration::deleteByName(Flusher::HEARTBEAT_AT);
+$pulled = $kx->get('events', ['limit' => '200']);
+$pulledBeat = null;
+foreach ($pulled['data']['data'] ?? [] as $event) {
+    if (($event['type'] ?? '') === 'module.heartbeat') {
+        $pulledBeat = $event['payload'];
+    }
+}
+$kx->check('a pull records the due heartbeat: delivery '.($fpm ? 'page_views' : 'pull_only'), ($pulledBeat['delivery'] ?? null) === ($fpm ? 'page_views' : 'pull_only')
+    && ($pulledBeat['cron']['configured'] ?? null) === false, $pulled['raw']);
+$cron($token);
 
 // Events the platform refuses fail and are not sent again.
 $stub(static function (array $state): array {

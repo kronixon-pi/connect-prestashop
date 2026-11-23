@@ -2,7 +2,10 @@
 # Smoke test of the module on one PrestaShop version in Docker (used by `make smoke`, `make matrix`,
 # module-ci and matrix workflows).
 #
-#   scripts/ps-smoke.sh <178|81|82|90|91|92> [--keep]
+#   scripts/ps-smoke.sh <178|81|82|90|91|91fpm|92> [--keep]
+#
+# 91fpm is PrestaShop under PHP-FPM behind nginx (every other version runs Apache mod_php); the
+# integration scripts get KX_FPM=1 there.
 #
 # Starts docker/compose.<ps>.yml through scripts/compose.sh (images pinned by digest in
 # docker/images.lock; PS_TAG / PS_PORT override the image tag and port), waits for the
@@ -11,7 +14,9 @@
 # Prints one timing line per step and a SMOKE summary line; --keep leaves the shop running.
 set -euo pipefail
 
-ps="${1:?usage: scripts/ps-smoke.sh <178|81|82|90|91|92> [--keep]}"
+ps="${1:?usage: scripts/ps-smoke.sh <178|81|82|90|91|91fpm|92> [--keep]}"
+fpm=0
+if [[ "$ps" == *fpm ]]; then fpm=1; fi
 keep="${2:-}"
 root="$(cd "$(dirname "$0")/.." && pwd)"
 file="$root/docker/compose.$ps.yml"
@@ -142,7 +147,7 @@ check "missing path" 400 bad_request "${h[@]}" "$base/module/kronixonconnect/api
 # routes, run by the shop's own PHP on 127.0.0.1:8099 inside the container), then the platform's side
 # played by tests/Integration/platform-driver.php: reverse check, refusals, rotation, unpair.
 stub=http://127.0.0.1:8099
-psphp() { dc exec -T -u www-data -e PS_DOMAIN="localhost:$port" ps php "$@" </dev/null; }
+psphp() { dc exec -T -u www-data -e PS_DOMAIN="localhost:$port" -e KX_FPM="$fpm" ps php "$@" </dev/null; }
 dc exec -d -u www-data ps php -S 127.0.0.1:8099 modules/kronixonconnect/tests/Integration/platform-stub.php
 for _ in $(seq 1 20); do
     if psphp -r 'exit(strpos((string) @file_get_contents("http://127.0.0.1:8099/v1/status", false, stream_context_create(["http" => ["header" => "X-KX-Protocol: v1"]])), "\"v1\"") === false ? 1 : 0);'; then break; fi

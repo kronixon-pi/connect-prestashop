@@ -1,0 +1,24 @@
+# PrestaShop 9.1.5 (PHP 8.4) under PHP-FPM behind nginx + MariaDB 10.11 — `make up PS=91fpm`. The
+# only leg where fastcgi_finish_request() exists, so a page view's flush after the answer is exercised.
+# (The 9.1.5-fpm tag runs PHP 8.5, and its auto-install fails in psxmarketingwithgoogle.)
+# nginx shares the shop container's network: 127.0.0.1:80 inside it is nginx, as Apache is elsewhere,
+# and nginx reaches PHP-FPM on 127.0.0.1:9000. It serves no static files (docker/nginx-fpm/default.conf).
+# Run through scripts/compose.sh (make does): it pins the images from docker/images.lock.
+name: kx-ps91fpm
+x-kx-ps-tag: "9.1.5-5.0-classic-8.4-fpm"
+services:
+  db:
+    extends: { file: compose.common.yml, service: db }
+  ps:
+    extends: { file: compose.common.yml, service: ps }
+    image: ${PS_IMAGE:?run through scripts/compose.sh, which pins it from docker/images.lock}
+    depends_on: { db: { condition: service_healthy } }
+    environment: { PS_DOMAIN: "localhost:${PS_PORT:-8191}" }
+    ports: ["127.0.0.1:${PS_PORT:-8191}:80"]
+  web:
+    image: ${NGINX_IMAGE:?run through scripts/compose.sh, which pins it from docker/images.lock}
+    network_mode: "service:ps"
+    depends_on: [ps]
+    volumes:
+      # A directory, not a single file: an editor's rename would leave a single-file mount stale.
+      - ./nginx-fpm:/etc/nginx/conf.d:ro
