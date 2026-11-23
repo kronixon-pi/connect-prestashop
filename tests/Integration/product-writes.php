@@ -133,6 +133,8 @@ $kx->check('products: replaced relations', $item3['category_ids'] === [$catB] &&
     && $item3['price'] === '120.000000' && $item3['unit_price'] === '10.000000' && $u['p']['content_hash'] === $item3['content_hash'], (string) json_encode($item3, JSON_UNESCAPED_UNICODE));
 $kx->check('products: a custom text keeps the languages that were not sent; the old value is gone', $text("SELECT value FROM {$p}feature_value_lang WHERE id_feature_value = $custom AND id_lang = $en") === '1.5 kg' && $text("SELECT value FROM {$p}feature_value_lang WHERE id_feature_value = $custom AND id_lang = $bg") === '2 кг'
     && $value("SELECT COUNT(*) FROM {$p}feature_value WHERE id_feature = $textFeature") === 1);
+$none = $send('products', [['key' => 'p', 'external_id' => (string) $id, 'groups' => ['categories'], 'categories' => ['ids' => [], 'mode' => 'replace']], ['key' => 'again', 'external_id' => (string) $id, 'groups' => ['categories'], 'categories' => ['ids' => [], 'mode' => 'replace']]]);
+$kx->check('products: in no category → Home', $none['p']['action'] === 'updated' && $none['again']['action'] === 'unchanged' && $product($id)['category_ids'] === [(string) $home] && $product($id)['default_category_id'] === (string) $home, (string) json_encode($none));
 $merge = $send('products', [['key' => 'p', 'external_id' => (string) $id, 'groups' => ['attributes'], 'attributes' => ['mode' => 'merge', 'values' => [['feature_id' => $feature, 'value_id' => $small]]]]]);
 $kx->check('products: merged attributes join', count($product($id)['attributes']) === 3, (string) json_encode($merge));
 $slug = $send('products', [['key' => 'p', 'external_id' => (string) $id, 'groups' => ['seo'], 'seo' => ['link_rewrite' => ['en' => "new-$tag", 'bg' => 'не валиден'], 'preserve_link_rewrite' => false, 'redirect' => ['auto' => true]]]]);
@@ -273,6 +275,10 @@ $t0 = microtime(true);
 $noop = $kx->post('products', ['items' => $many]);
 $kx->check('products: 100 in one request, then 100 unchanged', $bulk['data']['summary']['ok'] === 100 && $bulk['data']['continue'] === false && array_count_values(array_column($noop['data']['results'], 'action')) === ['unchanged' => 100], substr($bulk['raw'], 0, 600));
 echo json_encode(['prestashop' => _PS_VERSION_, 'create_100_s' => round($create, 2), 'noop_100_s' => round(microtime(true) - $t0, 2)]), "\n";
+// The checks that follow in the smoke run look at the shop's own catalog.
+foreach (array_column($bulk['data']['results'], 'external_id') as $many) {
+    (new Product((int) $many))->delete();
+}
 
 echo 'PRODUCT WRITES failures=', $kx->failures(), "\n";
 exit($kx->failures() === 0 ? 0 : 1);

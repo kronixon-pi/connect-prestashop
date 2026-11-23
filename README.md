@@ -187,7 +187,7 @@ and the hooks of other modules run. Rules of the protocol: [§6](protocol/v1/REA
   and dropped unless its sha256 is the announced one; a logo the shop already holds is not fetched.
 - **Tags.** PrestaShop deletes a tag no product has as soon as any product's tags change.
 - **Products.** Only the groups in `groups`. A create is inactive, under Home and in the tax rules group most products
-  have, unless sent otherwise; `stock_initial` applies to a create only and makes no stock movement. The friendly URL
+  have, unless sent otherwise; replacing the categories by none is Home too; `stock_initial` applies to a create only and makes no stock movement. The friendly URL
   of an existing product stays unless `preserve_link_rewrite` is `false`; one PrestaShop refuses is rewritten
   (`link_rewrite_changed`). Meta texts are made acceptable (`isGenericName`) and cut at the column's length
   (`meta_title_cut`, `meta_description_cut`). A custom feature text changes in the languages sent; changing any

@@ -43,7 +43,7 @@ final class ProductRelations
 
     /**
      * The categories the group asks for: the list with the default one first; null without the group.
-     * A create without it belongs to Home.
+     * A create without it, and a replacement by no category, belong to Home.
      *
      * @return array{ids: list<int>, default: int|null, replace: bool}|null
      */
@@ -61,10 +61,10 @@ final class ProductRelations
             $this->held('category', (string) $default, 'categories.default_id', 'category_not_found');
             array_unshift($ids, $default);
         }
-        if ($ids === [] && $creating) {
+        $replace = $group !== null && $group->has('ids') && $group->choice('mode', ['replace', 'merge']) === 'replace';
+        if ($ids === [] && ($creating || $replace)) {
             $ids = [$this->shop->scope->homeCategoryId];
         }
-        $replace = $group !== null && $group->has('ids') && $group->choice('mode', ['replace', 'merge']) === 'replace' && $ids !== [];
 
         return ['ids' => array_values(array_unique($ids)), 'default' => $default ?? ($creating ? $ids[0] : null), 'replace' => $replace];
     }
