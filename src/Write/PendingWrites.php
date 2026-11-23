@@ -19,6 +19,7 @@ declare(strict_types=1);
 namespace Kronixon\Connect\Write;
 
 use Hook;
+use Image;
 use Kronixon\Connect\Api\Budget;
 use Kronixon\Connect\Support\Log;
 use ObjectModel;
@@ -384,7 +385,7 @@ final class PendingWrites
         // The mark may have been rolled back with the item; from here on it also says that a removal began.
         $this->forget($table, $id, false);
         $this->insert(get_class($object), $table, $id, (string) $this->kxId, 1, date('Y-m-d H:i:s'));
-        $object->delete();
+        self::delete($object);
         if ($this->there($object, $id)) {
             $this->failed($object, null);
 
@@ -410,7 +411,7 @@ final class PendingWrites
                 // The removal was cut short after the object's own row: once more, for what hangs on it.
                 $object->id = $id;
                 try {
-                    $object->delete();
+                    self::delete($object);
                 } catch (Throwable $error) {
                     $this->failed($object, $error);
                     unset($this->left[$table.':'.$id]);
@@ -484,6 +485,17 @@ final class PendingWrites
     private function object(string $table, int $id): string
     {
         return 'entity = '.$this->db->quote($table).' AND id_object = '.$id;
+    }
+
+    /** PrestaShop's delete(); an image's through ImageRemoval (PrestaShop 9.0 needs its help). */
+    private static function delete(ObjectModel $object): void
+    {
+        if ($object instanceof Image) {
+            ImageRemoval::delete($object);
+
+            return;
+        }
+        $object->delete();
     }
 
     private function there(ObjectModel $object, int $id): bool

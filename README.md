@@ -348,7 +348,9 @@ refused). They write as the protocol defines it, without `Product::save()`: rows
 - **`DELETE images`** (also as `POST` with `X-HTTP-Method-Override: DELETE`): by `external_ids`, `kx_keys` or `all`,
   through `Image::delete()` (rows, files, combination links; on multistore PrestaShop keeps an image another shop has).
   `only_kx` (the default) spares the images the shop uploaded itself: named by id they are `image_not_kx`, with `all`
-  they stay. When the cover goes, the first image left is the new one.
+  they stay. When the cover goes, the first image left is the new one. On 9.0 `Image::delete()` stops half-way outside
+  the back office (it asks the Symfony container for a setting); the module then removes the thumbnails and renumbers
+  the product's images as `Image::delete()` would have.
 - Each `ok` result carries `urls`: the image's URL per image type, and `original`.
 
 ## What the module adds to the shop

@@ -399,7 +399,7 @@ final class ImageWriter extends ShopWriter
     private function delete(int $id): void
     {
         // In the paired shop; on multistore PrestaShop keeps the image and its files while another shop has it.
-        (new Image($id))->delete();
+        ImageRemoval::delete(new Image($id));
         $this->shop->db->execute('DELETE FROM '.$this->shop->db->table('kx_image_map').' WHERE id_image = '.$id);
     }
 

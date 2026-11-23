@@ -118,7 +118,7 @@ final class ImageDeleter
                 continue;
             }
             try {
-                (new Image($id))->delete();
+                ImageRemoval::delete(new Image($id));
                 $this->shop->db->execute('DELETE FROM '.$this->shop->db->table('kx_image_map').' WHERE id_image = '.$id);
                 $cover = $cover || $images[$id]['cover'];
                 $results[] = $result + ['status' => 'ok', 'action' => 'deleted', 'warnings' => []];
