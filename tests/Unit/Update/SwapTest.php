@@ -143,6 +143,24 @@ final class SwapTest extends TestCase
         self::assertSame($this->sorted($this->old), $this->fs->tree(self::LIVE));
     }
 
+    public function test_the_live_version_is_read_from_the_folder_on_disk(): void
+    {
+        self::assertNull($this->swap->liveVersion(), 'no Protocol.php');
+        $protocol = static function (string $version): string {
+            return "<?php\nfinal class Protocol\n{\n    public const MODULE_NAME = 'kronixonconnect';\n\n    public const MODULE_VERSION = '".$version."';\n}\n";
+        };
+        $this->swap->stage(['kronixonconnect.php' => 'new main', 'src/Protocol.php' => $protocol('0.9.0')]);
+        $this->swap->swap();
+        self::assertSame('0.9.0', $this->swap->liveVersion());
+
+        $this->swap->rollback();
+        self::assertNull($this->swap->liveVersion());
+        $this->fs->write(self::LIVE.'/src/Protocol.php', $protocol('0.7.4'), 0644);
+        self::assertSame('0.7.4', $this->swap->liveVersion());
+        $this->fs->write(self::LIVE.'/src/Protocol.php', "<?php\n// public const MODULE_VERSION = '0.9.0';\n", 0644);
+        self::assertNull($this->swap->liveVersion(), 'only the declaration counts');
+    }
+
     public function test_a_previous_folder_a_failed_commit_left_is_removed_by_the_next_swap(): void
     {
         $this->fs->seed($this->swap->prev(), ['kronixonconnect.php' => 'older']);

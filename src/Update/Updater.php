@@ -215,7 +215,7 @@ final class Updater
         }
         $release = null;
         try {
-            if ($this->stored(self::STATE) !== []) {
+            if ($this->stored(self::STATE, true) !== []) {
                 throw new UpdateError(UpdateError::BUSY, 'busy', 'an update waits to be finished');
             }
             $release = $this->waiting();
@@ -250,18 +250,22 @@ final class Updater
 
     /**
      * Finishes an update whose files were swapped in: the upgrade with this request's (new) code, or the rollback.
-     * Null when there is nothing to finish or another request is finishing it.
+     * Null when there is nothing to finish or another request is finishing or has finished it.
+     *
+     * Only the journal read from the database under the lock decides: the copy this request loaded when it started
+     * may predate an upgrade, a rollback or an attempt another request has since finished or counted (a cron call
+     * that spent its time sending events while the settings page finished the update).
      *
      * @return array<string, mixed>|null the outcome (KX_UPDATE_RESULT)
      */
     public function resume(): ?array
     {
-        $state = $this->stored(self::STATE);
-        if ($state === [] || ! ($this->lock)()) {
+        // A request that started with no journal has nothing to finish; the copy only spares it the lock.
+        if ($this->stored(self::STATE) === [] || ! ($this->lock)()) {
             return null;
         }
         try {
-            $state = $this->stored(self::STATE);
+            $state = $this->stored(self::STATE, true);
             if ($state === []) {
                 return null;
             }
@@ -277,6 +281,15 @@ final class Updater
                 $this->swap->discard();
 
                 return $this->failed($from, $to, new UpdateError(UpdateError::FAILED, 'swap_lost'));
+            }
+            // The classes are those of $to, but the folder on disk is not (any more): another request rolled it back
+            // after this one loaded them and died before it removed the journal. That outcome stands, nothing here
+            // writes $to into the module row; a request with the old code finishes the journal.
+            $live = $this->swap->liveVersion();
+            if ($live !== $to) {
+                $this->log->warning('update', 'The module folder is not the version this request runs; the upgrade is left alone', ['to' => $to, 'folder' => $live]);
+
+                return null;
             }
             // An upgrade that dies where PHP cannot catch it (memory or time limit, exit, a killed worker) leaves the
             // journal as it was: the attempt is counted before the scripts run, and after MAX_UPGRADE_ATTEMPTS that
@@ -368,11 +381,12 @@ final class Updater
     }
 
     /**
+     * @param  bool  $fresh  the database now, not the copy the request loaded (Settings::fresh())
      * @return array<string, mixed>
      */
-    private function stored(string $key): array
+    private function stored(string $key, bool $fresh = false): array
     {
-        $data = json_decode((string) $this->settings->get($key), true);
+        $data = json_decode((string) ($fresh ? $this->settings->fresh($key) : $this->settings->get($key)), true);
 
         return is_array($data) ? $data : [];
     }

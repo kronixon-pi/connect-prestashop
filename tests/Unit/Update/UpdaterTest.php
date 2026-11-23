@@ -7,10 +7,12 @@ namespace Kronixon\Connect\Tests\Unit\Update;
 use Kronixon\Connect\Platform\PlatformError;
 use Kronixon\Connect\Protocol;
 use Kronixon\Connect\Support\Log;
+use Kronixon\Connect\Support\Settings;
 use Kronixon\Connect\Tests\Support\FixedClock;
 use Kronixon\Connect\Tests\Support\MemoryFiles;
 use Kronixon\Connect\Tests\Support\MemorySettings;
 use Kronixon\Connect\Tests\Support\Releases;
+use Kronixon\Connect\Tests\Support\RequestSettings;
 use Kronixon\Connect\Update\Release;
 use Kronixon\Connect\Update\ReleaseKeys;
 use Kronixon\Connect\Update\Swap;
@@ -276,6 +278,103 @@ final class UpdaterTest extends TestCase
         self::assertSame('updated', $this->updater('0.9.0')->resume()['outcome'] ?? null);
     }
 
+    public function test_a_cron_call_that_loaded_the_journal_before_the_page_rolled_back_changes_nothing(): void
+    {
+        $this->updater()->check();
+        $this->updater()->install('0.9.0');
+        // The cron URL starts with the new code and the journal, then sends store events for a while.
+        $cron = $this->updater('0.9.0', 'staging', new RequestSettings($this->settings));
+        // Meanwhile the settings page runs the upgrade, which fails: the old folder and row come back.
+        $this->upgradeFails = 'upgrade-0.9.0.php failed';
+        $page = $this->updater('0.9.0', 'staging', new RequestSettings($this->settings))->resume();
+        self::assertSame('upgrade_failed', $page['code'] ?? null);
+
+        self::assertNull($cron->resume(), 'the journal in the database is gone');
+
+        self::assertSame([['0.7.0', '0.9.0']], $this->upgrades, 'one run, the page\'s');
+        self::assertSame([['0.7.0', true]], $this->restored, 'the row keeps the old version');
+        self::assertSame(['module.update_failed'], array_column($this->events, 0));
+        self::assertSame('the running 0.7.0', $this->fs->read(self::LIVE.'/kronixonconnect.php'));
+        self::assertSame('failed', $this->updater()->offer()['result']['outcome'] ?? null);
+    }
+
+    public function test_new_code_that_finds_a_journal_but_the_old_folder_on_disk_leaves_both(): void
+    {
+        $this->updater()->check();
+        $this->updater()->install('0.9.0');
+        $journal = (string) $this->settings->get(Updater::STATE);
+        $cron = $this->updater('0.9.0', 'staging', new RequestSettings($this->settings));
+        $this->upgradeFails = 'upgrade-0.9.0.php failed';
+        $this->updater('0.9.0', 'staging', new RequestSettings($this->settings))->resume();
+        // As if the page died after the old folder came back, before it removed the journal.
+        $this->settings->set(Updater::STATE, $journal);
+        $events = count($this->events);
+
+        self::assertNull($cron->resume(), 'the folder on disk is not 0.9.0');
+        self::assertSame([['0.7.0', '0.9.0']], $this->upgrades, 'no upgrade with classes the disk no longer has');
+        self::assertSame([['0.7.0', true]], $this->restored);
+        self::assertCount($events, $this->events);
+        self::assertSame($journal, $this->settings->get(Updater::STATE), 'left for a request with the old code');
+
+        // The next request runs the old code again and closes the journal.
+        self::assertSame('swap_lost', $this->updater()->resume()['code'] ?? null);
+        self::assertNull($this->settings->get(Updater::STATE));
+        self::assertSame('the running 0.7.0', $this->fs->read(self::LIVE.'/kronixonconnect.php'));
+    }
+
+    public function test_a_successful_update_with_a_racing_cron_call_is_recorded_once(): void
+    {
+        $this->updater()->check();
+        $this->updater()->install('0.9.0');
+        $cron = $this->updater('0.9.0', 'staging', new RequestSettings($this->settings));
+
+        self::assertSame('updated', $this->updater('0.9.0', 'staging', new RequestSettings($this->settings))->resume()['outcome'] ?? null);
+        self::assertNull($cron->resume());
+
+        self::assertSame([['0.7.0', '0.9.0']], $this->upgrades);
+        self::assertSame([['module.updated', ['from' => '0.7.0', 'to' => '0.9.0']]], $this->events);
+    }
+
+    public function test_a_stale_copy_of_the_journal_does_not_reset_the_attempts(): void
+    {
+        $this->updater()->check();
+        $this->updater()->install('0.9.0');
+        // The cron URL loaded the journal before any run; then one run counted itself and died.
+        $cron = $this->updater('0.9.0', 'staging', new RequestSettings($this->settings));
+        $this->journal(['attempts' => 1]);
+
+        self::assertSame('updated', $cron->resume()['outcome'] ?? null);
+        self::assertSame(2, $this->journals[0]['attempts'] ?? null, 'counted from the database, not from the copy');
+    }
+
+    public function test_a_stale_copy_of_the_journal_does_not_buy_a_third_run(): void
+    {
+        $this->updater()->check();
+        $this->updater()->install('0.9.0');
+        $cron = $this->updater('0.9.0', 'staging', new RequestSettings($this->settings));
+        // Two runs counted themselves and died after the cron URL loaded the journal.
+        $this->journal(['attempts' => Updater::MAX_UPGRADE_ATTEMPTS]);
+
+        $result = $cron->resume();
+
+        self::assertSame([], $this->upgrades, 'no third run');
+        self::assertSame('upgrade_failed', $result['code'] ?? null);
+        self::assertSame([['0.7.0', true]], $this->restored);
+        self::assertStringStartsWith('upgrade_failed: upgrade_died', (string) ($this->events[0][1]['error'] ?? ''));
+    }
+
+    public function test_a_click_that_did_not_load_the_journal_of_another_click_is_busy(): void
+    {
+        $this->updater()->check();
+        $click = $this->updater(Protocol::MODULE_VERSION, 'staging', new RequestSettings($this->settings));
+        $this->updater()->install('0.9.0');
+
+        $this->expectFailure(UpdateError::BUSY, 'busy', static function () use ($click): void {
+            $click->install('0.9.0');
+        });
+        self::assertSame(['https://connect-staging.kronixon.com/dl/kronixonconnect-0.9.0.zip'], $this->downloads, 'one download');
+    }
+
     public function test_a_tampered_zip_is_refused_before_anything_is_written(): void
     {
         $this->updater()->check();
@@ -353,10 +452,11 @@ final class UpdaterTest extends TestCase
         $this->settings->set(Updater::STATE, (string) json_encode($fields + $state));
     }
 
-    private function updater(string $running = Protocol::MODULE_VERSION, string $keys = 'staging'): Updater
+    /** @param Settings|null $settings one request's view of the shared settings (RequestSettings); the store itself when null */
+    private function updater(string $running = Protocol::MODULE_VERSION, string $keys = 'staging', ?Settings $settings = null): Updater
     {
         return new Updater(
-            $this->settings,
+            $settings ?? $this->settings,
             $keys === '' ? new ReleaseKeys('', '') : Releases::keys($keys),
             new Swap($this->fs, self::MODULES),
             function (array $query): array {

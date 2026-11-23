@@ -170,6 +170,17 @@ final class Swap
         return true;
     }
 
+    /**
+     * The version of the files in the module folder now (the line of `src/Protocol.php` Package::open() requires),
+     * whatever the classes this request loaded say; null when it cannot be read.
+     */
+    public function liveVersion(): ?string
+    {
+        $source = $this->files->read($this->live().'/src/Protocol.php');
+
+        return $source !== null && preg_match("/^    public const MODULE_VERSION = '([^'\\n]+)';\$/m", $source, $match) === 1 ? $match[1] : null;
+    }
+
     /** The old folder waits next to the new one: a swap happened and is neither committed nor rolled back. */
     public function swapped(): bool
     {
