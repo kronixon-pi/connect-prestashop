@@ -201,19 +201,26 @@ and the hooks of other modules run. Rules of the protocol: [§6](protocol/v1/REA
   (`meta_title_cut`, `meta_description_cut`). A custom feature text changes in the languages sent; changing any
   feature of a product gives its custom texts new ids, as PrestaShop's own form does. `reindex: deferred` (the
   default) marks a changed product for the shop's search indexing, `inline` indexes it at once, `none` leaves it.
-  Hooks always run (`fire_hooks: false` has no effect).
+  Hooks always run (`fire_hooks: false` has no effect). Tags are added; `mode: replace` makes the list sent those of
+  its language, languages that were not sent keep theirs.
 - **Variants.** One transaction for a product's option groups, values and combinations. Groups and values belong to the
   whole shop, so they are found (`external_id`, `kx_id`, the name in the default language) or created, never renamed,
   and no `kx_id` is linked to them. Only `mode: replace` deletes combinations, with their stock. `image_keys` name
   pictures of `POST images`; pictures the shop added to a combination itself stay, an unknown key is
   `image_key_unknown`. Without combinations left the product is a simple one again. Packs and virtual products are
-  refused. `content_hash` is the product's.
+  refused. A combination a failed item left is never the default one, and the product's variants are `cleanup_failed`
+  until it can be removed. `content_hash` is the product's.
 - **Redirects.** A product's own (`redirect_type`; `410` from 8.0, else `404` and `redirect_410_unsupported`).
   A category's addresses and old slugs are kept in `kx_redirect`, by path (friendly URLs only), and served from the
   hook that builds the routes: one cached setting per request, one indexed lookup where a shop has any. As PrestaShop
   does for a product, a category is redirected only while inactive (`category_active`); when it is active again, in
   the back office too, its redirects go. `seo.redirect.auto` keeps the old address of a product whose friendly URL
-  changed.
+  changed. Targets are checked when they are sent (`target_not_found`, `target_inactive`, `redirect_chain`,
+  `redirect_loop`); a redirect a product already has is not checked again by `POST products`. An old slug may not be the
+  address of a page (`slug_taken`): the path is resolved as PrestaShop does it, by the language prefix and the
+  dispatcher's routes (entities while they are active, the shop's pages, modules), and a file or folder of the
+  installation counts too. On the storefront a row is served only where the shop shows no other page, and only to a
+  target that is active. `KX_REDIRECTS` goes back to `0` with the write that finds no row left.
 
 ## What the module adds to the shop
 

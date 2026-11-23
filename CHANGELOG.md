@@ -10,7 +10,7 @@ All notable changes of the module are listed here; versions follow [Semantic Ver
 
 - `POST products` (by field group), `POST variants` and `POST seo/redirects`, announced as `products.write`,
   `variants`, `attribute_values_custom`, `seo` and `redirects`. Old addresses and inactive categories are redirected
-  by the module on the storefront.
+  by the module on the storefront, never away from a page of the shop and only to an active one.
 - `POST categories`, `attributes`, `attribute-values`, `brands` and `tags`: batches of up to 100 items, each in its
   own transaction, with a result per item and the `content_hash` the shop holds afterwards. Announced as the
   capabilities `categories`, `attributes` and `tags`.
