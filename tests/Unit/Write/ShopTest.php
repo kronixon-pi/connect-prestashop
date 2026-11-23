@@ -14,8 +14,11 @@ use Kronixon\Connect\Catalog\PageQuery;
 use Kronixon\Connect\Catalog\ProductReader;
 use Kronixon\Connect\Catalog\TagReader;
 use Kronixon\Connect\Compat\Ps9;
+use Kronixon\Connect\Redirect\Pages;
+use Kronixon\Connect\Redirect\RedirectStore;
 use Kronixon\Connect\Support\Log;
 use Kronixon\Connect\Tests\Support\CatalogDb;
+use Kronixon\Connect\Tests\Support\MemorySettings;
 use Kronixon\Connect\Write\ItemHashes;
 use Kronixon\Connect\Write\PendingWrites;
 use Kronixon\Connect\Write\Shop;
@@ -41,7 +44,11 @@ final class ShopTest extends TestCase
         $this->db = new CatalogDb();
         $pending = new PendingWrites($this->db, 1, new Log(static function (): void {
         }));
-        $this->shop = new Shop(new Context(), $this->db->scope(), new Ps9(), $this->db, $this->db, $pending, new Warnings(), false);
+        $scope = $this->db->scope();
+        $pages = new Pages($this->db, $scope, static function (): array {
+            return [];
+        }, '/', __DIR__);
+        $this->shop = new Shop(new Context(), $scope, new Ps9(), $this->db, $this->db, new RedirectStore($this->db, new MemorySettings(), 1), $pages, $pending, new Warnings(), false);
     }
 
     public function test_only_entities_of_the_paired_shop_are_held(): void

@@ -33,8 +33,8 @@ final class SessionEndpointsTest extends TestCase
         $announced = array_keys(array_filter($data['capabilities'], static function ($flag): bool {
             return $flag === true;
         }));
-        // products.write, images, stock, prices.bulk, webhooks … come with later versions.
-        self::assertSame(['attributes', 'categories', 'multilang', 'suppliers', 'tags'], $announced);
+        // images, stock, prices.bulk, webhooks … come with later versions.
+        self::assertSame(['attribute_values_custom', 'attributes', 'categories', 'multilang', 'products.write', 'redirects', 'seo', 'suppliers', 'tags', 'variants'], $announced);
         self::assertSame(100, $data['limits']['batch']);
         self::assertTrue($data['capabilities']['suppliers'], 'GET catalog/suppliers is served');
         self::assertSame(['variants_product_id_in' => true], $data['capabilities']['catalog'], 'GET catalog/variants?product_id_in= is served');

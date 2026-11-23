@@ -22,6 +22,8 @@ use Context;
 use Kronixon\Connect\Catalog\ImageUrls;
 use Kronixon\Connect\Catalog\Scope;
 use Kronixon\Connect\Compat\CompatInterface;
+use Kronixon\Connect\Redirect\Pages;
+use Kronixon\Connect\Redirect\RedirectStore;
 use ObjectModel;
 use Tools;
 use Validate;
@@ -48,6 +50,12 @@ final class Shop
     /** @var ImageUrls */
     public $urls;
 
+    /** @var RedirectStore */
+    public $redirects;
+
+    /** @var Pages */
+    public $pages;
+
     /** @var EntityMap */
     public $map;
 
@@ -63,8 +71,10 @@ final class Shop
     /** @var array<string, array<string, list<int>>> match_by lists read in this request */
     private $names = [];
 
-    public function __construct(Context $context, Scope $scope, CompatInterface $compat, Database $db, ImageUrls $urls, PendingWrites $pending, Warnings $warnings, bool $strictLanguages)
+    public function __construct(Context $context, Scope $scope, CompatInterface $compat, Database $db, ImageUrls $urls, RedirectStore $redirects, Pages $pages, PendingWrites $pending, Warnings $warnings, bool $strictLanguages)
     {
+        $this->redirects = $redirects;
+        $this->pages = $pages;
         $this->context = $context;
         $this->scope = $scope;
         $this->compat = $compat;
@@ -151,6 +161,23 @@ final class Shop
         }
 
         return $slugs === [] ? null : $slugs;
+    }
+
+    /**
+     * The paths of a product's or category's page in every language of the shop.
+     *
+     * @return list<string>
+     */
+    public function pathsOf(string $entity, int $id): array
+    {
+        $paths = [];
+        foreach (array_keys($this->scope->languages) as $langId) {
+            $paths[] = RedirectStore::path((string) ($entity === 'product'
+                ? $this->context->link->getProductLink($id, null, null, null, $langId, $this->scope->shopId)
+                : $this->context->link->getCategoryLink($id, null, $langId, null, $this->scope->shopId)));
+        }
+
+        return array_values(array_unique(array_filter($paths, 'is_string')));
     }
 
     /** A friendly URL part made of a name; never empty. */

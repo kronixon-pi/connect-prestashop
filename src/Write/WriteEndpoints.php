@@ -70,7 +70,17 @@ final class WriteEndpoints
             },
             'tags' => static function (Shop $shop): Writer {
                 return new TagWriter($shop);
-            },        ];
+            },
+            'products' => static function (Shop $shop, Item $options): Writer {
+                return new ProductWriter($shop, $options);
+            },
+            'variants' => static function (Shop $shop): Writer {
+                return new VariantWriter($shop);
+            },
+            'seo/redirects' => static function (Shop $shop): Writer {
+                return new RedirectWriter($shop);
+            },
+        ];
     }
 
     public function register(Router $router): Router

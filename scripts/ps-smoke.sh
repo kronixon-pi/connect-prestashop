@@ -97,6 +97,14 @@ step "uninstall + reinstall checked"
 # (shops with a row, whether it is first in each of them).
 added() { sql "SELECT COUNT(DISTINCT hm.id_shop), COALESCE(MIN(hm.position <= (SELECT MIN(o.position) FROM ps_hook_module o WHERE o.id_hook = hm.id_hook AND o.id_shop = hm.id_shop)), 0) FROM ps_hook_module hm JOIN ps_hook h ON h.id_hook = hm.id_hook JOIN ps_module m ON m.id_module = hm.id_module WHERE m.name = 'kronixonconnect' AND h.name = 'actionObjectAddAfter'"; }
 expect_eq "actionObjectAddAfter registered, first" "1	1" "$(added)"
+# An install of 0.3.2 (without kx_pending and that hook, path_from a text column) upgraded by PrestaShop itself.
+sql "DROP TABLE ps_kx_pending; ALTER TABLE ps_kx_redirect MODIFY path_from VARCHAR(191) NOT NULL; DELETE hm FROM ps_hook_module hm JOIN ps_hook h ON h.id_hook = hm.id_hook JOIN ps_module m ON m.id_module = hm.id_module WHERE m.name = 'kronixonconnect' AND h.name = 'actionObjectAddAfter'; UPDATE ps_module SET version = '0.3.2' WHERE name = 'kronixonconnect'"
+console prestashop:module upgrade kronixonconnect
+expect_eq "kx_ tables after the upgrade from 0.3.2" "8" "$(sql "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'prestashop' AND table_name LIKE 'ps\_kx\_%'")"
+expect_eq "actionObjectAddAfter after the upgrade" "1	1" "$(added)"
+expect_eq "registered hooks after the upgrade" "20" "$(sql "SELECT COUNT(*) FROM ps_hook_module hm JOIN ps_module m ON m.id_module = hm.id_module WHERE m.name = 'kronixonconnect'")"
+expect_eq "kx_redirect.path_from compared byte for byte after the upgrade" "varbinary" "$(sql "SELECT DATA_TYPE FROM information_schema.columns WHERE table_schema = 'prestashop' AND table_name = 'ps_kx_redirect' AND column_name = 'path_from'")"
+step "upgrade checked"
 
 check() { # name expected-status expected-error-code curl-args...
     local name="$1" want_status="$2" want_code="$3"
@@ -162,6 +170,7 @@ writes() { # name script
 }
 w0=$(date +%s)
 writes "taxonomy writes" catalog-writes
+writes "product, variant and redirect writes" product-writes
 # Failed items, with a third-party module whose hooks commit and then fail (tests/Integration/kxprobe).
 dc cp "$root/tests/Integration/kxprobe" ps:/var/www/html/modules/kxprobe
 dc exec -T ps chown -R www-data:www-data /var/www/html/modules/kxprobe </dev/null
@@ -246,6 +255,7 @@ dc exec -T ps rm -rf /var/www/html/modules/kxprobe /tmp/kxprobe.json </dev/null
 # The writes again: shop 1 is written, shop 2's links and entities stay out of reach.
 psphp modules/kronixonconnect/scripts/ps/pair.php "$stub" K7PM-3XQ9 >/dev/null
 writes "taxonomy writes with two shops" catalog-writes
+writes "product, variant and redirect writes with two shops" product-writes
 total_s=$(elapsed)
 summary="SMOKE ps=$ps image=$(dc config --images 2>/dev/null | grep prestashop | head -n 1) prestashop=$version php=$php_version install_s=$install_s module_install_s=$module_s total_s=$total_s failures=$failures"
 echo "$summary"

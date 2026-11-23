@@ -29,6 +29,12 @@ class Hook
     public static function getIdByName($hook_name) {}
 }
 
+class Dispatcher
+{
+    /** @return Dispatcher */
+    public static function getInstance() {}
+}
+
 class Search
 {
     /**

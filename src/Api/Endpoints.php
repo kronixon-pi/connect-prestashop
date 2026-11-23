@@ -37,12 +37,11 @@ final class Endpoints
     private const UNPAIR_REASONS = ['user', 'store_deleted', 'revoked', 'tenant_deleted', 'other'];
 
     /** Capabilities whose operations arrive with later module versions: false until then (README §10). */
-    private const NOT_YET = ['products.write', 'variants', 'images', 'image_alt', 'attribute_values_custom', 'stock',
-        'stock_locations', 'prices.bulk', 'specific_prices', 'seo', 'redirects', 'webhooks', 'search_reindex', 'cache_flush',
-        'orders.read', 'facets', 'events.pull', ];
+    private const NOT_YET = ['images', 'image_alt', 'stock', 'stock_locations', 'prices.bulk', 'specific_prices',
+        'webhooks', 'search_reindex', 'cache_flush', 'orders.read', 'facets', 'events.pull', ];
 
     /** Capabilities of the write endpoints this build has (WriteEndpoints). */
-    private const WRITES = ['categories', 'attributes', 'tags'];
+    private const WRITES = ['products.write', 'variants', 'categories', 'attributes', 'attribute_values_custom', 'tags', 'seo', 'redirects'];
 
     /** @var SecretStore */
     private $secrets;

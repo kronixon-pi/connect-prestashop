@@ -196,10 +196,15 @@ Writes of entities (`POST products`, `variants`, `categories`, `attributes`, `at
 - Item codes of these endpoints, besides `validation_failed`, `not_found` and `module_error`: `match_ambiguous`,
   `parent_not_found`, `parent_cycle`, `root_category`, `category_not_found`, `brand_not_found`, `supplier_not_found`,
   `currency_not_found`, `tax_rules_group_not_found`, `feature_not_found`, `feature_value_not_found`,
-  `product_not_found`, `product_type_unsupported`, `combination_duplicate`, `redirect_target_not_found`,
-  `redirect_loop`, `category_active`, `friendly_urls_off`, `language_unknown`, `download_failed`, `sha256_mismatch`,
-  `image_invalid`, `save_failed`, `cleanup_failed`, `time_budget` (skipped). Clients treat an unknown code as an error
-  of the item.
+  `product_not_found`, `product_type_unsupported`, `combination_duplicate`, `target_not_found`, `target_inactive`,
+  `redirect_loop`, `redirect_chain`, `slug_taken`, `category_active`, `friendly_urls_off`, `language_unknown`,
+  `download_failed`, `sha256_mismatch`, `image_invalid`, `save_failed`, `cleanup_failed`, `time_budget` (skipped).
+  Clients treat an unknown code as an error of the item.
+- A redirect (`seo/redirects`, `seo.redirect` of a product) leads to a page the shop shows: a missing
+  (`target_not_found`) or inactive (`target_inactive`) target, one that is redirected itself (`redirect_chain`: name its
+  end instead) and one whose redirects lead back (`redirect_loop`, also while the entities are still active) are
+  refused. `type: slug` with the address of any page of the shop is `slug_taken`. A redirect whose target is deactivated
+  or deleted later is not served.
 - `cleanup_failed`: the item failed after the shop had stored part of what it creates, and that part could not be
   removed (a module of the shop stopped it), or the item names what an earlier one left so. It is neither adopted nor
   created a second time; every write request tries the removal again first, so the item is worth resending later. The

@@ -146,6 +146,66 @@ if (! class_exists('Product', false)) {
 
         /** @var mixed */
         public $active;
+
+        /** @var int */
+        public $id_category_default = 2;
+
+        /** @var string */
+        public $redirect_type = '404';
+
+        /** @var int */
+        public $id_type_redirected = 0;
+    }
+}
+
+if (! class_exists('Tag', false)) {
+    class Tag extends ObjectModel
+    {
+        /** @var list<array{0: string, 1: int, 2: list<string>}> what was asked: call, language, names */
+        public static $asked = [];
+
+        public static function deleteProductTagsInLang(int $productId, int $langId): bool
+        {
+            self::$asked[] = ['delete', $langId, []];
+
+            return true;
+        }
+
+        /**
+         * @param list<string> $names
+         */
+        public static function addTags(int $langId, int $productId, array $names): bool
+        {
+            self::$asked[] = ['add', $langId, $names];
+
+            return true;
+        }
+    }
+}
+
+if (! class_exists('Validate', false)) {
+    class Validate
+    {
+        public static function isGenericName(string $name): bool
+        {
+            return strpos($name, '<') === false;
+        }
+    }
+}
+
+if (! class_exists('Configuration', false)) {
+    class Configuration
+    {
+        /** @var array<string, string> */
+        public static $values = ['PS_REWRITING_SETTINGS' => '1'];
+
+        /**
+         * @return string|false
+         */
+        public static function get(string $key)
+        {
+            return self::$values[$key] ?? false;
+        }
     }
 }
 
@@ -166,5 +226,27 @@ if (! class_exists('Combination', false)) {
 if (! class_exists('Context', false)) {
     class Context
     {
+        /** @var Link */
+        public $link;
+
+        public function __construct()
+        {
+            $this->link = new Link();
+        }
+    }
+}
+
+if (! class_exists('Link', false)) {
+    class Link
+    {
+        public function getProductLink(int $id): string
+        {
+            return "https://shop.example.com/$id-product.html";
+        }
+
+        public function getCategoryLink(int $id): string
+        {
+            return "https://shop.example.com/$id-category";
+        }
     }
 }

@@ -21,6 +21,7 @@ namespace Kronixon\Connect;
 use Cache;
 use Context;
 use Db;
+use Dispatcher;
 use Employee;
 use Kronixon\Connect\Api\Endpoints;
 use Kronixon\Connect\Api\Kernel;
@@ -38,6 +39,9 @@ use Kronixon\Connect\Crypto\ShopCipher;
 use Kronixon\Connect\Platform\CurlTransport;
 use Kronixon\Connect\Platform\Pairing;
 use Kronixon\Connect\Platform\PlatformClient;
+use Kronixon\Connect\Redirect\Front;
+use Kronixon\Connect\Redirect\Pages;
+use Kronixon\Connect\Redirect\RedirectStore;
 use Kronixon\Connect\Shop\PrestaShopInfo;
 use Kronixon\Connect\Support\Log;
 use Kronixon\Connect\Support\Settings;
@@ -52,6 +56,7 @@ use Kronixon\Connect\Write\Shop;
 use Kronixon\Connect\Write\ShopDatabase;
 use Kronixon\Connect\Write\Warnings;
 use Kronixon\Connect\Write\WriteEndpoints;
+use ReflectionProperty;
 
 /**
  * Wires the module's services with their PrestaShop implementations (the front controller, the
@@ -139,13 +144,44 @@ final class Services
             static function (Warnings $warnings, Item $options) use ($context, $compat, $db): Shop {
                 self::backOfficeHooks($context);
 
-                return new Shop($context, PrestaShopScope::of($context, $compat), $compat, $db, new PrestaShopImageUrls($context->link), new PendingWrites($db, (int) $context->shop->id, self::log()), $warnings, $options->bool('strict_languages') === true);
+                $scope = PrestaShopScope::of($context, $compat);
+
+                return new Shop($context, $scope, $compat, $db, new PrestaShopImageUrls($context->link), self::redirects($context), self::pages($scope), new PendingWrites($db, (int) $context->shop->id, self::log()), $warnings, $options->bool('strict_languages') === true);
             },
             WriteEndpoints::writers(
                 new Download(self::settings()->get(Pairing::ALLOW_HTTP) === '1'),
                 (new PrestaShopInfo($context, $compat))->imageFormats()
             )
         );
+    }
+
+    public static function redirects(Context $context): RedirectStore
+    {
+        return new RedirectStore(new ShopDatabase(Db::getInstance(), _DB_PREFIX_), self::settings(), (int) $context->shop->id);
+    }
+
+    public static function front(Context $context): Front
+    {
+        $scope = PrestaShopScope::of($context, Version::select(_PS_VERSION_));
+
+        return new Front(self::redirects($context), $context, $scope, self::pages($scope));
+    }
+
+    /** The dispatcher's routes; 1.7.8 and 8.0 have no method that answers them. */
+    private static function pages(Scope $scope): Pages
+    {
+        return new Pages(new ShopDatabase(Db::getInstance(), _DB_PREFIX_), $scope, static function () use ($scope): array {
+            $dispatcher = Dispatcher::getInstance();
+            if (method_exists($dispatcher, 'getRoutes')) {
+                return $dispatcher->getRoutes()[$scope->shopId] ?? [];
+            }
+            $routes = new ReflectionProperty($dispatcher, 'routes');
+            if (PHP_VERSION_ID < 80100) {
+                $routes->setAccessible(true);
+            }
+
+            return $routes->getValue($dispatcher)[$scope->shopId] ?? [];
+        }, __PS_BASE_URI__, _PS_ROOT_DIR_);
     }
 
     public static function kernel(Context $context): Kernel

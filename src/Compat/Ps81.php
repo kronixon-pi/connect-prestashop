@@ -29,6 +29,11 @@ class Ps81 extends Ps80
         return 'ps81';
     }
 
+    public function displayedRedirectTypes(): array
+    {
+        return ['default', '200-displayed', '404-displayed', '410-displayed'];
+    }
+
     public function hasImageFormatSetting(): bool
     {
         return true;
