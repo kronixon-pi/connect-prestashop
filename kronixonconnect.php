@@ -200,6 +200,7 @@ class KronixonConnect extends Module
             'kx_outbox_error' => (int) $error[0] > (int) $settings->get(Flusher::LAST_SENT) ? $date($error[0]).' '.($error[1] ?? '') : '',
             'kx_outbox_retry' => $retry > time() ? $date((string) $retry) : '',
             'kx_cron_url' => $this->context->link->getModuleLink($this->name, 'cron', ['token' => Services::cronToken()]),
+            'kx_delivery' => Services::delivery()->mode($settings, time()),
         ]);
     }
 
@@ -224,6 +225,11 @@ class KronixonConnect extends Module
             $pairing->unpair('user');
 
             return [$this->l('This shop is no longer paired with Kronixon PI.'), false];
+        }
+        if (Tools::isSubmit('submitKxRotateCron')) {
+            Services::rotateCronToken();
+
+            return [$this->l('The cron URL has a new token. Update the cron of your hosting; the old URL no longer works.'), false];
         }
         if (Tools::isSubmit('submitKxPing')) {
             $error = $pairing->ping();

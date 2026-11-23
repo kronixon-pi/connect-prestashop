@@ -20,17 +20,23 @@ if (! defined('_PS_VERSION_')) {
     exit;
 }
 
+use Kronixon\Connect\Outbox\Flusher;
 use Kronixon\Connect\Outbox\Heartbeat;
 use Kronixon\Connect\Protocol;
 use Kronixon\Connect\Services;
 
 /**
  * The cron URL (Spec §7.3): `/module/kronixonconnect/cron?token=<KX_CRON_TOKEN>`, called by the hosting's
- * cron every minute. It sends the outbox within the request budget and answers what it did as JSON. While
- * it is called, page views do not flush. Like the API controller it answers from init().
+ * cron every minute. It sends the outbox within the request budget and answers what it did as JSON, and
+ * whether page views could deliver without it (`page_views`). Within 10 s of the last flush it answers
+ * `too_soon` and does nothing else. While it is called, page views do not flush. Like the API controller
+ * it answers from init(), which PrestaShop reaches only after its bootstrap: the check cannot run earlier.
  */
 class KronixonConnectCronModuleFrontController extends ModuleFrontController
 {
+    /** Seconds after the last flush during which a call answers `too_soon` (a leaked token costs little). */
+    public const MIN_INTERVAL_S = 10;
+
     /** @var bool */
     public $ajax = true;
 
@@ -56,13 +62,20 @@ class KronixonConnectCronModuleFrontController extends ModuleFrontController
             echo json_encode(['ok' => false, 'error' => 'forbidden']);
             exit;
         }
+        // Whether page views can deliver without the cron on this server (Outbox\Delivery).
+        $pageViews = Services::delivery()->finisher() !== null;
+        // A call within MIN_INTERVAL_S of the last flush answers at once: no write, no count, no flush.
+        if (time() - (int) $settings->get(Flusher::LAST_FLUSH) < self::MIN_INTERVAL_S) {
+            echo json_encode(['ok' => true, 'flush' => ['state' => 'too_soon'], 'page_views' => $pageViews]);
+            exit;
+        }
         if (function_exists('set_time_limit')) {
             @set_time_limit(Protocol::MAX_TIME_BUDGET_S + 30);
         }
         ignore_user_abort(true);
         $settings->set(Heartbeat::CRON_AT, (string) time());
         $result = Services::flushOutbox($this->context, Services::budgetSeconds());
-        echo json_encode(['ok' => true, 'flush' => $result ?? ['state' => $settings->get('KX_STORE_ID') === null ? 'unpaired' : 'busy']]);
+        echo json_encode(['ok' => true, 'flush' => $result ?? ['state' => $settings->get('KX_STORE_ID') === null ? 'unpaired' : 'busy'], 'page_views' => $pageViews]);
         exit;
     }
 }

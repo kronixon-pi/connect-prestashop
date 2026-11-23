@@ -33,6 +33,7 @@ $_MODULE['<{kronixonconnect}prestashop>kronixonconnect_375ce5e180abd1e84fe71f07d
 $_MODULE['<{kronixonconnect}prestashop>kronixonconnect_8d46fb26c50a552aef9bbdd1588fb29c'] = 'Erforderliche Version: %s oder neuer.';
 $_MODULE['<{kronixonconnect}prestashop>kronixonconnect_76d900269c4bfa5e8430c5eaa8e1218e'] = 'Felder: %s.';
 $_MODULE['<{kronixonconnect}prestashop>kronixonconnect_673f25d97faa23d2de743b3a9cd9d076'] = 'Versuchen Sie es nach %s erneut.';
+$_MODULE['<{kronixonconnect}prestashop>kronixonconnect_e77c1f90523557259282141186e81fc8'] = 'Die Cron-URL hat ein neues Token. Passen Sie den Cron Ihres Hostings an; die alte URL funktioniert nicht mehr.';
 $_MODULE['<{kronixonconnect}prestashop>configure_ed35903bc665d2772686e52811b25f4e'] = 'Für die Kopplung wird die PHP-Erweiterung sodium benötigt. Bitten Sie Ihren Hosting-Anbieter, sie zu aktivieren.';
 $_MODULE['<{kronixonconnect}prestashop>configure_7079e3a18c8d7614786492dd2320b205'] = 'Kronixon Connect';
 $_MODULE['<{kronixonconnect}prestashop>configure_cac92ac2e78fc9171b82e8686e1c7e1f'] = 'Gekoppelt';
@@ -63,4 +64,8 @@ $_MODULE['<{kronixonconnect}prestashop>configure_96c8dda77707e2daa54e54f22389ea7
 $_MODULE['<{kronixonconnect}prestashop>configure_92de805ae582ce6049f832471539737c'] = 'Letzter Fehler';
 $_MODULE['<{kronixonconnect}prestashop>configure_e45ef9d06abe410499b4cf5b3e4bd0db'] = 'Nächster Versuch';
 $_MODULE['<{kronixonconnect}prestashop>configure_0ee80c26200aac48102c0225f716a262'] = 'Cron-URL';
-$_MODULE['<{kronixonconnect}prestashop>configure_52e6837ce4218dc6cae0b4df45ec97fd'] = 'Rufen Sie diese URL jede Minute über den Cron Ihres Hostings auf. Ohne Cron werden Änderungen gesendet, solange der Shop Besucher hat.';
+$_MODULE['<{kronixonconnect}prestashop>configure_521a65371cec05f41edd9d610770c579'] = 'Richten Sie die Cron-URL unten ein. Kein Cron ruft sie auf, und dieser Server kann nach einem Seitenaufruf keine Änderungen senden; Shop-Ereignisse erreichen Kronixon PI daher nur, wenn es sie abruft.';
+$_MODULE['<{kronixonconnect}prestashop>configure_08018b7b0ecd42c830e7204372070a66'] = 'Rufen Sie diese URL jede Minute über den Cron Ihres Hostings auf. Ohne Cron werden Änderungen nach Seitenaufrufen nur unter PHP-FPM oder LiteSpeed gesendet, sonst nur, wenn Kronixon PI sie abruft.';
+$_MODULE['<{kronixonconnect}prestashop>configure_82765dd9be86f636fe0dadb17f98cdf1'] = 'Das Token ist Teil der URL und steht daher im Zugriffsprotokoll Ihres Webservers. Falls es bekannt geworden ist, erzeugen Sie ein neues.';
+$_MODULE['<{kronixonconnect}prestashop>configure_1e351c467223678af04a287e85675eee'] = 'Ein neues Cron-Token erzeugen? Die alte Cron-URL funktioniert dann nicht mehr.';
+$_MODULE['<{kronixonconnect}prestashop>configure_ac99f26acce8d2bf3bef12fad8d432ea'] = 'Neues Cron-Token';

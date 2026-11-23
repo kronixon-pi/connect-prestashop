@@ -33,6 +33,7 @@ $_MODULE['<{kronixonconnect}prestashop>kronixonconnect_375ce5e180abd1e84fe71f07d
 $_MODULE['<{kronixonconnect}prestashop>kronixonconnect_8d46fb26c50a552aef9bbdd1588fb29c'] = 'Нужна версия: %s или по-нова.';
 $_MODULE['<{kronixonconnect}prestashop>kronixonconnect_76d900269c4bfa5e8430c5eaa8e1218e'] = 'Полета: %s.';
 $_MODULE['<{kronixonconnect}prestashop>kronixonconnect_673f25d97faa23d2de743b3a9cd9d076'] = 'Опитайте отново след %s.';
+$_MODULE['<{kronixonconnect}prestashop>kronixonconnect_e77c1f90523557259282141186e81fc8'] = 'Cron адресът има нов ключ. Обновете cron на хостинга; старият адрес вече не работи.';
 $_MODULE['<{kronixonconnect}prestashop>configure_ed35903bc665d2772686e52811b25f4e'] = 'За сдвояване е нужно PHP разширението sodium. Помолете хостинг доставчика си да го включи.';
 $_MODULE['<{kronixonconnect}prestashop>configure_7079e3a18c8d7614786492dd2320b205'] = 'Kronixon Connect';
 $_MODULE['<{kronixonconnect}prestashop>configure_cac92ac2e78fc9171b82e8686e1c7e1f'] = 'Сдвоен';
@@ -63,4 +64,8 @@ $_MODULE['<{kronixonconnect}prestashop>configure_96c8dda77707e2daa54e54f22389ea7
 $_MODULE['<{kronixonconnect}prestashop>configure_92de805ae582ce6049f832471539737c'] = 'Последна грешка';
 $_MODULE['<{kronixonconnect}prestashop>configure_e45ef9d06abe410499b4cf5b3e4bd0db'] = 'Следващ опит';
 $_MODULE['<{kronixonconnect}prestashop>configure_0ee80c26200aac48102c0225f716a262'] = 'Cron адрес';
-$_MODULE['<{kronixonconnect}prestashop>configure_52e6837ce4218dc6cae0b4df45ec97fd'] = 'Извиквайте този адрес всяка минута от cron на хостинга. Без cron промените се изпращат, докато магазинът има посетители.';
+$_MODULE['<{kronixonconnect}prestashop>configure_521a65371cec05f41edd9d610770c579'] = 'Настройте cron адреса по-долу. Никой cron не го извиква, а този сървър не може да изпраща промени след преглед на страница, затова събитията от магазина стигат до Kronixon PI само когато той ги изтегли.';
+$_MODULE['<{kronixonconnect}prestashop>configure_08018b7b0ecd42c830e7204372070a66'] = 'Извиквайте този адрес всяка минута от cron на хостинга. Без cron промените се изпращат след преглед на страница само под PHP-FPM или LiteSpeed; иначе само когато Kronixon PI ги изтегли.';
+$_MODULE['<{kronixonconnect}prestashop>configure_82765dd9be86f636fe0dadb17f98cdf1'] = 'Ключът е част от адреса, затова се записва в журнала за достъп на уеб сървъра. Ако е изтекъл, създайте нов.';
+$_MODULE['<{kronixonconnect}prestashop>configure_1e351c467223678af04a287e85675eee'] = 'Да се създаде ли нов cron ключ? Старият cron адрес спира да работи.';
+$_MODULE['<{kronixonconnect}prestashop>configure_ac99f26acce8d2bf3bef12fad8d432ea'] = 'Нов cron ключ';
