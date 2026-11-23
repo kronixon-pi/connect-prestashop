@@ -36,7 +36,8 @@ use Throwable;
  *   PrestaShop's own upgrade (`upgrade/upgrade-<version>.php`); on success the old folder is removed and
  *   `module.updated` recorded, on failure the old folder is put back, the module row gets its version and active
  *   flag back and `module.update_failed` is recorded. A process killed at any point leaves the journal
- *   (KX_UPDATE_STATE) for the next resume.
+ *   (KX_UPDATE_STATE) for the next resume; an upgrade that never returns is run at most MAX_UPGRADE_ATTEMPTS
+ *   times, then rolled back.
  */
 final class Updater
 {
@@ -53,6 +54,9 @@ final class Updater
 
     /** How long a request that still runs the old code after the swap waits for OPcache to see the new files. */
     public const SWAP_WAIT_S = 3600;
+
+    /** Runs of the upgrade scripts that may die without returning (a killed worker is retried once) before the rollback. */
+    public const MAX_UPGRADE_ATTEMPTS = 2;
 
     /** @var Settings */
     private $settings;
@@ -274,10 +278,20 @@ final class Updater
 
                 return $this->failed($from, $to, new UpdateError(UpdateError::FAILED, 'swap_lost'));
             }
-            try {
-                $problem = ($this->upgrade)($from, $to);
-            } catch (Throwable $error) {
-                $problem = get_class($error).': '.$error->getMessage();
+            // An upgrade that dies where PHP cannot catch it (memory or time limit, exit, a killed worker) leaves the
+            // journal as it was: the attempt is counted before the scripts run, and after MAX_UPGRADE_ATTEMPTS that
+            // never returned the old version comes back instead of another run.
+            $attempts = (int) ($state['attempts'] ?? 0);
+            if ($attempts >= self::MAX_UPGRADE_ATTEMPTS) {
+                $problem = 'upgrade_died: the upgrade stopped '.$attempts.' times before it returned';
+            } else {
+                $state['attempts'] = $attempts + 1;
+                $this->settings->set(self::STATE, (string) json_encode($state));
+                try {
+                    $problem = ($this->upgrade)($from, $to);
+                } catch (Throwable $error) {
+                    $problem = get_class($error).': '.$error->getMessage();
+                }
             }
             if ($problem === null) {
                 if (! $this->swap->commit()) {

@@ -58,6 +58,9 @@ final class UpdaterTest extends TestCase
     /** @var string|null what the upgrade answers */
     private $upgradeFails;
 
+    /** @var list<array<string, mixed>> the journal as each upgrade run found it in the settings */
+    private $journals = [];
+
     /** @var list<array{0: string, 1: bool}> */
     private $restored = [];
 
@@ -194,6 +197,50 @@ final class UpdaterTest extends TestCase
         self::assertSame('updated', $result['outcome'] ?? null);
     }
 
+    public function test_the_attempt_is_in_the_journal_before_the_upgrade_runs(): void
+    {
+        $this->updater()->check();
+        $this->updater()->install('0.9.0');
+
+        $this->updater('0.9.0')->resume();
+
+        // A run that dies where PHP cannot catch it leaves exactly this journal for the next request.
+        self::assertSame(1, $this->journals[0]['attempts'] ?? null);
+        self::assertSame('swapped', $this->journals[0]['step'] ?? null);
+    }
+
+    public function test_an_upgrade_that_died_once_runs_again(): void
+    {
+        $this->updater()->check();
+        $this->updater()->install('0.9.0');
+        $this->journal(['attempts' => 1]);
+
+        $result = $this->updater('0.9.0')->resume();
+
+        self::assertSame('updated', $result['outcome'] ?? null);
+        self::assertSame(2, $this->journals[0]['attempts'] ?? null);
+    }
+
+    public function test_an_upgrade_that_died_twice_is_rolled_back_without_a_third_run(): void
+    {
+        $this->updater()->check();
+        $this->updater()->install('0.9.0');
+        // Two requests ran the upgrade and died (memory limit, exit, a killed worker): the journal counts them.
+        $this->journal(['attempts' => Updater::MAX_UPGRADE_ATTEMPTS]);
+
+        $result = $this->updater('0.9.0')->resume();
+
+        self::assertSame([], $this->upgrades, 'no third run');
+        self::assertSame(['outcome' => 'failed', 'kind' => UpdateError::FAILED, 'code' => 'upgrade_failed', 'from' => '0.7.0', 'to' => '0.9.0'], array_diff_key((array) $result, ['at' => true]));
+        self::assertSame('the running 0.7.0', $this->fs->read(self::LIVE.'/kronixonconnect.php'));
+        self::assertFalse($this->fs->exists((new Swap($this->fs, self::MODULES))->prev()));
+        self::assertSame([['0.7.0', true]], $this->restored);
+        self::assertSame('module.update_failed', $this->events[0][0] ?? null);
+        self::assertStringStartsWith('upgrade_failed: upgrade_died', (string) $this->events[0][1]['error']);
+        self::assertNull($this->settings->get(Updater::STATE));
+        self::assertNull($this->updater()->resume(), 'the settings page and the cron URL work again');
+    }
+
     public function test_a_request_that_still_runs_the_old_code_waits_for_the_new_one(): void
     {
         $this->updater()->check();
@@ -294,6 +341,18 @@ final class UpdaterTest extends TestCase
         });
     }
 
+    /**
+     * Merges $fields into the journal install() wrote.
+     *
+     * @param  array<string, mixed>  $fields
+     */
+    private function journal(array $fields): void
+    {
+        $state = json_decode((string) $this->settings->get(Updater::STATE), true);
+        self::assertIsArray($state, 'install() wrote a journal');
+        $this->settings->set(Updater::STATE, (string) json_encode($fields + $state));
+    }
+
     private function updater(string $running = Protocol::MODULE_VERSION, string $keys = 'staging'): Updater
     {
         return new Updater(
@@ -315,6 +374,7 @@ final class UpdaterTest extends TestCase
             },
             function (string $from, string $to): ?string {
                 $this->upgrades[] = [$from, $to];
+                $this->journals[] = (array) json_decode((string) $this->settings->get(Updater::STATE), true);
 
                 return $this->upgradeFails;
             },
