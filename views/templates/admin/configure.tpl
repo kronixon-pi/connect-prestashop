@@ -83,6 +83,42 @@
 </div>
 {/if}
 
+<div class="panel" id="kronixonconnect-update">
+  <h3>{l s='Module updates' mod='kronixonconnect'}</h3>
+  {if $kx_update_finishing}<div class="alert alert-info" id="kx-update-finishing">{$kx_update_finishing|escape:'htmlall':'UTF-8'}</div>{/if}
+  {if $kx_update_result}<div class="alert {if $kx_update_result_error}alert-danger{else}alert-success{/if}" id="kx-update-result">{$kx_update_result|escape:'htmlall':'UTF-8'}</div>{/if}
+  {if !$kx_update_paired}
+    <p class="help-block">{l s='Kronixon PI offers updates once this shop is paired.' mod='kronixonconnect'}</p>
+  {else}
+    {if $kx_update_check_error}<div class="alert alert-warning" id="kx-update-check-error">{$kx_update_check_error|escape:'htmlall':'UTF-8'}</div>{/if}
+    {if $kx_update_version}
+      {if $kx_update_mandatory}<div class="alert alert-danger" id="kx-update-mandatory">{l s='This update fixes a security problem. Install it as soon as possible: Kronixon PI stops writing to older versions after a deadline.' mod='kronixonconnect'}</div>{/if}
+      <p id="kx-update-available" data-version="{$kx_update_version|escape:'htmlall':'UTF-8'}"><strong>{$kx_update_available|escape:'htmlall':'UTF-8'}</strong>
+        {if $kx_update_changelog} <a href="{$kx_update_changelog|escape:'htmlall':'UTF-8'}" target="_blank" rel="noopener noreferrer">{l s='What is new' mod='kronixonconnect'}</a>{/if}</p>
+      {if $kx_update_installable}
+        <form method="post" action="{$kx_action|escape:'htmlall':'UTF-8'}" class="form-inline">
+          <input type="hidden" name="kx_update_token" value="{$kx_update_token|escape:'htmlall':'UTF-8'}">
+          <input type="hidden" name="kx_update_version" value="{$kx_update_version|escape:'htmlall':'UTF-8'}">
+          <button type="submit" name="submitKxUpdate" class="btn btn-primary" onclick="return confirm('{$kx_update_confirm|escape:'javascript':'UTF-8'|escape:'htmlall':'UTF-8'}');">{l s='Update now' mod='kronixonconnect'}</button>
+        </form>
+        <p class="help-block">{l s='The download is checked against the signature keys built into this module before anything is replaced.' mod='kronixonconnect'}</p>
+      {else}
+        <p class="help-block" id="kx-update-manual">{l s='This copy of the module cannot install updates by itself: it has no release keys built in. Download the zip and upload it in the Module Manager.' mod='kronixonconnect'}</p>
+      {/if}
+      {if $kx_update_url}<p><a href="{$kx_update_url|escape:'htmlall':'UTF-8'}" id="kx-update-zip">{l s='Download the zip' mod='kronixonconnect'}</a></p>{/if}
+    {elseif $kx_update_incompatible}
+      <p id="kx-update-incompatible">{$kx_update_incompatible|escape:'htmlall':'UTF-8'}</p>
+    {elseif $kx_update_checked && !$kx_update_check_error}
+      <p id="kx-update-current">{l s='This module is up to date.' mod='kronixonconnect'}</p>
+    {/if}
+    <p class="help-block">{l s='Last check' mod='kronixonconnect'}: {if $kx_update_checked}{$kx_update_checked|escape:'htmlall':'UTF-8'}{else}{l s='not yet' mod='kronixonconnect'}{/if}</p>
+    <form method="post" action="{$kx_action|escape:'htmlall':'UTF-8'}" class="form-inline">
+      <input type="hidden" name="kx_update_token" value="{$kx_update_token|escape:'htmlall':'UTF-8'}">
+      <button type="submit" name="submitKxUpdateCheck" class="btn btn-default">{l s='Check for updates' mod='kronixonconnect'}</button>
+    </form>
+  {/if}
+</div>
+
 <div class="panel" id="kronixonconnect-about">
   <h3>{l s='About this module' mod='kronixonconnect'}</h3>
   <table class="table">

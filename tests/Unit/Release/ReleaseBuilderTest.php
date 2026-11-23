@@ -102,7 +102,13 @@ final class ReleaseBuilderTest extends TestCase
             $protocol = $this->entries($this->build($channel))['kronixonconnect/src/Protocol.php'];
             self::assertStringContainsString("public const DEFAULT_PLATFORM_URL = '$host';", $protocol);
             self::assertStringContainsString("public const PINNED_PLATFORM_KEY = '".base64_encode($this->publicKey())."';", $protocol);
+            // The module checks its own updates with the channel's keys, in the order given (Update\ReleaseKeys).
+            self::assertStringContainsString("public const CHANNEL = '$channel';", $protocol);
+            self::assertStringContainsString("public const RELEASE_KEYS = '".$this->keyList()."';", $protocol);
         }
+        $rotation = $this->keyList().',kx-next:'.base64_encode(str_repeat('n', 32));
+        $protocol = $this->entries(ReleaseBuilder::build($files, '7.4.0', Protocol::MODULE_VERSION, 'staging', $rotation))['kronixonconnect/src/Protocol.php'];
+        self::assertStringContainsString("public const RELEASE_KEYS = '".$rotation."';", $protocol);
         // Nothing else of the module changes.
         $entries = $this->entries($this->build());
         foreach ($files as $path => $contents) {
@@ -111,6 +117,8 @@ final class ReleaseBuilderTest extends TestCase
             }
         }
         self::assertSame('', Protocol::PINNED_PLATFORM_KEY, 'the source pins no key');
+        self::assertSame('', Protocol::CHANNEL, 'the source belongs to no channel');
+        self::assertSame('', Protocol::RELEASE_KEYS, 'the source trusts no release key');
     }
 
     public function test_the_manifest_names_the_release_and_every_file(): void

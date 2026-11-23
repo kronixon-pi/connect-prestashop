@@ -4,6 +4,36 @@ All notable changes of the module are listed here; versions follow [Semantic Ver
 
 ## [Unreleased]
 
+## [0.7.0]
+
+### Added
+
+- Self-update from signed releases. The module asks the platform's signed `GET /v1/module/latest` once a day and on
+  the settings page's *Check for updates*; the settings page offers the newer compatible version (a red notice when it
+  is `mandatory`) and installs it only on the administrator's *Update now*. `module.heartbeat` carries `update`
+  (`available`, `pending_confirmation`).
+- Before anything is unpacked, the zip from the platform's host must have the announced size and sha256, an Ed25519
+  signature of a key built into the running module (`Protocol::RELEASE_KEYS`, written by the release build with
+  `CHANNEL`), and a `kx-manifest.json` of this module, channel and API host, of a newer version, for this PrestaShop and
+  PHP, listing exactly its files. The zip is read in plain PHP (stored entries only; no links, no compression).
+- The new files are written next to the module and swapped in by two renames; PrestaShop's own upgrade
+  (`upgrade/upgrade-<version>.php`) runs in the next request, with the new code (the settings page, or the cron URL).
+  A failed upgrade puts the old folder, the module's version and its active flag back. A worker killed while the
+  files are written leaves the old version running; killed after the swap, it leaves the upgrade to the next request.
+  An upgrade that dies where PHP cannot catch it (memory or time limit, `exit`) is run at most twice, then rolled back
+  (`upgrade_failed`, `upgrade_died`). Only a kill between the two renames leaves no module folder: the module cannot
+  run until `.kronixonconnect-prev` is renamed back by hand (`docs/RELEASING.md`, *Recovery*). The cron URL sends the
+  store events before it finishes an update. One request at a time finishes an update, deciding on the journal read
+  from the database under its lock and only when the folder on disk is the new version: a cron call that started
+  before the settings page finished or rolled back the update changes nothing. OPcache is told about the new files.
+- A rollback does not undo the DB changes a failed upgrade script made, and a killed or dying script runs again: every
+  `upgrade/upgrade-<version>.php` must be idempotent and harmless to the previous version's code.
+  `UpgradeScriptsTest` refuses unguarded `CREATE TABLE`, `DROP TABLE`, and `ALTER TABLE … ADD/DROP/CHANGE/RENAME`,
+  `CREATE INDEX`, `DROP INDEX` and `RENAME TABLE` without their own existence check (a grep; DML is not checked).
+- A server that cannot replace the module (read-only folder, too little disk space, OPcache that never rechecks
+  files while `opcache_invalidate()` is not allowed) gets the zip's download link for the Module Manager.
+- `module.updated` and `module.update_failed` through the outbox.
+
 ## [0.6.0]
 
 ### Added

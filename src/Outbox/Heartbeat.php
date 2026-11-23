@@ -58,13 +58,18 @@ final class Heartbeat
     /** @var Delivery */
     private $delivery;
 
+    /** @var (callable(): array{available: string|null, pending_confirmation: bool})|null */
+    private $update;
+
     /**
      * @param  callable(): array<string, mixed>  $capabilities  GET capabilities
      * @param  callable(): array<string, int>  $counts  entity => rows
      * @param  callable(): array{count: int, last: list<array{at: string, code: string, message: string}>}  $errors  warnings of 24 h
+     * @param  (callable(): array{available: string|null, pending_confirmation: bool})|null  $update  the release waiting for the administrator (Update\Updater::heartbeat())
      */
-    public function __construct(callable $capabilities, callable $counts, callable $errors, OutboxStore $store, Settings $settings, Clock $clock, string $psVersion, Delivery $delivery)
+    public function __construct(callable $capabilities, callable $counts, callable $errors, OutboxStore $store, Settings $settings, Clock $clock, string $psVersion, Delivery $delivery, ?callable $update = null)
     {
+        $this->update = $update;
         $this->capabilities = $capabilities;
         $this->counts = $counts;
         $this->errors = $errors;
@@ -101,7 +106,7 @@ final class Heartbeat
         $errors = ($this->errors)();
         $rate = (int) $this->settings->get('KX_RATE_LIMIT');
 
-        return [
+        $payload = [
             'module_version' => Protocol::MODULE_VERSION,
             'ps_version' => $this->psVersion,
             'php' => PHP_VERSION,
@@ -115,5 +120,11 @@ final class Heartbeat
             'last_errors' => array_slice($errors['last'], 0, 20),
             'settings' => ['rate_limit' => $rate > 0 ? $rate : Protocol::RATE_LIMIT_PER_MINUTE],
         ];
+        if ($this->update !== null) {
+            // A newer compatible release waits for the administrator's click (module 0.7.0; Spec §10 item 2).
+            $payload['update'] = ($this->update)();
+        }
+
+        return $payload;
     }
 }

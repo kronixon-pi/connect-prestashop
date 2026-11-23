@@ -101,6 +101,11 @@ final class ReleaseBuilder
         }
 
         $source = self::replace($source, 'DEFAULT_PLATFORM_URL', self::HOSTS[$channel]);
+        $source = self::replace($source, 'CHANNEL', $channel);
+        // The keys the module checks its own updates with (Update\ReleaseKeys), in the order given: the key in use first.
+        $source = self::replace($source, 'RELEASE_KEYS', implode(',', array_map(static function (string $id, string $bytes): string {
+            return $id.':'.base64_encode($bytes);
+        }, array_keys($keys), $keys)));
         $files['src/Protocol.php'] = self::replace($source, 'PINNED_PLATFORM_KEY', base64_encode((string) reset($keys)));
         ksort($files, SORT_STRING);
 

@@ -217,6 +217,7 @@ final class FlusherTest extends TestCase
         self::assertSame(['merged' => 0, 'since' => '2026-09-30T12:23:20Z'], (array) $events[0]['payload']);
         self::assertSame(['products' => 2], $events[1]['payload']['counts']);
         self::assertSame('pull_only', $events[1]['payload']['delivery'], 'no cron, no finish function');
+        self::assertSame(['available' => '0.9.0', 'pending_confirmation' => true], $events[1]['payload']['update'], 'the release waiting for a click (module 0.7.0)');
         self::assertSame(['brand.updated'], array_column($this->requests[1]['events'], 'type'));
         self::assertSame([], ProtocolSchemas::platformRequestErrors('store-events.json', $this->raw[0]));
         self::assertNull($this->settings->get(Recorder::GAP));
@@ -335,7 +336,9 @@ final class FlusherTest extends TestCase
         }, $this->store, $this->settings, $this->clock, '9.1.5', new Delivery(static function (): bool {
             return false;
         }, static function (): void {
-        }));
+        }), static function (): array {
+            return ['available' => '0.9.0', 'pending_confirmation' => true];
+        });
 
         return new Flusher($this->store, new Events(new CatalogEnricher($this->db, $this->db->scope(), $urls ?? $this->db)), function (array $body, int $timeout): array {
             $this->raw[] = (string) json_encode($body, Response::JSON_FLAGS);

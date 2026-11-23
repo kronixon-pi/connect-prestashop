@@ -19,7 +19,7 @@ final class SettingsFormTest extends TestCase
             self::assertSame($name, SettingsForm::action(['REQUEST_METHOD' => 'POST'], [$name => '1']));
         }
         self::assertSame(
-            ['submitKxPlatformUrl', 'submitKxPair', 'submitKxUnpair', 'submitKxRotateCron', 'submitKxPing'],
+            ['submitKxPlatformUrl', 'submitKxPair', 'submitKxUnpair', 'submitKxRotateCron', 'submitKxPing', 'submitKxUpdateCheck', 'submitKxUpdate'],
             SettingsForm::ACTIONS,
             'the names of the buttons in views/templates/admin/configure.tpl'
         );

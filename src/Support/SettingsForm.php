@@ -37,7 +37,14 @@ final class SettingsForm
 
     public const PING = 'submitKxPing';
 
-    public const ACTIONS = [self::PLATFORM_URL, self::PAIR, self::UNPAIR, self::ROTATE_CRON, self::PING];
+    /** The update actions also need the page's own token (kronixonconnect.php). */
+    public const UPDATE_CHECK = 'submitKxUpdateCheck';
+
+    public const UPDATE = 'submitKxUpdate';
+
+    public const ACTIONS = [
+        self::PLATFORM_URL, self::PAIR, self::UNPAIR, self::ROTATE_CRON, self::PING, self::UPDATE_CHECK, self::UPDATE,
+    ];
 
     /**
      * The action this request asks for, or null.

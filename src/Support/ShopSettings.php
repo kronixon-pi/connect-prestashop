@@ -19,6 +19,7 @@ declare(strict_types=1);
 namespace Kronixon\Connect\Support;
 
 use Configuration;
+use Db;
 
 /**
  * Settings in PrestaShop's `Configuration` table as global values (one pairing per installation).
@@ -28,6 +29,15 @@ final class ShopSettings implements Settings
     public function get(string $key): ?string
     {
         $value = Configuration::getGlobalValue($key);
+
+        return is_string($value) && $value !== '' ? $value : null;
+    }
+
+    /** The global row read now: Configuration answers from the copy it loaded when the request started. */
+    public function fresh(string $key): ?string
+    {
+        $db = Db::getInstance();
+        $value = $db->getValue('SELECT `value` FROM `'._DB_PREFIX_.'configuration` WHERE `name` = \''.$db->escape($key).'\' AND `id_shop_group` IS NULL AND `id_shop` IS NULL', false);
 
         return is_string($value) && $value !== '' ? $value : null;
     }

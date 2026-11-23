@@ -612,6 +612,31 @@ abstract class Module
      * @return Module|false
      */
     public static function getInstanceByName($module_name) {}
+
+    /**
+     * @param Module|stdClass $module
+     * @return bool|null
+     */
+    public static function initUpgradeModule($module) {}
+
+    /** @return array<string, mixed> */
+    public function runUpgradeModule() {}
+
+    /**
+     * @param string $name
+     * @param string $version
+     * @return bool
+     */
+    public static function upgradeModuleVersion($name, $version) {}
+
+    /**
+     * @param bool $force_all
+     * @return bool
+     */
+    public function enable($force_all = false) {}
+
+    /** @return list<string> */
+    public function getErrors() {}
 }
 
 class FrontController

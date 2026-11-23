@@ -24,8 +24,17 @@ namespace Kronixon\Connect\Support;
  */
 interface Settings
 {
-    /** The stored value, null when the key is absent or empty. */
+    /**
+     * The stored value, null when the key is absent or empty. In the shop this is the copy PrestaShop loaded when the
+     * request started: another process's later write is not seen.
+     */
     public function get(string $key): ?string;
+
+    /**
+     * The value in the database now, past any copy the request holds: for decisions taken under a lock about a value
+     * another request may have changed since this one started.
+     */
+    public function fresh(string $key): ?string;
 
     public function set(string $key, string $value): bool;
 

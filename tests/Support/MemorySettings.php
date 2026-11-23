@@ -18,6 +18,11 @@ final class MemorySettings implements Settings
         return $value === null || $value === '' ? null : $value;
     }
 
+    public function fresh(string $key): ?string
+    {
+        return $this->get($key);
+    }
+
     public function set(string $key, string $value): bool
     {
         $this->values[$key] = $value;

@@ -15,7 +15,8 @@ offers a release to shops only when the signature verifies against a public key 
 - the module's tracked files — the list `scripts/bake-fixture.sh` installs into the test shops; no tests, tools,
   workflows or documents;
 - `src/Protocol.php` with the channel's API host (`DEFAULT_PLATFORM_URL`) and the first public key
-  (`PINNED_PLATFORM_KEY`); pairing with a platform that names another key is refused;
+  (`PINNED_PLATFORM_KEY`); pairing with a platform that names another key is refused; the channel (`CHANNEL`) and every
+  public key given, in that order (`RELEASE_KEYS`): the keys the module checks its own updates with;
 - `kx-manifest.json`: version, channel, protocol, the compatibility (PrestaShop from … to, PHP), the API host, the public
   keys and the sha256 of every file.
 
@@ -60,3 +61,70 @@ The signing key exists in that environment only. In the job it is masked, writte
 `trap` removes, and read from there: never on a command line, never in the output.
 
 A release is never changed. A mistake is a new version.
+
+## How a shop installs it
+
+A shop paired with Kronixon PI asks `GET /v1/module/latest` (signed) once a day and when the administrator clicks
+*Check for updates*; the settings page then offers the newer compatible version, and nothing happens before the
+administrator clicks *Update now* (the module's `src/Update/`):
+
+1. The zip is fetched from the URL of the signed answer, only from the platform's hosts (as images are), into
+   PrestaShop's cache folder.
+2. Before anything is unpacked: its size and sha256 must be the answer's, and its Ed25519 signature must verify with the
+   key the answer names **among the keys built into the running module** (`RELEASE_KEYS`) — never a key from the answer
+   or the zip. Its `kx-manifest.json` must be of this module, of the version announced, of the running module's channel
+   and API host, for this PrestaShop and PHP, and list exactly the zip's files with their sha256. A version that is not
+   newer than the running one is never installed: a release that has to be withdrawn is followed by a newer one.
+3. The files are written to `modules/.kronixonconnect-next` and swapped in by two renames; the old folder waits as
+   `.kronixonconnect-prev`. The next request (the settings page the browser is sent to, or the cron URL) runs
+   PrestaShop's own upgrade (`upgrade/upgrade-<version>.php`) with the new code. When it fails, the old folder and the
+   module's version row come back. The platform hears `module.updated` or `module.update_failed` through the outbox.
+   A worker killed while writing leaves the old version running; killed after the swap, the next request finishes.
+   An upgrade that dies where PHP cannot catch it (memory or time limit, `exit`, a worker killed each time) is run at
+   most twice (the attempts are counted in `KX_UPDATE_STATE` before the scripts run); the request after the second
+   one rolls back with `upgrade_failed` (`upgrade_died`). The cron URL sends the store events before it finishes an
+   update, so a dying upgrade does not stop them. One request at a time finishes an update (a lock), and it decides
+   on the journal as the database holds it under the lock, not on the copy PrestaShop loaded when the request
+   started; it runs the scripts only when the folder on disk is the new version. So a cron call that started before
+   the settings page finished or rolled back the update changes nothing, and `module.updated` is recorded once.
+   Only a kill between the two renames (two system calls apart; the time limit and a closed browser cannot cause it)
+   leaves no `modules/kronixonconnect`. See *Recovery* below.
+4. A server that does not let PHP replace the module (read-only folder, too little disk space, OPcache that never
+   rechecks files while `opcache_invalidate()` is not allowed) gets the download link of the zip, to upload it in the
+   Module Manager.
+
+**What a rollback does not undo.** The rollback puts back the files and the module's version row and active flag.
+It does not undo anything else:
+
+- the DB changes an upgrade script made before it failed or died stay (tables, columns, `Configuration` values);
+- a script that was killed or died runs again in full on the next request (a second attempt).
+
+So every `upgrade/upgrade-<version>.php` must be **idempotent** (a second run after a partial one does the rest and
+fails on nothing: `CREATE TABLE IF NOT EXISTS`, `DROP TABLE IF EXISTS`, a column or index added only after
+`SHOW COLUMNS`/`SHOW INDEX` or `information_schema` says it is missing), and its DB changes must be **harmless to the
+previous version's code**, which runs again after a rollback (add, do not rename or drop what the previous version
+reads). `tests/Unit/Release/UpgradeScriptsTest.php` (in `make check` and module-ci) refuses the usual unguarded DDL in
+`upgrade/`: `CREATE TABLE` without `IF NOT EXISTS`, `DROP TABLE` without `IF EXISTS`, and an
+`ALTER TABLE … ADD/DROP/CHANGE/RENAME`, `CREATE INDEX`, `DROP INDEX` or `RENAME TABLE` without its own existence check a few lines before it
+(one check per statement; MariaDB's `IF NOT EXISTS` on columns and indexes does not count, MySQL refuses it). It is a
+grep: it does not see whether the check decides the statement, nor DML (`INSERT`, `UPDATE … SET x = x * 100`, a
+`Configuration` value computed from itself); the review of a new script checks the rest.
+
+**Recovery.** If `modules/kronixonconnect` is missing and `modules/.kronixonconnect-prev` is there, the module
+cannot run: the cron URL and `/v1` answer 404, and nothing in the module can repair it. The shop's own pages still
+work. Put the old folder back by hand, as the user the web server runs as, then open the settings page:
+
+```sh
+cd /path/to/shop/modules && mv .kronixonconnect-prev kronixonconnect
+```
+
+The shop then runs the old version, and the next settings page or cron call removes `.kronixonconnect-next` and
+records `module.update_failed` (`swap_lost`). The platform sees it as a store whose heartbeat stops right after it downloaded a release zip.
+
+**Key rotation.** A shop trusts only the keys of the module it runs. To move to a new key, first release a version whose
+`RELEASE_KEYS` holds the key in use and then the next one (`build.php … <current>,<next>`), signed with the key in use;
+only once shops run it can a release be signed with the next key (listed first from then on). A shop that skipped the
+intermediate release refuses the new signature (`unknown_key`) and is updated by hand.
+
+`scripts/update-smoke.sh <ps>` plays all of this on a real shop with throw-away keys (the `matrix` workflow, every
+version).

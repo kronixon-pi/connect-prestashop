@@ -4,11 +4,12 @@ The free, open-source companion module that links a PrestaShop store to **Kronix
 platform never touches the shop's database, files or the PrestaShop Webservice: it talks only to
 this module, over the signed [Connect protocol v1](protocol/v1/README.md).
 
-> **Status: 0.4.0, pairing, catalog reads and writes.** The module pairs with Kronixon PI from its settings
-> page, verifies the signature of every protocol request, signs every answer and serves `capabilities`,
-> `profile`, `health`, `rotate`, `unpair`, the eleven `GET catalog/*` reads and the writes of products,
-> variants, categories, attributes and their values, brands, tags and redirects. Prices and stock in bulk,
-> images, webhooks and self-update arrive in the next versions. Do not install it on a production shop yet.
+> **Status: 0.7.0, pairing, catalog reads and writes, store events, self-update.** The module pairs with Kronixon
+> PI from its settings page, verifies the signature of every protocol request, signs every answer and serves
+> `capabilities`, `profile`, `health`, `rotate`, `unpair`, the eleven `GET catalog/*` reads, the writes of products,
+> variants, categories, attributes and their values, brands, tags, redirects, images, prices and stock in bulk, sends
+> store events, and updates itself from signed releases on the administrator's click. Do not install it on a
+> production shop yet.
 
 ## Supported versions
 
@@ -433,6 +434,9 @@ left so is `cleanup_failed`.
   that builds the routes serves the redirects of `kx_redirect`. The page-view hooks
   (`actionFrontControllerSetMedia`, `actionAdminControllerSetMedia`) read cached settings only.
 - A cron URL, `/module/kronixonconnect/cron?token=…`; the settings page shows it.
+- During an update only: the folders `modules/.kronixonconnect-next` (the new files) and `.kronixonconnect-prev`
+  (the old ones until the upgrade succeeded); the zip in PrestaShop's cache folder while it is checked. See
+  [docs/RELEASING.md](docs/RELEASING.md#how-a-shop-installs-it).
 - No core files are changed, no overrides are installed. Translations: English, Bulgarian, German.
 
 ## Store events
@@ -448,7 +452,8 @@ other modules, imports, and stock changed by orders. It never tells the platform
   rows of one entity become one event. A batch is sent:
   - when the **cron URL** is called. This is recommended: call it every minute (`curl -s
     'https://shop.example/module/kronixonconnect/cron?token=…'`). It works for up to the time budget (25 s).
-    Within 10 s of the last flush it answers `too_soon` at once and writes nothing.
+    Within 10 s of the last flush it answers `too_soon` at once and writes nothing. After the flush it finishes a
+    module update whose files were swapped in, if any (`update` in its answer).
   - on **page views**, at most once a minute, when no cron has called in the last 5 minutes, and **only** when
     PHP can send the page before the flush starts: `fastcgi_finish_request()` (PHP-FPM) or
     `litespeed_finish_request()` (LiteSpeed). The flush then runs after the visitor has the page, with a 5 s
