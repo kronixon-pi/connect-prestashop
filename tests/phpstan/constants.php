@@ -16,3 +16,5 @@ define('_PS_ROOT_DIR_', '/var/www/html');
 define('_PS_MANU_IMG_DIR_', '/var/www/html/img/m/');
 define('_PS_IMG_DIR_', '/var/www/html/img/');
 define('_PS_TMP_IMG_DIR_', '/var/www/html/img/tmp/');
+define('_PS_MODULE_DIR_', '/var/www/html/modules/');
+define('_PS_CACHE_DIR_', '/var/www/html/var/cache/prod/');

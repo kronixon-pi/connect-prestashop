@@ -35,6 +35,8 @@ use Kronixon\Connect\Platform\Pairing;
 use Kronixon\Connect\Protocol;
 use Kronixon\Connect\Redirect\Front;
 use Kronixon\Connect\Services;
+use Kronixon\Connect\Support\Runtime;
+use Kronixon\Connect\Update\UpdateError;
 use Kronixon\Connect\Write\PendingWrites;
 use Kronixon\Connect\Write\ShopDatabase;
 
@@ -144,6 +146,16 @@ class KronixonConnect extends Module
 
     public function getContent(): string
     {
+        $here = $this->context->link->getAdminLink('AdminModules', true, [], ['configure' => $this->name]);
+        // The first request after new files were swapped in finishes the update with their code (Update\Updater),
+        // then starts over: after a rollback the classes of this request are not those of the files.
+        $updater = Services::updater($this->context);
+        if ($updater->offer()['finishing'] !== null) {
+            Runtime::keepRunning(300);
+        }
+        if ($updater->resume() !== null) {
+            Tools::redirectAdmin($here);
+        }
         $pairing = Services::pairing($this->context);
         [$notice, $noticeIsError] = $this->handleForm($pairing);
         $secrets = Services::secrets();
@@ -153,7 +165,7 @@ class KronixonConnect extends Module
             return $unix === null ? '' : $this->displayTime((int) $unix);
         };
         $this->context->smarty->assign([
-            'kx_action' => $this->context->link->getAdminLink('AdminModules', true, [], ['configure' => $this->name]),
+            'kx_action' => $here,
             'kx_paired' => $paired,
             'kx_store_id' => (string) $secrets->storeId(),
             'kx_tenant' => (string) $secrets->setting('KX_TENANT_NAME'),
@@ -174,8 +186,80 @@ class KronixonConnect extends Module
         if ($paired) {
             $this->assignOutbox($date);
         }
+        $this->assignUpdate($paired, $date);
 
         return $this->display(__FILE__, 'views/templates/admin/configure.tpl');
+    }
+
+    /**
+     * The module update panel (Spec §10 item 2): the release waiting for a click, or why none can be installed here,
+     * and the outcome of the last attempt.
+     *
+     * @param  callable(?string): string  $date
+     */
+    private function assignUpdate(bool $paired, callable $date): void
+    {
+        $offer = Services::updater($this->context)->offer();
+        $release = $offer['release'];
+        $result = $offer['result'];
+        $this->context->smarty->assign([
+            'kx_update_paired' => $paired,
+            'kx_update_checked' => $offer['checked_at'] === null ? '' : $date((string) $offer['checked_at']),
+            'kx_update_check_error' => $offer['error'] === null ? '' : sprintf($this->l('Kronixon PI could not be asked for updates (%s).'), $offer['error']),
+            'kx_update_version' => $release !== null ? $release->version : '',
+            'kx_update_available' => $release !== null ? sprintf($this->l('Version %s is available.'), $release->version) : '',
+            'kx_update_mandatory' => $release !== null && $release->mandatory,
+            'kx_update_changelog' => $release !== null ? (string) $release->changelogUrl : '',
+            'kx_update_confirm' => $release !== null ? sprintf($this->l('Update the module to version %s? If the upgrade fails, the current version is restored.'), $release->version) : '',
+            'kx_update_installable' => $offer['installable'],
+            'kx_update_url' => (string) $offer['url'],
+            'kx_update_incompatible' => $offer['incompatible'] === null ? '' : sprintf($this->l('A newer version exists, but not for this shop (%s).'), $offer['incompatible']),
+            'kx_update_token' => $this->updateToken(),
+            'kx_update_result' => $result === null ? '' : $date((string) ($result['at'] ?? '')).' '.$this->updateMessage($result),
+            'kx_update_result_error' => $result !== null && ($result['outcome'] ?? '') !== 'updated',
+            'kx_update_finishing' => $offer['finishing'] === null ? '' : sprintf($this->l('The files of version %s are in place; the update finishes when this page is loaded again in a few seconds.'), $offer['finishing']),
+        ]);
+    }
+
+    /**
+     * The update forms' own token: the employee's, keyed with the shop's cookie keys. PrestaShop's admin token cannot
+     * serve: on 9.x it is a Symfony CSRF token, different every time it is asked for. Empty without an employee.
+     */
+    private function updateToken(): string
+    {
+        $key = (defined('_COOKIE_KEY_') ? (string) constant('_COOKIE_KEY_') : '').(defined('_NEW_COOKIE_KEY_') ? (string) constant('_NEW_COOKIE_KEY_') : '');
+        $employee = isset($this->context->employee) ? (int) $this->context->employee->id : 0;
+
+        return $key === '' || $employee <= 0 ? '' : hash_hmac('sha256', 'kronixonconnect-update|'.$employee, $key);
+    }
+
+    /**
+     * The administrator's message for an update outcome (Update\Updater, UpdateError kinds).
+     *
+     * @param  array<string, mixed>  $result
+     */
+    private function updateMessage(array $result): string
+    {
+        $from = (string) ($result['from'] ?? '');
+        $to = (string) ($result['to'] ?? '');
+        $code = (string) ($result['code'] ?? '');
+        if (($result['outcome'] ?? '') === 'updated') {
+            return sprintf($this->l('The module was updated from %1$s to %2$s.'), $from, $to);
+        }
+        switch ($result['kind'] ?? '') {
+            case UpdateError::REFUSED:
+                return sprintf($this->l('Version %1$s failed a check (%2$s) and was not installed.'), $to, $code);
+            case UpdateError::DOWNLOAD:
+                return sprintf($this->l('Version %1$s could not be downloaded (%2$s).'), $to, $code);
+            case UpdateError::SERVER:
+                return sprintf($this->l('This server does not let the module replace its own files (%s). Download the zip and upload it in the Module Manager.'), $code);
+            case UpdateError::BUSY:
+                return $this->l('Another update is running. Try again in a minute.');
+            default:
+                return $code === 'upgrade_failed'
+                    ? sprintf($this->l('The update to %1$s failed (%2$s); the previous version was restored.'), $to, $code)
+                    : sprintf($this->l('The update to %1$s failed and the previous version could not be restored (%2$s). Upload the zip in the Module Manager.'), $to, $code);
+        }
     }
 
     /**
@@ -211,6 +295,28 @@ class KronixonConnect extends Module
      */
     private function handleForm(Pairing $pairing): array
     {
+        // The update runs only on the administrator's POST that carries the page's own token as well (Spec §10 item 2).
+        $token = $this->updateToken();
+        $posted = ($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && $token !== ''
+            && hash_equals($token, (string) Tools::getValue('kx_update_token'));
+        if ($posted && Tools::isSubmit('submitKxUpdateCheck')) {
+            $check = Services::updater($this->context)->check();
+
+            return isset($check['error'])
+                ? [sprintf($this->l('Kronixon PI could not be asked for updates (%s).'), (string) $check['error']), true]
+                : [$this->l('Kronixon PI was asked for updates.'), false];
+        }
+        if ($posted && Tools::isSubmit('submitKxUpdate')) {
+            Runtime::keepRunning(300);
+            try {
+                Services::updater($this->context)->install((string) Tools::getValue('kx_update_version'));
+            } catch (UpdateError $error) {
+                // Kept in KX_UPDATE_RESULT and shown in the update panel.
+                return ['', false];
+            }
+            // The new files are in place: the next request (with their code) runs the upgrade (getContent()).
+            Tools::redirectAdmin($this->context->link->getAdminLink('AdminModules', true, [], ['configure' => $this->name]));
+        }
         if (Tools::isSubmit('submitKxPlatformUrl')) {
             return $pairing->setPlatformUrl((string) Tools::getValue('kx_platform_url'))
                 ? [$this->l('The platform URL was saved.'), false]

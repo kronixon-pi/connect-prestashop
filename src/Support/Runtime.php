@@ -39,6 +39,20 @@ final class Runtime
         }
     }
 
+    /**
+     * A request that must not stop half-way (the self-update): neither the time limit nor a closed browser ends it
+     * where PHP lets the module say so.
+     */
+    public static function keepRunning(int $timeLimit): void
+    {
+        if (self::canCall('set_time_limit')) {
+            set_time_limit($timeLimit);
+        }
+        if (self::canCall('ignore_user_abort')) {
+            ignore_user_abort(true);
+        }
+    }
+
     /** Reads at most $max + 1 bytes of php://input, so an oversized body is detectable without reading it all. */
     public static function readBody(int $max): string
     {

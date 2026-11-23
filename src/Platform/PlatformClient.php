@@ -68,14 +68,16 @@ final class PlatformClient
     }
 
     /**
-     * A signed request to `$path` (`/v1/stores/{id}/…`).
+     * A signed request to `$path` (`/v1/stores/{id}/…`, `/v1/module/latest`); the query is part of the signature
+     * (README §4.2).
      *
      * @param  array<string, mixed>|null  $body
+     * @param  array<string, string>  $query
      * @return array<string, mixed> the verified 2xx body
      *
      * @throws PlatformError
      */
-    public function signed(string $base, string $method, string $path, ?array $body = null, int $timeoutSeconds = 10): array
+    public function signed(string $base, string $method, string $path, ?array $body = null, int $timeoutSeconds = 10, array $query = []): array
     {
         $secret = $this->secrets->current();
         $storeId = $this->secrets->storeId();
@@ -85,9 +87,10 @@ final class PlatformClient
         $raw = $body === null ? '' : self::json($body);
         $nonce = Uuid::v4();
         $now = (int) floor($this->clock->now());
-        $headers = (new Signer())->requestHeaders($storeId, KeyRing::CURRENT, $secret, $method, $path, '', $now, $nonce, $raw)
+        $rawQuery = http_build_query($query, '', '&', PHP_QUERY_RFC3986);
+        $headers = (new Signer())->requestHeaders($storeId, KeyRing::CURRENT, $secret, $method, $path, $rawQuery, $now, $nonce, $raw)
             + $this->headers($nonce, $raw !== '');
-        $answer = $this->transport->send($method, $base.$path, $headers, $raw, $timeoutSeconds);
+        $answer = $this->transport->send($method, $base.$path.($rawQuery === '' ? '' : '?'.$rawQuery), $headers, $raw, $timeoutSeconds);
 
         $signature = $answer['headers']['x-kx-signature'] ?? null;
         $signed = false;

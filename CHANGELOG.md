@@ -4,6 +4,26 @@ All notable changes of the module are listed here; versions follow [Semantic Ver
 
 ## [Unreleased]
 
+## [0.7.0]
+
+### Added
+
+- Self-update from signed releases. The module asks the platform's signed `GET /v1/module/latest` once a day and on
+  the settings page's *Check for updates*; the settings page offers the newer compatible version (a red notice when it
+  is `mandatory`) and installs it only on the administrator's *Update now*. `module.heartbeat` carries `update`
+  (`available`, `pending_confirmation`).
+- Before anything is unpacked, the zip from the platform's host must have the announced size and sha256, an Ed25519
+  signature of a key built into the running module (`Protocol::RELEASE_KEYS`, written by the release build with
+  `CHANNEL`), and a `kx-manifest.json` of this module, channel and API host, of a newer version, for this PrestaShop and
+  PHP, listing exactly its files. The zip is read in plain PHP (stored entries only; no links, no compression).
+- The new files are written next to the module and swapped in by two renames; PrestaShop's own upgrade
+  (`upgrade/upgrade-<version>.php`) runs in the next request, with the new code (the settings page, or the cron URL).
+  A failed upgrade puts the old folder, the module's version and its active flag back. A worker killed at any point
+  leaves the old version running or the upgrade to the next request. OPcache is told about the new files.
+- A server that cannot replace the module (read-only folder, too little disk space, OPcache that never rechecks
+  files while `opcache_invalidate()` is not allowed) gets the zip's download link for the Module Manager.
+- `module.updated` and `module.update_failed` through the outbox.
+
 ## [0.6.0]
 
 ### Added

@@ -24,6 +24,7 @@ use Kronixon\Connect\Outbox\Flusher;
 use Kronixon\Connect\Outbox\Heartbeat;
 use Kronixon\Connect\Protocol;
 use Kronixon\Connect\Services;
+use Kronixon\Connect\Support\Runtime;
 
 /**
  * The cron URL (Spec §7.3): `/module/kronixonconnect/cron?token=<KX_CRON_TOKEN>`, called by the hosting's
@@ -60,6 +61,17 @@ class KronixonConnectCronModuleFrontController extends ModuleFrontController
         if ($expected === null || ! is_string($token) || ! hash_equals($expected, $token)) {
             http_response_code(403);
             echo json_encode(['ok' => false, 'error' => 'forbidden']);
+            exit;
+        }
+        // An update whose files were swapped in and whose settings page was not opened again is finished here, alone
+        // in its request: after a rollback this request's classes are not those of the files (Update\Updater).
+        $updater = Services::updater($this->context);
+        if ($updater->offer()['finishing'] !== null) {
+            Runtime::keepRunning(300);
+        }
+        $update = $updater->resume();
+        if ($update !== null) {
+            echo json_encode(['ok' => true, 'update' => ['outcome' => $update['outcome'], 'to' => $update['to']]]);
             exit;
         }
         // Whether page views can deliver without the cron on this server (Outbox\Delivery).

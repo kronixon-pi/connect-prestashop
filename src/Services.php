@@ -40,6 +40,7 @@ use Kronixon\Connect\Catalog\Scope;
 use Kronixon\Connect\Compat\Version;
 use Kronixon\Connect\Crypto\ShopCipher;
 use Kronixon\Connect\Outbox\CatalogEnricher;
+use Kronixon\Connect\Outbox\Change;
 use Kronixon\Connect\Outbox\Delivery;
 use Kronixon\Connect\Outbox\EventEndpoints;
 use Kronixon\Connect\Outbox\Events;
@@ -52,6 +53,7 @@ use Kronixon\Connect\Outbox\ShopChanges;
 use Kronixon\Connect\Platform\CurlTransport;
 use Kronixon\Connect\Platform\Pairing;
 use Kronixon\Connect\Platform\PlatformClient;
+use Kronixon\Connect\Platform\PlatformError;
 use Kronixon\Connect\Redirect\Front;
 use Kronixon\Connect\Redirect\Pages;
 use Kronixon\Connect\Redirect\RedirectStore;
@@ -61,11 +63,18 @@ use Kronixon\Connect\Support\Runtime;
 use Kronixon\Connect\Support\Settings;
 use Kronixon\Connect\Support\ShopSettings;
 use Kronixon\Connect\Support\SystemClock;
+use Kronixon\Connect\Update\LocalFiles;
+use Kronixon\Connect\Update\Release;
+use Kronixon\Connect\Update\ReleaseKeys;
+use Kronixon\Connect\Update\Swap;
+use Kronixon\Connect\Update\UpdateError;
+use Kronixon\Connect\Update\Updater;
 use Kronixon\Connect\Write\Batch;
 use Kronixon\Connect\Write\BulkEndpoints;
 use Kronixon\Connect\Write\Download;
 use Kronixon\Connect\Write\Facets;
 use Kronixon\Connect\Write\Item;
+use Kronixon\Connect\Write\ItemError;
 use Kronixon\Connect\Write\Maintenance;
 use Kronixon\Connect\Write\PendingWrites;
 use Kronixon\Connect\Write\PriceBulk;
@@ -81,6 +90,7 @@ use PrestaShopAutoload;
 use Product;
 use ReflectionProperty;
 use Search;
+use stdClass;
 use StockAvailable;
 use Throwable;
 use Tools;
@@ -355,6 +365,12 @@ final class Services
                 $compat = Version::select(_PS_VERSION_);
                 $clock = new SystemClock();
                 $client = new PlatformClient(new CurlTransport(), $secrets, $clock);
+                // Once a day, before the heartbeat that reports it: is there a newer release (Update\Updater)?
+                try {
+                    self::updater($context)->checkIfDue();
+                } catch (Throwable $error) {
+                    // the flush runs without it
+                }
                 $heartbeat = self::heartbeat($context, $db, $store, $clock);
 
                 return (new Flusher(
@@ -459,7 +475,107 @@ final class Services
             }
 
             return ['count' => (int) ($db->rows('SELECT COUNT(*) AS n FROM '.$db->table('kx_log').$since)[0]['n'] ?? 0), 'last' => $last];
-        }, $store, self::settings(), $clock, _PS_VERSION_, self::delivery());
+        }, $store, self::settings(), $clock, _PS_VERSION_, self::delivery(), static function () use ($context): array {
+            return self::updater($context)->heartbeat();
+        });
+    }
+
+    /**
+     * The self-update (Update\Updater): the platform's signed `GET /v1/module/latest`, the zip from its hosts only
+     * (download()), the module folder replaced next to itself (Swap), PrestaShop's own upgrade, the events through the
+     * outbox, one update at a time (a lock the server releases when the process dies).
+     */
+    public static function updater(Context $context): Updater
+    {
+        $secrets = self::secrets();
+        $clock = new SystemClock();
+        $pairing = self::pairing($context);
+        $lock = "'kx_update_".substr(sha1(_DB_NAME_.'.'._DB_PREFIX_), 0, 24)."'";
+
+        return new Updater(
+            self::settings(),
+            ReleaseKeys::builtIn(),
+            new Swap(new LocalFiles(), _PS_MODULE_DIR_),
+            static function (array $query) use ($secrets, $clock, $pairing): array {
+                $base = $pairing->normaliseUrl($pairing->platformUrl());
+                if ($base === null) {
+                    throw new PlatformError(0, 'platform_url_invalid');
+                }
+
+                return (new PlatformClient(new CurlTransport(), $secrets, $clock))->signed($base, 'GET', '/v1/module/latest', null, 10, $query);
+            },
+            static function (Release $release): string {
+                try {
+                    $path = self::download()->fetch($release->url, $release->sha256, 'release', _PS_CACHE_DIR_);
+                } catch (ItemError $error) {
+                    throw new UpdateError(UpdateError::DOWNLOAD, $error->itemCode());
+                }
+                $zip = file_get_contents($path);
+                unlink($path);
+                if (! is_string($zip)) {
+                    throw new UpdateError(UpdateError::DOWNLOAD, 'download_failed');
+                }
+
+                return $zip;
+            },
+            [self::class, 'upgradeModule'],
+            static function (string $version, bool $active): void {
+                Module::upgradeModuleVersion(Protocol::MODULE_NAME, $version);
+                $module = Module::getInstanceByName(Protocol::MODULE_NAME);
+                if ($active && $module instanceof Module) {
+                    $module->enable();
+                }
+            },
+            static function (string $type, array $payload) use ($secrets): void {
+                if ($secrets->storeId() !== null) {
+                    (new OutboxStore(new ShopDatabase(Db::getInstance(), _DB_PREFIX_)))->insert(new Change($type, null, $payload), Recorder::time(microtime(true)));
+                }
+            },
+            static function () use ($lock): bool {
+                return (int) Db::getInstance()->getValue('SELECT GET_LOCK('.$lock.', 0)', false) === 1;
+            },
+            static function () use ($lock): void {
+                Db::getInstance()->getValue('SELECT RELEASE_LOCK('.$lock.')', false);
+            },
+            $clock,
+            self::log(),
+            ['version' => Protocol::MODULE_VERSION, 'ps' => _PS_VERSION_, 'php' => PHP_VERSION, 'api_host' => Protocol::DEFAULT_PLATFORM_URL, 'active' => Module::isEnabled(Protocol::MODULE_NAME)]
+        );
+    }
+
+    /**
+     * PrestaShop's own upgrade of the module (`upgrade/upgrade-<version>.php` through Module::initUpgradeModule() and
+     * runUpgradeModule(), as its module manager runs it on 1.7.8 to 9.x), with the code of the new files: it runs in
+     * the first request after the swap. Null when the module row holds $to afterwards, else what stopped it.
+     */
+    public static function upgradeModule(string $from, string $to): ?string
+    {
+        $registered = static function (): string {
+            return (string) Db::getInstance()->getValue('SELECT version FROM '._DB_PREFIX_.'module WHERE name = \''.Protocol::MODULE_NAME.'\'', false);
+        };
+        $module = Module::getInstanceByName(Protocol::MODULE_NAME);
+        if (! $module instanceof Module || $module->version !== $to) {
+            return 'the module files are not version '.$to;
+        }
+        $installed = $registered();
+        if (version_compare($installed, $to, '<')) {
+            $probe = new stdClass();
+            $probe->name = Protocol::MODULE_NAME;
+            $probe->version = $to;
+            $probe->installed = true;
+            $probe->database_version = $installed;
+            if (Module::initUpgradeModule($probe)) {
+                $upgrade = $module->runUpgradeModule();
+                if (! empty($upgrade['version_fail']) || ! empty($upgrade['duplicate']) || ! empty($upgrade['number_upgrade_left'])) {
+                    $errors = $module->getErrors();
+
+                    return sprintf('upgrade-%s.php failed%s', (string) ($upgrade['version_fail'] ?: '?'), $errors === [] ? '' : ': '.implode(' ', $errors));
+                }
+            }
+            Module::upgradeModuleVersion(Protocol::MODULE_NAME, $to);
+        }
+
+        return $registered() === $to ? null : 'the module row holds version '.$registered();
     }
 
     public static function redirects(Context $context): RedirectStore
