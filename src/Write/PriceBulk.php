@@ -28,9 +28,9 @@ use Product;
  * PrestaShop stores them. A product row (`variant_id` "0") sets `price`, `wholesale_price`,
  * `tax_rules_group_id` and `unit_price`; a combination row sets its `price` **impact** and its
  * `wholesale_price` (what `GET catalog/prices` reads as `price_impact`). `expected_price` guards
- * `price` only. A unit price follows PrestaShop's rule of the version: 8.0+ stores it and derives
- * the ratio, 1.7.8 stores only the ratio (`price / unit_price`), so a new price there changes the
- * unit price as the back office does.
+ * `price` only. A unit price is kept when only the price changes, as PrestaShop's own save does:
+ * 8.0+ stores it and derives the ratio, 1.7.8 stores only the ratio (`price / unit_price`), which is
+ * then written for the unit price the old price and ratio give.
  *
  * Hooks: `actionKxBulkPricesUpdated` with the changed product ids once a request; `fire_hooks: true`
  * adds `actionProductUpdate` per changed product. ps_facetedsearch's price index follows `reindex`:
@@ -253,10 +253,20 @@ final class PriceBulk extends Bulk
 
             return $set;
         }
+        // 1.7.8 stores only the ratio. Product::__construct() derives `unit_price = price / ratio` (0
+        // when the ratio is 0) and getFields() stores `ratio = price / unit_price` (0 when the unit price
+        // is 0), so its own save keeps the unit price when the price changes: so does this.
         if ($unitPrice === null) {
-            return [];
+            if (Decimal::money($price) === Decimal::money($current['price'])) {
+                return [];
+            }
+            // In floats as PrestaShop computes it: the unit price is not rounded before the ratio.
+            $oldRatio = (float) Decimal::money($current['unit_price_ratio']);
+            $unit = $oldRatio > 0.0 ? (float) Decimal::money($current['price']) / $oldRatio : 0.0;
+            $ratio = $unit > 0.0 ? Decimal::money(sprintf('%.6F', (float) Decimal::money($price) / $unit)) : '0.000000';
+        } else {
+            $ratio = Decimal::money($unitPrice) === '0.000000' ? '0.000000' : Decimal::divide($price, $unitPrice);
         }
-        $ratio = Decimal::money($unitPrice) === '0.000000' ? '0.000000' : Decimal::divide($price, $unitPrice);
 
         return $ratio === Decimal::money($current['unit_price_ratio']) ? [] : ['unit_price_ratio' => $this->quote($ratio)];
     }

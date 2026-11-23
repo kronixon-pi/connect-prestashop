@@ -153,6 +153,26 @@ final class PriceBulkTest extends TestCase
         self::assertSame(['30.000000', '5.000000'], array_values($this->db->rows('SELECT price, unit_price_ratio FROM ps_product_shop WHERE id_product = 1')[0]), '1.7.8: only the ratio');
     }
 
+    public function test_on_1_7_8_a_new_price_keeps_the_unit_price_as_product_update_does(): void
+    {
+        $this->db->legacy = true;
+        // The review's product: price 10, unit price 5 (ratio 2); price 20 sent → ratio 4, unit price 5.
+        $this->db->pdo->exec("UPDATE ps_product_shop SET unit_price_ratio = '2.000000' WHERE id_product = 1");
+        $this->send([['product_id' => '1', 'variant_id' => '0', 'price' => '20']]);
+        self::assertSame(['20.000000', '4.000000'], array_values($this->db->rows('SELECT price, unit_price_ratio FROM ps_product_shop WHERE id_product = 1')[0]));
+
+        // A ratio PrestaShop computes in floats: 10 / 3 per unit, then price 20 → ratio 6, not 6.000001.
+        $this->db->pdo->exec("UPDATE ps_product_shop SET price = '10.000000', unit_price_ratio = '3.000000' WHERE id_product = 1");
+        $this->send([['product_id' => '1', 'variant_id' => '0', 'price' => '20']]);
+        self::assertSame('6.000000', $this->db->rows('SELECT unit_price_ratio FROM ps_product_shop WHERE id_product = 1')[0]['unit_price_ratio']);
+
+        // No unit price (ratio 0) stays none; an unchanged price writes nothing.
+        $this->db->pdo->exec("UPDATE ps_product_shop SET unit_price_ratio = '0.000000' WHERE id_product = 1");
+        $this->send([['product_id' => '1', 'variant_id' => '0', 'price' => '25']]);
+        self::assertSame('0.000000', $this->db->rows('SELECT unit_price_ratio FROM ps_product_shop WHERE id_product = 1')[0]['unit_price_ratio']);
+        self::assertSame('unchanged', $this->send([['product_id' => '1', 'variant_id' => '0', 'price' => '25']])['results'][0]['action']);
+    }
+
     public function test_the_chunk_reads_its_rows_with_their_locks_inside_its_transaction(): void
     {
         $this->send([['product_id' => '1', 'variant_id' => '0', 'price' => '11'], ['product_id' => '2', 'variant_id' => '7', 'price' => '2']]);

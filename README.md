@@ -277,8 +277,9 @@ rows_locked` and `continue: true`, nothing of them written. Under the write lock
   reads as `price_impact`) and `wholesale_price` (`tax_rules_group_id`/`unit_price` there: `product_fields_ignored`).
   `product_shop`/`product_attribute_shop` of the paired shop are written, and the main table when the paired shop is
   the default one, as PrestaShop's save does; `date_upd` of the product too unless `touch_date_upd: false`. A unit
-  price follows the version: 8.0+ keeps it and derives the ratio, 1.7.8 keeps only the ratio, so a new price changes
-  its unit price as in the back office. After the last chunk the price caches go (`flush_cache: false` keeps them)
+  price stays when only the price changes, as with PrestaShop's own save: 8.0+ stores it and derives the ratio;
+  1.7.8 stores only the ratio, which is written as the new price over the unit price the old price and ratio give
+  (a ratio of 0, no unit price, stays 0). After the last chunk the price caches go (`flush_cache: false` keeps them)
   and `actionKxBulkPricesUpdated` runs once with the changed product ids; `fire_hooks: true` adds
   `actionProductUpdate` per changed product. ps_facetedsearch's price filter: `reindex: inline` indexes the changed
   products after each chunk; `deferred` (the default) lists them in `facets_pending` for `POST maintenance/facets`;
