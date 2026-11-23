@@ -46,7 +46,7 @@ final class TagReader implements Reader
 
     public function maxId(): string
     {
-        return Rows::id($this->sql->rows('SELECT MAX(id_tag) AS m FROM '.$this->sql->table('tag'))[0]['m'] ?? null);
+        return Rows::maxId($this->sql, $this->scope, 'tag', 'id_tag');
     }
 
     public function maxCursorVariant(Request $request): ?int
@@ -62,10 +62,19 @@ final class TagReader implements Reader
             't.id_tag, t.id_lang, t.name',
             $this->sql->table('tag').' t',
             't.id_tag',
-            "t.name <> '' AND t.id_lang IN (".Rows::in(array_keys($this->scope->languages)).')'
+            "t.name <> '' AND t.id_lang IN (".Rows::in(array_keys($this->scope->languages)).')',
+            $this->scope,
+            'tag'
         );
         $ids = Rows::ints($rows, 'id_tag');
-        $counts = Rows::counts($this->sql, $this->sql->table('product_tag').' pt'.Rows::inShop($this->sql, $this->scope, 'pt'), 'pt.id_tag', $ids);
+        $counts = Rows::counts(
+            $this->sql,
+            $this->sql->table('product_tag').' pt'.Rows::inShop($this->sql, $this->scope, 'pt'),
+            'pt.id_tag',
+            $ids,
+            'COUNT(*)',
+            Rows::notPending($this->sql, $this->scope, 'product', 'pt.id_product')
+        );
 
         $items = [];
         foreach ($rows as $row) {

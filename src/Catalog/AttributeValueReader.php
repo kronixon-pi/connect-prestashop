@@ -79,7 +79,9 @@ final class AttributeValueReader implements Reader
             'fv.id_feature_value, fv.id_feature, fv.custom'.($this->scope->featureValuePosition ? ', fv.position' : ''),
             $this->sql->table('feature_value').' fv INNER JOIN '.$this->sql->table('feature_shop').' fs ON fs.id_feature = fv.id_feature AND fs.id_shop = '.$this->scope->shopId,
             'fv.id_feature_value',
-            $parent === null ? '' : 'fv.id_feature = '.$parent
+            $parent === null ? '' : 'fv.id_feature = '.$parent,
+            $this->scope,
+            'feature_value'
         );
         $ids = Rows::ints($rows, 'id_feature_value');
         $texts = Rows::multilang($this->scope, $this->sql->rows('SELECT id_feature_value, id_lang, value FROM '.$this->sql->table('feature_value_lang')
@@ -114,7 +116,9 @@ final class AttributeValueReader implements Reader
             $this->sql->table('attribute').' a INNER JOIN '.$this->sql->table('attribute_shop').' s ON s.id_attribute = a.id_attribute AND s.id_shop = '.$this->scope->shopId
                 .' INNER JOIN '.$this->sql->table('attribute_group_shop').' gs ON gs.id_attribute_group = a.id_attribute_group AND gs.id_shop = '.$this->scope->shopId,
             'a.id_attribute',
-            $parent === null ? '' : 'a.id_attribute_group = '.$parent
+            $parent === null ? '' : 'a.id_attribute_group = '.$parent,
+            $this->scope,
+            'attribute'
         );
         $ids = Rows::ints($rows, 'id_attribute');
         $texts = Rows::multilang($this->scope, $this->sql->rows('SELECT id_attribute, id_lang, name FROM '.$this->sql->table('attribute_lang')
@@ -139,7 +143,7 @@ final class AttributeValueReader implements Reader
 
     private function max(string $table, string $id): string
     {
-        return Rows::id($this->sql->rows('SELECT MAX('.$id.') AS m FROM '.$this->sql->table($table))[0]['m'] ?? null);
+        return Rows::maxId($this->sql, $this->scope, $table, $id);
     }
 
     /**

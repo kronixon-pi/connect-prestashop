@@ -71,7 +71,14 @@ final class SupplierReader implements Reader
         $ids = Rows::ints($rows, 'id_supplier');
         $texts = Rows::multilang($this->scope, $this->sql->rows('SELECT id_supplier, id_lang, '.implode(', ', self::TEXTS).' FROM '
             .$this->sql->table('supplier_lang').' WHERE id_supplier IN ('.Rows::in($ids).')'), 'id_supplier', self::TEXTS);
-        $counts = Rows::counts($this->sql, $this->sql->table('product_supplier').' psu'.Rows::inShop($this->sql, $this->scope, 'psu'), 'psu.id_supplier', $ids, 'COUNT(DISTINCT psu.id_product)');
+        $counts = Rows::counts(
+            $this->sql,
+            $this->sql->table('product_supplier').' psu'.Rows::inShop($this->sql, $this->scope, 'psu'),
+            'psu.id_supplier',
+            $ids,
+            'COUNT(DISTINCT psu.id_product)',
+            Rows::notPending($this->sql, $this->scope, 'product', 'psu.id_product').Rows::notPending($this->sql, $this->scope, 'product_supplier', 'psu.id_product_supplier')
+        );
         $kx = Rows::kxIds($this->sql, self::ENTITY, $ids);
 
         $items = [];
