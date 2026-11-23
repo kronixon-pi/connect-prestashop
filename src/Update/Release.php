@@ -76,6 +76,7 @@ final class Release
             throw UpdateError::refused('bad_answer', 'size');
         }
         $release->size = $size;
+        // `latest.protocol` is not read: the signed manifest's `protocol` is what Package::open() checks.
         $release->signature = $signature;
         $release->mandatory = ($latest['mandatory'] ?? false) === true;
         $changelog = $latest['changelog_url'] ?? null;
