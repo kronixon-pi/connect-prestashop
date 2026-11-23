@@ -46,6 +46,9 @@ jobs:
       - uses: ramsey/composer-install@65e4f84970763564f46a70b8a54b90d033b3bdda # 4.0.0
       - run: scripts/ps-smoke.sh ${{ matrix.ps }}
         env: { PS_TAG: "${{ matrix.tag }}", KX_WALK_PRODUCTS: "100000" }
+      # The self-update from the release zip through the back office: refusals, update, rollback, a killed worker.
+      - run: scripts/update-smoke.sh ${{ matrix.ps }}
+        env: { PS_TAG: "${{ matrix.tag }}", KX_PHP: "php" }
 
   required:
     name: matrix (required versions)

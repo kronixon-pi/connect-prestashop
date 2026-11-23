@@ -10,6 +10,9 @@ declare(strict_types=1);
  * rotate-request (VerifyConnectSignature: protocol, store, format, ±300 s, HMAC with cur then prev,
  * nonce, then the route; the answer signed with cur). State lives in a JSON file that
  * platform-driver.php reads, so the driver can then play the platform's calls to the module.
+ * The signed `GET /v1/module/latest` answers what `latest.json` next to the state holds (update-smoke.sh
+ * puts it there; `{"latest": null, …}` without it); KX_STUB_PLATFORM_KEY is the `platform_public_key`
+ * of the pair answer (a release build pins its key).
  * Test tooling: PHP 7.4+, no dependencies, never part of the module zip.
  */
 
@@ -110,7 +113,7 @@ if ($method === 'POST' && $path === '/v1/pair') {
     $answer(201, [
         'store_id' => $storeId,
         'shared_secret_sealed' => base64_encode(sodium_crypto_box_seal($secret, $key)),
-        'platform_public_key' => base64_encode(str_repeat("\x01", 32)),
+        'platform_public_key' => getenv('KX_STUB_PLATFORM_KEY') ?: base64_encode(str_repeat("\x01", 32)),
         'api_base' => $apiBase,
         'events_url' => $apiBase.'/stores/'.$storeId.'/events',
         'server_time' => $now,
@@ -121,7 +124,10 @@ if ($method === 'POST' && $path === '/v1/pair') {
     return true;
 }
 
-if (preg_match('#\A/v1/stores/([0-9a-f-]{36})/(ping|unpair|rotate-request|events)\z#', $path, $m) !== 1) {
+$m = [];
+if ($method === 'GET' && $path === '/v1/module/latest') {
+    $m = ['', '', 'latest'];
+} elseif (preg_match('#\A/v1/stores/([0-9a-f-]{36})/(ping|unpair|rotate-request|events)\z#', $path, $m) !== 1) {
     $error(404, 'not_found');
 
     return true;
@@ -146,7 +152,17 @@ if (abs($now - (int) $timestamp) > 300) {
 
     return true;
 }
-$canonical = implode("\n", [$method, $path, $timestamp, $nonce, hash('sha256', $body)]);
+// The query is part of the signature, its pairs sorted and RFC 3986 encoded, without the transport parameters
+// (README §4.2 step 3: `module` of GET /v1/module/latest is one of them).
+$pairs = [];
+foreach (explode('&', (string) ($_SERVER['QUERY_STRING'] ?? '')) as $pair) {
+    $parts = explode('=', $pair, 2);
+    if ($pair !== '' && ! in_array(rawurldecode($parts[0]), ['fc', 'module', 'controller', 'path', 'id_lang', 'isolang', 'id_shop'], true)) {
+        $pairs[] = rawurlencode(rawurldecode($parts[0])).'='.rawurlencode(rawurldecode($parts[1] ?? ''));
+    }
+}
+sort($pairs, SORT_STRING);
+$canonical = implode("\n", [$method, $pairs === [] ? $path : $path.'?'.implode('&', $pairs), $timestamp, $nonce, hash('sha256', $body)]);
 $keys = [$state['cur']];
 if ($state['prev'] !== null && $now <= (int) $state['prev_until']) {
     $keys[] = $state['prev'];
@@ -167,7 +183,12 @@ if (in_array($nonce, $state['nonces'], true)) {
 }
 $state['nonces'][] = $nonce;
 $input = json_decode($body, true);
-if ($m[2] === 'ping') {
+if ($m[2] === 'latest') {
+    $state['latest_queries'][] = $_GET;
+    $file = dirname($stateFile).'/latest.json';
+    $data = is_file($file) ? json_decode((string) file_get_contents($file), true) : null;
+    $data = is_array($data) ? $data : ['latest' => null, 'compatible' => false, 'reason' => 'no_release'];
+} elseif ($m[2] === 'ping') {
     $state['pings']++;
     $data = ['ok' => true, 'server_time' => $now];
 } elseif ($m[2] === 'unpair') {
