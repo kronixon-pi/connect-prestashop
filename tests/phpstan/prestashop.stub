@@ -568,6 +568,12 @@ abstract class Module
     public function updatePosition($id_hook, $way, $position = null) {}
 
     /**
+     * @param string $hook
+     * @return bool
+     */
+    public function isRegisteredInHook($hook) {}
+
+    /**
      * @param string $file
      * @param string $template
      * @param string|null $cache_id

@@ -42,8 +42,20 @@
         },
         "external_id": { "$ref": "common.json#/$defs/external_id_or_null" },
         "occurred_at": { "$ref": "common.json#/$defs/datetime" },
-        "dedupe_key": { "type": "string", "minLength": 1, "maxLength": 191 },
-        "origin": { "enum": ["shop", "kronixon"] },
+        "dedupe_key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 191,
+          "description": "Module 0.6.0: unique per event (the entity and the outbox row); event_id alone is enough to deduplicate."
+        },
+        "origin": {
+          "enum": ["shop", "kronixon"],
+          "description": "Module 0.6.0 sends only shop: changes made by the platform's own requests are not recorded."
+        },
+        "kx_id": {
+          "$ref": "common.json#/$defs/uuid",
+          "description": "Module 0.6.0: the catalog's UUID of the entity when kx_entity_map links it (products, variants, categories, brands, attribute values)."
+        },
         "payload": { "type": "object" }
       },
       "allOf": [

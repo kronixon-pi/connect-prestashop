@@ -76,7 +76,7 @@ account() { # employees + profiles + access rows of the service account, tab row
 }
 expect_eq "module row (name active version)" "kronixonconnect	1	$module_version" "$(sql "SELECT name, active, version FROM ps_module WHERE name = 'kronixonconnect'")"
 expect_eq "kx_ tables" "9" "$(sql "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'prestashop' AND table_name LIKE 'ps\_kx\_%'")"
-expect_eq "registered hooks" "20" "$(sql "SELECT COUNT(*) FROM ps_hook_module hm JOIN ps_module m ON m.id_module = hm.id_module WHERE m.name = 'kronixonconnect'")"
+expect_eq "registered hooks" "22" "$(sql "SELECT COUNT(*) FROM ps_hook_module hm JOIN ps_module m ON m.id_module = hm.id_module WHERE m.name = 'kronixonconnect'")"
 expect_eq "KX_INSTANCE_ID is a UUID" "1" "$(cfg KX_INSTANCE_ID "value REGEXP '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'")"
 expect_eq "X25519 public key (base64 of 32 bytes)" "1" "$(cfg KX_PUBLIC_KEY "value REGEXP '^[A-Za-z0-9+/]{43}=$'")"
 expect_eq "key pair stored encrypted (PhpEncryption, not base64 of 64 bytes)" "1" "$(cfg KX_PRIVATE_KEY "LENGTH(value) > 200 AND value NOT REGEXP '^[A-Za-z0-9+/]{86}==$'")"
@@ -97,13 +97,14 @@ step "uninstall + reinstall checked"
 # (shops with a row, whether it is first in each of them).
 added() { sql "SELECT COUNT(DISTINCT hm.id_shop), COALESCE(MIN(hm.position <= (SELECT MIN(o.position) FROM ps_hook_module o WHERE o.id_hook = hm.id_hook AND o.id_shop = hm.id_shop)), 0) FROM ps_hook_module hm JOIN ps_hook h ON h.id_hook = hm.id_hook JOIN ps_module m ON m.id_module = hm.id_module WHERE m.name = 'kronixonconnect' AND h.name = 'actionObjectAddAfter'"; }
 expect_eq "actionObjectAddAfter registered, first" "1	1" "$(added)"
-# An install of 0.3.2 (without kx_pending, kx_bulk_chunk and that hook, path_from a text column) upgraded by
-# PrestaShop itself.
-sql "DROP TABLE ps_kx_pending; DROP TABLE ps_kx_bulk_chunk; ALTER TABLE ps_kx_redirect MODIFY path_from VARCHAR(191) NOT NULL; DELETE hm FROM ps_hook_module hm JOIN ps_hook h ON h.id_hook = hm.id_hook JOIN ps_module m ON m.id_module = hm.id_module WHERE m.name = 'kronixonconnect' AND h.name = 'actionObjectAddAfter'; UPDATE ps_module SET version = '0.3.2' WHERE name = 'kronixonconnect'"
+# An install of 0.3.2 (without kx_pending, kx_bulk_chunk, that hook and the update Before hooks, path_from a
+# text column, kx_outbox of before 0.6.0) upgraded by PrestaShop itself.
+sql "DROP TABLE ps_kx_pending; DROP TABLE ps_kx_bulk_chunk; ALTER TABLE ps_kx_redirect MODIFY path_from VARCHAR(191) NOT NULL; ALTER TABLE ps_kx_outbox DROP COLUMN entity_key, DROP COLUMN batch_id; DELETE hm FROM ps_hook_module hm JOIN ps_hook h ON h.id_hook = hm.id_hook JOIN ps_module m ON m.id_module = hm.id_module WHERE m.name = 'kronixonconnect' AND (h.name = 'actionObjectAddAfter' OR h.name LIKE 'actionObject%UpdateBefore'); UPDATE ps_module SET version = '0.3.2' WHERE name = 'kronixonconnect'"
 console prestashop:module upgrade kronixonconnect
 expect_eq "kx_ tables after the upgrade from 0.3.2" "9" "$(sql "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'prestashop' AND table_name LIKE 'ps\_kx\_%'")"
+expect_eq "kx_outbox reshaped by the upgrade" "2" "$(sql "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'prestashop' AND table_name = 'ps_kx_outbox' AND column_name IN ('entity_key', 'batch_id')")"
 expect_eq "actionObjectAddAfter after the upgrade" "1	1" "$(added)"
-expect_eq "registered hooks after the upgrade" "20" "$(sql "SELECT COUNT(*) FROM ps_hook_module hm JOIN ps_module m ON m.id_module = hm.id_module WHERE m.name = 'kronixonconnect'")"
+expect_eq "registered hooks after the upgrade" "22" "$(sql "SELECT COUNT(*) FROM ps_hook_module hm JOIN ps_module m ON m.id_module = hm.id_module WHERE m.name = 'kronixonconnect'")"
 expect_eq "kx_redirect.path_from compared byte for byte after the upgrade" "varbinary" "$(sql "SELECT DATA_TYPE FROM information_schema.columns WHERE table_schema = 'prestashop' AND table_name = 'ps_kx_redirect' AND column_name = 'path_from'")"
 step "upgrade checked"
 
@@ -178,6 +179,8 @@ dc exec -T ps chown -R www-data:www-data /var/www/html/modules/kxprobe </dev/nul
 console prestashop:module install kxprobe
 writes "failed writes leave nothing half-written" failed-writes
 writes "images: create, keep, replace, strategies, links; a request that dies leaves no half image" image-writes
+# Store events: back office, orders, a module that throws after ours, GET events (tests/Integration/events-capture.php).
+writes "store events recorded in the outbox" events-capture
 console prestashop:module uninstall kxprobe
 dc exec -T ps rm -rf /var/www/html/modules/kxprobe /tmp/kxprobe.json </dev/null
 step "writes checked in $(( $(date +%s) - w0 ))s"

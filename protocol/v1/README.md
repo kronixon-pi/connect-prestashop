@@ -348,12 +348,45 @@ Platform rule: 401/403/404/405/413/422 are not retried and put the job or item i
 The module records shop changes in an outbox (hooks only insert; no HTTP inside a hook) and sends
 them signed to `POST /v1/stores/{store_id}/events`, at most 200 per request and 1 MB, on page visits,
 from a cron URL and with backoff (`2^attempts × 30 s`, at most 6 h, 10 attempts). Delivery is
-at-least-once; the platform deduplicates by `event_id` and by `(store, type, external_id, occurred_at)`
-and treats an event as a hint: it re-reads the entity through `GET catalog/*` instead of trusting the
-payload. Changes made by the platform's own requests are not recorded (`origin: kronixon` is
-suppressed). `module.heartbeat` is sent every 24 h; more than 48 h without one is a warning. When
-webhooks fail, the platform drains the outbox with `GET events` + `POST events/ack`.
+at-least-once; the platform deduplicates by `event_id` and treats an event as a hint: it re-reads
+the entity through `GET catalog/*` instead of trusting the payload. Changes made by the platform's
+own requests are not recorded (`origin: kronixon` is suppressed). `module.heartbeat` is sent every
+24 h; more than 48 h without one is a warning. When webhooks fail, the platform drains the outbox
+with `GET events` + `POST events/ack`.
 Types and payloads: [`schemas/events.json`](schemas/events.json).
+
+Recording (module 0.6.0):
+
+- **What is recorded.** The hooks of Spec §7.2 run in every request except the platform's own (the
+  API front controller), wherever the change comes from: the back office, another module, a CLI
+  script, an order (`actionUpdateQuantity`). On every change hook the module runs before every other
+  module, so a module that throws after it does not stop the recording (on 1.7.8 such an exception
+  stops the modules that come after it).
+- **One INSERT per hook, nothing else.** The row is written on the request's own connection. A change
+  made inside a transaction is recorded in that transaction, and a rollback takes both. A module that
+  commits early (ps_facetedsearch's `TRUNCATE`) commits both. A change made in autocommit is recorded
+  right after it. Hooks never read or update an existing outbox row, so a checkout never waits for a
+  lock of ours. When the INSERT fails, the change is still saved. The time of the first failure is
+  kept, and the next flush sends `module.outbox_overflow` with that time as `since`.
+- **Coalescing.** Rows of one entity (type and `external_id`, plus the variant for `price.updated`
+  and `stock.updated`) become one event when they are sent. That event takes the event id, type and
+  time of the newest row; `stock.updated` keeps the oldest row's `previous_quantity`. Events go out in
+  the order of their newest rows, so the events of one entity keep their order.
+- **Read at send time.** `content_hash` of `product.*` is the hash `GET catalog/products` returns,
+  and `price` of `price.updated` is the price `GET catalog/prices` returns, both read when the event
+  is built. An event whose entity is gone by then is dropped; the `*.deleted` event follows it.
+  `kx_id` is added when `kx_entity_map` links the entity. `price.updated` is only recorded when the
+  stored price differs after the update.
+- **`occurred_at`** has milliseconds. **`dedupe_key`** is unique per event (the entity and the newest
+  row's id), so `event_id` is enough to deduplicate. Do not deduplicate by
+  `(type, external_id, occurred_at)`: two changes of an entity within one second are two events.
+- **`GET events`** lists pending and failed rows oldest first, one event per row, without coalescing,
+  so each row can be acknowledged. **`POST events/ack`** marks rows sent by event id. Unknown ids are
+  ignored, and acknowledging twice is harmless.
+- **Bounds.** Above 50 000 pending rows, the older rows of an entity that has a newer one are deleted.
+  If more than 50 000 entities are still pending after that, every pending row is deleted and one
+  `module.outbox_overflow {merged, since}` is recorded; the platform then reads everything changed
+  since `since`.
 
 ## 9. Limits
 

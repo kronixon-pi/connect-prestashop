@@ -38,6 +38,12 @@ use Kronixon\Connect\Catalog\PrestaShopSql;
 use Kronixon\Connect\Catalog\Scope;
 use Kronixon\Connect\Compat\Version;
 use Kronixon\Connect\Crypto\ShopCipher;
+use Kronixon\Connect\Outbox\CatalogEnricher;
+use Kronixon\Connect\Outbox\EventEndpoints;
+use Kronixon\Connect\Outbox\Events;
+use Kronixon\Connect\Outbox\OutboxStore;
+use Kronixon\Connect\Outbox\Recorder;
+use Kronixon\Connect\Outbox\ShopChanges;
 use Kronixon\Connect\Platform\CurlTransport;
 use Kronixon\Connect\Platform\Pairing;
 use Kronixon\Connect\Platform\PlatformClient;
@@ -78,6 +84,9 @@ use Tools;
  */
 final class Services
 {
+    /** @var array{0: Recorder, 1: ShopChanges}|null */
+    private static $outbox;
+
     private function __construct()
     {
     }
@@ -284,6 +293,35 @@ final class Services
         }
     }
 
+    /**
+     * The hooks' side of the outbox, on the request's own connection, once per request; null while the
+     * shop is not paired (one cached setting: an unpaired shop pays nothing more).
+     *
+     * @return array{0: Recorder, 1: ShopChanges}|null
+     */
+    public static function outbox(): ?array
+    {
+        if (self::secrets()->storeId() === null) {
+            return null;
+        }
+        if (self::$outbox === null) {
+            $db = new ShopDatabase(Db::getInstance(), _DB_PREFIX_);
+            self::$outbox = [new Recorder($db, self::settings(), new SystemClock(), self::log()), new ShopChanges($db)];
+        }
+
+        return self::$outbox;
+    }
+
+    /** GET events and POST events/ack, on the master connection. */
+    public static function events(Context $context): EventEndpoints
+    {
+        return new EventEndpoints(static function () use ($context): array {
+            $db = new ShopDatabase(Db::getInstance(), _DB_PREFIX_);
+
+            return [new OutboxStore($db), new Events(new CatalogEnricher($db, PrestaShopScope::of($context, Version::select(_PS_VERSION_)), new PrestaShopImageUrls($context->link)))];
+        }, new SystemClock());
+    }
+
     public static function redirects(Context $context): RedirectStore
     {
         return new RedirectStore(new ShopDatabase(Db::getInstance(), _DB_PREFIX_), self::settings(), (int) $context->shop->id);
@@ -320,7 +358,7 @@ final class Services
         $rate = (int) $settings->get('KX_RATE_LIMIT');
 
         return new Kernel(
-            self::bulk($context)->register(self::writes($context)->register(self::catalog($context)->register(self::endpoints($context)->register(new Router())))),
+            self::events($context)->register(self::bulk($context)->register(self::writes($context)->register(self::catalog($context)->register(self::endpoints($context)->register(new Router()))))),
             self::secrets(),
             new SystemClock(),
             $guards,

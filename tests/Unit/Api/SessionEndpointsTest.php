@@ -34,7 +34,7 @@ final class SessionEndpointsTest extends TestCase
             return $flag === true;
         }));
         // webhooks … come with later versions; facets with ps_facetedsearch (FakeShop has it).
-        self::assertSame(['attribute_values_custom', 'attributes', 'cache_flush', 'categories', 'facets', 'image_alt', 'images', 'multilang', 'prices.bulk', 'products.write', 'redirects', 'search_reindex', 'seo', 'stock', 'suppliers', 'tags', 'variants'], $announced);
+        self::assertSame(['attribute_values_custom', 'attributes', 'cache_flush', 'categories', 'events.pull', 'facets', 'image_alt', 'images', 'multilang', 'prices.bulk', 'products.write', 'redirects', 'search_reindex', 'seo', 'stock', 'suppliers', 'tags', 'variants'], $announced);
         self::assertSame(50, $data['limits']['images_per_request']);
         self::assertFalse($data['capabilities']['stock_locations'], 'PrestaShop has one stock per shop');
         self::assertSame(100, $data['limits']['batch']);

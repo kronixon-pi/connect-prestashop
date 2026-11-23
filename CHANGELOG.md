@@ -4,6 +4,22 @@ All notable changes of the module are listed here; versions follow [Semantic Ver
 
 ## [Unreleased]
 
+## [0.6.0]
+
+### Added
+
+- Store events: the change hooks of products, combinations, prices, stock (also from orders), images, categories,
+  brands, feature values and attributes record one row each in `kx_outbox`. A row is written in the change's own
+  transaction, never while the platform's own request runs, and the module runs first on every change hook. A
+  failed insert never fails the shop's change.
+- `GET events` and `POST events/ack` (announced as `events.pull`): the pending and failed rows as events of
+  `schemas/events.json`, with the `content_hash`, `price` and `kx_id` read when the event is built.
+
+### Changed
+
+- `kx_outbox` has a new shape (`entity_key`, `batch_id`, `occurred_at` with milliseconds); no earlier version wrote
+  to it, and the upgrade recreates it.
+
 ## [0.5.0]
 
 ### Added

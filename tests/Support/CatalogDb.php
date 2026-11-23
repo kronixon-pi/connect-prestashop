@@ -95,6 +95,8 @@ final class CatalogDb implements Database, ImageUrls
             removing INT DEFAULT 0, created_at TEXT',
         'kx_redirect' => 'id_kx_redirect INTEGER PRIMARY KEY, id_shop INT, path_from TEXT, target_type TEXT, target_id INT, code INT, date_add TEXT, UNIQUE (id_shop, path_from)',
         'kx_image_map' => 'id_image INTEGER PRIMARY KEY, id_product INT, kx_key TEXT, sha256 TEXT',
+        'kx_outbox' => 'id_outbox INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT NOT NULL UNIQUE, type TEXT NOT NULL, external_id TEXT, entity_key TEXT NOT NULL,
+            payload TEXT, occurred_at TEXT NOT NULL, status TEXT NOT NULL DEFAULT \'pending\', batch_id TEXT, attempts INT NOT NULL DEFAULT 0, last_error TEXT, sent_at TEXT',
     ];
 
     /** @var PDO */

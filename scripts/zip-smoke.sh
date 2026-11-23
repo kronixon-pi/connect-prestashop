@@ -60,7 +60,7 @@ dc exec -T -u www-data ps php -r '$z = new ZipArchive; exit($z->open("/tmp/k.zip
 console prestashop:module install kronixonconnect
 expect_eq "module row (name active version)" "kronixonconnect	1	$version" "$(sql "SELECT name, active, version FROM ps_module WHERE name = 'kronixonconnect'")"
 expect_eq "kx_ tables" "9" "$(sql "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'prestashop' AND table_name LIKE 'ps\_kx\_%'")"
-expect_eq "registered hooks" "20" "$(sql "SELECT COUNT(*) FROM ps_hook_module hm JOIN ps_module m ON m.id_module = hm.id_module WHERE m.name = 'kronixonconnect'")"
+expect_eq "registered hooks" "22" "$(sql "SELECT COUNT(*) FROM ps_hook_module hm JOIN ps_module m ON m.id_module = hm.id_module WHERE m.name = 'kronixonconnect'")"
 
 # The API controller answers from the zip's own classes.
 answer="$(curl -sS -H 'X-KX-Protocol: v1' "$base/index.php?fc=module&module=kronixonconnect&controller=api&path=/v1/status" | jq -r '.error.code' 2>/dev/null || echo "no answer")"
