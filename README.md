@@ -296,10 +296,11 @@ rows_locked` and `continue: true`, nothing of them written. Under the write lock
   with `POST products`, `content`). `visibility_policy: restore_if_hidden` shows a product hidden from everywhere
   (`visibility: none`) once its total is above 0 (`visibility_restored`); `hide_when_zero` hides a product the
   platform has linked (a `kx_id`) when its total is 0 (`visibility_hidden`; an unlinked one is
-  `not_hidden_unlinked`) and shows again only those it hid (`kx_entity_map.flags` bit 1). A visibility change marks
-  the product for search indexing. The totals of `fast` and the visibility run after the chunk's commit; when that
-  step fails, the rows of its products carry the warning `totals_not_updated` and sending them again sets both.
-  `actionKxBulkStockUpdated` runs once with the changed product ids.
+  `not_hidden_unlinked`) and shows again only those it hid (`kx_entity_map.flags` bit 1), with the visibility they
+  had (`both`, `catalog` or `search`, bits 2–3). A visibility change marks the product for search indexing. The
+  totals of `fast` and the visibility run after the chunk's commit; when that step fails, the rows of its products
+  carry the warning `totals_not_updated` and sending them again sets both. `actionKxBulkStockUpdated` runs once with
+  the changed product ids.
 - **`POST maintenance/reindex`** (`search_reindex`): PrestaShop's `Search::indexation()` per product, by id, within
   `budget_s` (at most the request's). `pending` indexes the products PrestaShop marked (`indexed = 0`), `products`
   marks and indexes the listed ones (up to 1 000), `full` marks every product of the paired shop first. While

@@ -36,9 +36,10 @@ use Kronixon\Connect\Support\Log;
  *
  * `visibility_policy`: `restore_if_hidden` shows a product hidden from everywhere (`visibility: none`)
  * once it has stock again; `hide_when_zero` hides a product linked to the platform (a `kx_id`) when
- * its total quantity is 0 and shows again only those it hid (`kx_entity_map.flags` bit 1). When the
- * totals or the visibility step after a chunk's commit fails, the rows of its products carry
- * `totals_not_updated`; sending them again sets both.
+ * its total quantity is 0 and shows again only those it hid (`kx_entity_map.flags` bit 1), with the
+ * visibility they had (`both`, `catalog` or `search`, bits 2–3). When the totals or the visibility
+ * step after a chunk's commit fails, the rows of its products carry `totals_not_updated`; sending
+ * them again sets both.
  * `available_now`/`available_later` are texts of the product (POST products, `content`): ignored here
  * with a warning.
  */
@@ -46,6 +47,11 @@ final class StockBulk extends Bulk
 {
     /** `kx_entity_map.flags`: the product was hidden by `hide_when_zero`. */
     private const HIDDEN_BY_KX = 1;
+
+    /** `kx_entity_map.flags` bits 2–3: the visibility the product had before, an index of VISIBILITIES. */
+    private const VISIBILITY_BITS = 6;
+
+    private const VISIBILITIES = ['both', 'catalog', 'search'];
 
     /** @var callable(int, int, int, int): void StockAvailable::setQuantity() */
     private $setQuantity;
@@ -278,12 +284,15 @@ final class StockBulk extends Bulk
             $hidden = $product['visibility'] === 'none';
             $ours = $product['flags'] !== null && ($product['flags'] & self::HIDDEN_BY_KX) !== 0;
             if ($total > 0 && $hidden && ($this->visibility === 'restore_if_hidden' || $ours)) {
-                $this->show($id, 'both', $ours ? (int) $product['flags'] & ~self::HIDDEN_BY_KX : null, 'visibility_restored');
+                // What the product had before `hide_when_zero` hid it; `both` for one hidden in the shop.
+                $before = $ours ? self::VISIBILITIES[((int) $product['flags'] & self::VISIBILITY_BITS) >> 1] : 'both';
+                $this->show($id, $before, $ours ? (int) $product['flags'] & ~(self::HIDDEN_BY_KX | self::VISIBILITY_BITS) : null, 'visibility_restored');
             } elseif ($total <= 0 && ! $hidden && $this->visibility === 'hide_when_zero') {
                 if ($product['flags'] === null) {
                     $this->warn($id, 'not_hidden_unlinked');
                 } else {
-                    $this->show($id, 'none', $product['flags'] | self::HIDDEN_BY_KX, 'visibility_hidden');
+                    $code = (int) array_search($product['visibility'], self::VISIBILITIES, true);
+                    $this->show($id, 'none', ($product['flags'] & ~self::VISIBILITY_BITS) | self::HIDDEN_BY_KX | ($code << 1), 'visibility_hidden');
                 }
             }
         }

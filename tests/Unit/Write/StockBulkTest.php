@@ -120,6 +120,19 @@ final class StockBulkTest extends TestCase
         self::assertSame('0', $this->db->rows('SELECT flags FROM ps_kx_entity_map')[0]['flags']);
     }
 
+    public function test_hide_when_zero_restores_the_visibility_the_product_had(): void
+    {
+        $this->db->insert('kx_entity_map', ['entity_type' => 'product', 'external_id' => '1', 'kx_id' => '0192b2e4-2f7a-7c5b-8a1d-3e4f5a6b7c8d', 'flags' => 0]);
+        foreach (['catalog' => '3', 'search' => '5', 'both' => '1'] as $visibility => $flags) {
+            $this->db->pdo->exec("UPDATE ps_product_shop SET visibility = '".$visibility."' WHERE id_product = 1");
+            $this->send([['product_id' => '1', 'variant_id' => '0', 'quantity' => 0]], ['visibility_policy' => 'hide_when_zero']);
+            self::assertSame(['none', $flags], [$this->db->rows('SELECT visibility FROM ps_product_shop WHERE id_product = 1')[0]['visibility'], $this->db->rows('SELECT flags FROM ps_kx_entity_map')[0]['flags']]);
+
+            $this->send([['product_id' => '1', 'variant_id' => '0', 'quantity' => 2]], ['visibility_policy' => 'hide_when_zero']);
+            self::assertSame([$visibility, '0'], [$this->db->rows('SELECT visibility FROM ps_product_shop WHERE id_product = 1')[0]['visibility'], $this->db->rows('SELECT flags FROM ps_kx_entity_map')[0]['flags']]);
+        }
+    }
+
     public function test_a_failed_totals_or_visibility_step_is_a_row_warning_and_a_repeat_sets_them(): void
     {
         $this->db->insert('kx_entity_map', ['entity_type' => 'product', 'external_id' => '1', 'kx_id' => '0192b2e4-2f7a-7c5b-8a1d-3e4f5a6b7c8d', 'flags' => 0]);
