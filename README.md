@@ -332,6 +332,7 @@ left so is `cleanup_failed`.
   Over HTTPS with TLS verified (plain HTTP only with the development setting `KX_PLATFORM_ALLOW_HTTP`), no
   redirects, at most 20 MB per file in 20 s and 100 MB per request; outside development the host must resolve to
   public addresses only, and the connection goes to the address that was checked.
+  A fetch also ends a second before the request's time budget; one the budget cuts is `skipped` (`time_budget`).
   "Public" is an explicit table (`src/Write/PublicAddress.php`, IANA's special-purpose registries), not PHP's filter
   flags: refused are 0/8, 10/8, 100.64/10, 127/8, 169.254/16, 172.16/12, 192.0.0/24, 192.0.2/24, 192.88.99/24,
   192.168/16, 198.18/15, 198.51.100/24, 203.0.113/24, 224/4 and 240/4 (with 255.255.255.255); for IPv6 everything

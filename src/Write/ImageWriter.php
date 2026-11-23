@@ -44,6 +44,7 @@ use Throwable;
  * with `cover: true`, else the cover there was, else the first). When the time budget skips items the
  * request is not the whole list: nothing is removed, and the `continue` request (the whole list again)
  * removes the rest.
+ * A fetch ends within the budget; one the budget cuts is `skipped`.
  *
  * `variant_id` links every image of the request to that combination of the product (others it has
  * stay). A combination sent before its images (`image_key_unknown` of `POST variants`) is linked by
@@ -53,6 +54,9 @@ final class ImageWriter extends ShopWriter
 {
     /** Spec §5.7: what one request may fetch in all. */
     private const MAX_REQUEST_BYTES = 104857600;
+
+    /** Seconds of the budget a fetch leaves for making and placing the image's files. */
+    private const AFTER_FETCH_S = 1.0;
 
     /** @var Download */
     private $download;
@@ -108,6 +112,9 @@ final class ImageWriter extends ShopWriter
     /** @var bool an item was skipped for the time budget: the request is not the whole list */
     private $incomplete = false;
 
+    /** @var Budget|null */
+    private $budget;
+
     public function __construct(Shop $shop, Download $download, ImageFiles $files, Item $body)
     {
         parent::__construct($shop);
@@ -119,6 +126,7 @@ final class ImageWriter extends ShopWriter
     public function start(Budget $budget): void
     {
         parent::start($budget);
+        $this->budget = $budget;
         $limit = (string) ini_get('memory_limit');
         if ($limit !== '-1' && self::bytes($limit) < 536870912) {
             @ini_set('memory_limit', '512M');
@@ -169,7 +177,13 @@ final class ImageWriter extends ShopWriter
         if ($id !== null && $this->images[$id]['sha256'] === $sha256) {
             return;
         }
-        $source = $this->download->fetch((string) $item->string('url'), $sha256, 'url', $this->files->workRoot());
+        // The fetch ends within the budget, leaving a second to make and place the files; a fetch the
+        // budget cuts is `skipped`, sent again with `continue`.
+        $left = $this->budget === null ? null : $this->budget->remaining() - self::AFTER_FETCH_S;
+        if ($left !== null && $left < 0.5) {
+            throw ItemError::outOfTime();
+        }
+        $source = $this->download->fetch((string) $item->string('url'), $sha256, 'url', $this->files->workRoot(), $left);
         try {
             $size = (int) filesize($source);
             $this->fetched += $size;

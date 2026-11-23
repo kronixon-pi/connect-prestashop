@@ -183,6 +183,24 @@ final class BatchTest extends TestCase
         self::assertContains('skipped c', $this->steps(), 'the writer hears of a skipped item');
     }
 
+    public function test_an_item_the_budget_cuts_in_its_own_work_is_skipped_not_an_error(): void
+    {
+        $data = $this->run_batch([['key' => 'a'], ['key' => 'b'], ['key' => 'c']], function (Item $item): array {
+            if ($item->key() === 'b') {
+                throw ItemError::outOfTime();
+            }
+
+            return ['external_id' => '5', 'action' => 'updated'];
+        });
+
+        self::assertSame(['ok', 'skipped', 'ok'], array_column($data['results'], 'status'));
+        self::assertSame(['time_budget', 'not processed'], [$data['results'][1]['code'], $data['results'][1]['message']]);
+        self::assertTrue($data['continue']);
+        self::assertSame(['ok' => 2, 'error' => 0, 'skipped' => 1, 'time_ms' => 0], $data['summary']);
+        self::assertSame(['prepare b', 'write b', 'rolledBack b', 'skipped b'], array_slice($this->steps(), 5, 4), 'rolled back, then told');
+        self::assertSame([], ProtocolSchemas::errors('products.json', $data));
+    }
+
     /**
      * @return iterable<string, array{string, int, string}>
      */

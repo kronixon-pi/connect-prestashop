@@ -53,15 +53,20 @@ $save = static function (array $state) use ($stateFile): void {
     file_put_contents($stateFile, json_encode($state, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
 };
 
-// Files the tests put next to the state (`files/<name>`), as the platform's storage serves logos and images.
-if ($method === 'GET' && preg_match('#\A/files/([A-Za-z0-9._-]{1,100})\z#', $path, $m) === 1) {
-    $file = dirname($stateFile).'/files/'.$m[1];
+// Files the tests put next to the state (`files/<name>`), as the platform's storage serves logos and images;
+// `slow/<seconds>/<name>` waits that long first (a fetch the module's time budget has to cut).
+if ($method === 'GET' && preg_match('#\A/(?:slow/([0-9]{1,2})/)?files/([A-Za-z0-9._-]{1,100})\z#', $path, $m) === 1) {
+    $file = dirname($stateFile).'/files/'.$m[2];
     if (! is_file($file)) {
         http_response_code(404);
 
         return true;
     }
     header('Content-Type: application/octet-stream');
+    if ($m[1] !== '') {
+        flush();
+        usleep((int) $m[1] * 1000000);
+    }
     readfile($file);
 
     return true;

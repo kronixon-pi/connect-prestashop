@@ -240,6 +240,20 @@ foreach (['sync', 'replace_all'] as $strategy) {
     $kx->check("images, $strategy continue with the whole list: unchanged items, what is not sent goes", array_column($again, 'action', 'key') === ['w' => 'unchanged', 'x' => 'unchanged', 'y' => 'unchanged']
         && array_keys($images($pid)) === array_slice($before, 0, 3), (string) json_encode([$again, $images($pid)]));
 }
+// A fetch the budget cuts is skipped too: the request ends within its budget, not after the 20 s of a fetch.
+$slow = $picture("slow-$tag.jpg", [1, 2, 3]);
+Configuration::updateGlobalValue('KX_TIME_BUDGET', '4');
+$t0 = microtime(true);
+$answer = $kx->post('images', ['product_id' => $product, 'strategy' => 'append', 'items' => [['key' => 's', 'kx_key' => "$tag-slow", 'url' => str_replace('/files/', '/slow/6/files/', $slow[1]), 'sha256' => $slow[2]]]]);
+$cut = round(microtime(true) - $t0, 2);
+Configuration::updateGlobalValue('KX_TIME_BUDGET', '25');
+$result = $answer['data']['results'][0] ?? [];
+$kx->check(
+    "images: a fetch the 4 s budget cuts is skipped/time_budget in $cut s, with continue",
+    ($result['status'] ?? '') === 'skipped' && ($result['code'] ?? '') === 'time_budget' && ($answer['data']['continue'] ?? null) === true && $cut < 5.0,
+    (string) json_encode([$result, $cut])
+);
+usleep(4000000);  // the stub serves one request at a time: let the slow one end
 $delete(['product_id' => $product, 'all' => true]);
 
 // Cost: ten images in one request.

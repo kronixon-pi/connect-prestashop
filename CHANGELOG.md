@@ -21,6 +21,7 @@ All notable changes of the module are listed here; versions follow [Semantic Ver
   alt texts per language, the strategies `sync`/`append`/`replace_all`, order and one cover, combination links. A
   request that dies while an image is written leaves no half image, and the retry makes exactly one.
   A request whose items the time budget skips removes no image.
+  A fetch ends within the time budget.
 
 ### Changed
 

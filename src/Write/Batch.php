@@ -132,6 +132,13 @@ final class Batch
             if (! $clean) {
                 $error = ItemError::leftOver();
             }
+            if ($error->isOutOfTime()) {
+                // The budget cut the item's own work (a download): sent again with `continue`.
+                $writer->skipped($item);
+                $warnings->take();
+
+                return ['status' => 'skipped'] + $error->result();
+            }
 
             return ['status' => 'error'] + $error->result() + ['warnings' => $warnings->take()];
         }

@@ -22,14 +22,17 @@ namespace Kronixon\Connect\Write;
  * Fetches a file a signed request names by URL and sha256 (a logo, a product image): only from a host
  * of the platform the module is paired with (its Connect host and the `download_hosts` of the pairing),
  * HTTPS only (plain HTTP with the development setting KX_PLATFORM_ALLOW_HTTP), TLS verified, no
- * redirects, at most 20 MB in 20 s, and nothing is kept whose sha256 differs. Outside development the
- * host must resolve to public addresses only
+ * redirects, at most 20 MB in 20 s (less when the request's budget has less left), and nothing is kept
+ * whose sha256 differs. Outside development the host must resolve to public addresses only
  * (PublicAddress), and the connection goes to the address that was checked (no second lookup that
  * could answer otherwise).
  */
 final class Download
 {
     public const MAX_BYTES = 20971520;
+
+    /** The longest fetch: connecting (at most 5 s) and the transfer. */
+    private const MAX_SECONDS = 20.0;
 
     /** @var bool */
     private $allowHttp;
@@ -61,13 +64,15 @@ final class Download
 
     /**
      * A temporary file (in $dir, else the system's temporary folder) with exactly the bytes of $sha256;
-     * the caller deletes it.
+     * the caller deletes it. $seconds (what is left of the request's budget) shortens the 20 s a fetch
+     * may take; a fetch it cuts is ItemError::outOfTime(), not a failed download.
      *
      * @throws ItemError
      */
-    public function fetch(string $url, string $sha256, string $field, ?string $dir = null): string
+    public function fetch(string $url, string $sha256, string $field, ?string $dir = null, ?float $seconds = null): string
     {
         $pin = $this->check($url, $field);
+        $limit = $seconds === null ? self::MAX_SECONDS : max(0.5, min(self::MAX_SECONDS, $seconds));
         $path = tempnam($dir ?? sys_get_temp_dir(), 'kx');
         $file = $path === false ? false : fopen($path, 'wb');
         $handle = curl_init($url);
@@ -80,8 +85,8 @@ final class Download
             CURLOPT_PROTOCOLS => $this->allowHttp ? CURLPROTO_HTTP | CURLPROTO_HTTPS : CURLPROTO_HTTPS,
             CURLOPT_SSL_VERIFYPEER => true,
             CURLOPT_SSL_VERIFYHOST => 2,
-            CURLOPT_CONNECTTIMEOUT => 5,
-            CURLOPT_TIMEOUT => 20,
+            CURLOPT_CONNECTTIMEOUT_MS => (int) (min(5.0, $limit) * 1000),
+            CURLOPT_TIMEOUT_MS => (int) ($limit * 1000),
             CURLOPT_WRITEFUNCTION => static function ($curl, string $chunk) use ($file, &$bytes): int {
                 $bytes += strlen($chunk);
 
@@ -92,10 +97,14 @@ final class Download
             curl_setopt($handle, CURLOPT_RESOLVE, [$pin]);
         }
         $ok = curl_exec($handle) !== false && (int) curl_getinfo($handle, CURLINFO_RESPONSE_CODE) === 200;
+        $cut = ! $ok && curl_errno($handle) === CURLE_OPERATION_TIMEDOUT && $limit < self::MAX_SECONDS;
         unset($handle);
         fclose($file);
         if (! $ok || ! hash_equals($sha256, (string) hash_file('sha256', $path))) {
             unlink($path);
+            if ($cut) {
+                throw ItemError::outOfTime();
+            }
             throw $ok ? new ItemError('sha256_mismatch', 'The file is not the one announced', $field) : new ItemError('download_failed', 'The file could not be fetched', $field);
         }
 
