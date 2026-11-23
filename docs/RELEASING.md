@@ -80,11 +80,39 @@ administrator clicks *Update now* (the module's `src/Update/`):
    PrestaShop's own upgrade (`upgrade/upgrade-<version>.php`) with the new code. When it fails, the old folder and the
    module's version row come back. The platform hears `module.updated` or `module.update_failed` through the outbox.
    A worker killed while writing leaves the old version running; killed after the swap, the next request finishes.
+   An upgrade that dies where PHP cannot catch it (memory or time limit, `exit`, a worker killed each time) is run at
+   most twice (the attempts are counted in `KX_UPDATE_STATE` before the scripts run); the request after the second
+   one rolls back with `upgrade_failed` (`upgrade_died`). The cron URL sends the store events before it finishes an
+   update, so a dying upgrade does not stop them.
    Only a kill between the two renames (two system calls apart; the time limit and a closed browser cannot cause it)
-   leaves no `modules/kronixonconnect`: rename `modules/.kronixonconnect-prev` back to it.
+   leaves no `modules/kronixonconnect`. See *Recovery* below.
 4. A server that does not let PHP replace the module (read-only folder, too little disk space, OPcache that never
    rechecks files while `opcache_invalidate()` is not allowed) gets the download link of the zip, to upload it in the
    Module Manager.
+
+**What a rollback does not undo.** The rollback puts back the files and the module's version row and active flag.
+It does not undo anything else:
+
+- the DB changes an upgrade script made before it failed or died stay (tables, columns, `Configuration` values);
+- a script that was killed or died runs again in full on the next request (a second attempt).
+
+So every `upgrade/upgrade-<version>.php` must be **idempotent** (a second run after a partial one does the rest and
+fails on nothing: `CREATE TABLE IF NOT EXISTS`, `DROP TABLE IF EXISTS`, a column or index added only after
+`SHOW COLUMNS`/`SHOW INDEX` or `information_schema` says it is missing), and its DB changes must be **harmless to the
+previous version's code**, which runs again after a rollback (add, do not rename or drop what the previous version
+reads). `tests/Unit/Release/UpgradeScriptsTest.php` (in `make check` and module-ci) refuses the usual unguarded DDL in
+`upgrade/`. It is a grep: the review of a new script still checks the rest.
+
+**Recovery.** If `modules/kronixonconnect` is missing and `modules/.kronixonconnect-prev` is there, the module
+cannot run: the cron URL and `/v1` answer 404, and nothing in the module can repair it. The shop's own pages still
+work. Put the old folder back by hand, as the user the web server runs as, then open the settings page:
+
+```sh
+cd /path/to/shop/modules && mv .kronixonconnect-prev kronixonconnect
+```
+
+The shop then runs the old version, and the next settings page or cron call removes `.kronixonconnect-next` and
+records `module.update_failed` (`swap_lost`). The platform sees it as a store whose heartbeat stops right after it downloaded a release zip.
 
 **Key rotation.** A shop trusts only the keys of the module it runs. To move to a new key, first release a version whose
 `RELEASE_KEYS` holds the key in use and then the next one (`build.php … <current>,<next>`), signed with the key in use;

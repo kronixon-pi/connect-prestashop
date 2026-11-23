@@ -18,8 +18,15 @@ All notable changes of the module are listed here; versions follow [Semantic Ver
   PHP, listing exactly its files. The zip is read in plain PHP (stored entries only; no links, no compression).
 - The new files are written next to the module and swapped in by two renames; PrestaShop's own upgrade
   (`upgrade/upgrade-<version>.php`) runs in the next request, with the new code (the settings page, or the cron URL).
-  A failed upgrade puts the old folder, the module's version and its active flag back. A worker killed at any point
-  leaves the old version running or the upgrade to the next request. OPcache is told about the new files.
+  A failed upgrade puts the old folder, the module's version and its active flag back. A worker killed while the
+  files are written leaves the old version running; killed after the swap, it leaves the upgrade to the next request.
+  An upgrade that dies where PHP cannot catch it (memory or time limit, `exit`) is run at most twice, then rolled back
+  (`upgrade_failed`, `upgrade_died`). Only a kill between the two renames leaves no module folder: the module cannot
+  run until `.kronixonconnect-prev` is renamed back by hand (`docs/RELEASING.md`, *Recovery*). The cron URL sends the
+  store events before it finishes an update. OPcache is told about the new files.
+- A rollback does not undo the DB changes a failed upgrade script made, and a killed or dying script runs again: every
+  `upgrade/upgrade-<version>.php` must be idempotent and harmless to the previous version's code.
+  `UpgradeScriptsTest` refuses unguarded `CREATE TABLE`, `DROP TABLE` and `ALTER TABLE … ADD/DROP/CHANGE/RENAME`.
 - A server that cannot replace the module (read-only folder, too little disk space, OPcache that never rechecks
   files while `opcache_invalidate()` is not allowed) gets the zip's download link for the Module Manager.
 - `module.updated` and `module.update_failed` through the outbox.

@@ -452,7 +452,8 @@ other modules, imports, and stock changed by orders. It never tells the platform
   rows of one entity become one event. A batch is sent:
   - when the **cron URL** is called. This is recommended: call it every minute (`curl -s
     'https://shop.example/module/kronixonconnect/cron?token=…'`). It works for up to the time budget (25 s).
-    Within 10 s of the last flush it answers `too_soon` at once and writes nothing.
+    Within 10 s of the last flush it answers `too_soon` at once and writes nothing. After the flush it finishes a
+    module update whose files were swapped in, if any (`update` in its answer).
   - on **page views**, at most once a minute, when no cron has called in the last 5 minutes, and **only** when
     PHP can send the page before the flush starts: `fastcgi_finish_request()` (PHP-FPM) or
     `litespeed_finish_request()` (LiteSpeed). The flush then runs after the visitor has the page, with a 5 s
