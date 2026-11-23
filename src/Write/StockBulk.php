@@ -36,7 +36,9 @@ use Kronixon\Connect\Support\Log;
  *
  * `visibility_policy`: `restore_if_hidden` shows a product hidden from everywhere (`visibility: none`)
  * once it has stock again; `hide_when_zero` hides a product linked to the platform (a `kx_id`) when
- * its total quantity is 0 and shows again only those it hid (`kx_entity_map.flags` bit 1).
+ * its total quantity is 0 and shows again only those it hid (`kx_entity_map.flags` bit 1). When the
+ * totals or the visibility step after a chunk's commit fails, the rows of its products carry
+ * `totals_not_updated`; sending them again sets both.
  * `available_now`/`available_later` are texts of the product (POST products, `content`): ignored here
  * with a warning.
  */
@@ -190,6 +192,11 @@ final class StockBulk extends Bulk
         if ($quantity !== $current && $row['expected'] !== null && $row['expected'] !== $current) {
             return ['status' => 'conflict', 'code' => 'quantity_changed', 'current_quantity' => $current] + $result;
         }
+        if ($this->mode === 'fast' && $variantId !== 0) {
+            // The product's total of its combinations, also for an unchanged row: a repeat after
+            // `totals_not_updated` sets it.
+            $this->totals[$productId] = true;
+        }
         $changed = false;
         if ($quantity !== $current || $stock === null) {
             $this->quantity($productId, $variantId, $quantity, $stock !== null);
@@ -221,6 +228,11 @@ final class StockBulk extends Bulk
             } catch (\Throwable $error) {
                 $this->db->rollback();
                 $this->log->warning('write', 'Totals or visibility after a stock chunk failed', ['exception' => get_class($error)]);
+                // The quantities are committed; the platform sends the rows again (`unchanged`, then
+                // the totals and the visibility follow).
+                foreach (array_unique(array_merge(array_keys($this->totals), $this->visibility !== 'none' ? $touched : [])) as $id) {
+                    $this->warn((int) $id, 'totals_not_updated');
+                }
             }
         }
     }
@@ -245,9 +257,6 @@ final class StockBulk extends Bulk
         }
         $this->db->bulk('UPDATE '.$this->db->table('stock_available').' SET quantity = '.$quantity.', physical_quantity = reserved_quantity + '.$quantity
             .' WHERE '.str_replace('sa.', '', $this->scope->stockWhere('sa')).' AND id_product = '.$productId.' AND id_product_attribute = '.$variantId);
-        if ($variantId !== 0) {
-            $this->totals[$productId] = true;
-        }
         if ($this->fireHooks) {
             $this->announce('actionUpdateQuantity', ['id_product' => $productId, 'id_product_attribute' => $variantId, 'quantity' => $quantity, 'id_shop' => $this->scope->shopId]);
         }

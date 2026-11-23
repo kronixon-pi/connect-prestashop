@@ -120,6 +120,22 @@ final class StockBulkTest extends TestCase
         self::assertSame('0', $this->db->rows('SELECT flags FROM ps_kx_entity_map')[0]['flags']);
     }
 
+    public function test_a_failed_totals_or_visibility_step_is_a_row_warning_and_a_repeat_sets_them(): void
+    {
+        $this->db->insert('kx_entity_map', ['entity_type' => 'product', 'external_id' => '1', 'kx_id' => '0192b2e4-2f7a-7c5b-8a1d-3e4f5a6b7c8d', 'flags' => 0]);
+        $this->db->pdo->exec("CREATE TRIGGER kx_refuse BEFORE UPDATE OF quantity ON ps_stock_available WHEN NEW.id_product_attribute = 0 AND NEW.id_product = 2 BEGIN SELECT RAISE(ABORT, 'refused'); END");
+        $data = $this->send([['product_id' => '2', 'variant_id' => '7', 'quantity' => 10], ['product_id' => '1', 'variant_id' => '0', 'quantity' => 0]], ['mode' => 'fast', 'visibility_policy' => 'hide_when_zero']);
+
+        self::assertSame([['ok', 'updated', 1, ['totals_not_updated']], ['ok', 'updated', 5, ['totals_not_updated']]], self::results($data), 'the step is one transaction: the visibility of product 1 too');
+        self::assertSame(['10', '3'], array_column($this->db->rows('SELECT quantity FROM ps_stock_available WHERE id_product = 2 AND id_product_attribute IN (7, 0) ORDER BY id_product_attribute DESC'), 'quantity'));
+        self::assertSame([], ProtocolSchemas::errors('stock-bulk.json', $data));
+
+        $this->db->pdo->exec('DROP TRIGGER kx_refuse');
+        $again = $this->send([['product_id' => '2', 'variant_id' => '7', 'quantity' => 10], ['product_id' => '1', 'variant_id' => '0', 'quantity' => 0]], ['mode' => 'fast', 'visibility_policy' => 'hide_when_zero']);
+        self::assertSame([['ok', 'unchanged', 10, []], ['ok', 'unchanged', 0, ['visibility_hidden']]], self::results($again));
+        self::assertSame('12', $this->db->rows('SELECT quantity FROM ps_stock_available WHERE id_product = 2 AND id_product_attribute = 0')[0]['quantity']);
+    }
+
     public function test_the_chunk_locks_its_stock_rows_first_by_id_inside_its_transaction(): void
     {
         $this->db->log = [];

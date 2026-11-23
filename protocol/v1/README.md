@@ -225,7 +225,8 @@ Bulk writes (`POST prices/bulk`, `stock/bulk`):
 - Item codes, besides those above: `price_changed`, `quantity_changed` (conflict), `shop_mismatch`, `rows_locked`
   (`skipped`: another session held the rows longer than the module waits; sent again with `continue`); warnings
   `location_ignored`, `available_texts_ignored`, `product_fields_ignored`, `visibility_restored`, `visibility_hidden`,
-  `not_hidden_unlinked`.
+  `not_hidden_unlinked`, `totals_not_updated` (the quantities are written, the product's total or visibility is not;
+  send the rows again).
 
 Maintenance (`POST maintenance/reindex`, `facets`) walks products by id within `budget_s`: while `continue` is true
 the client sends the same body again with the answer's `cursor`; a call with a cursor starts no new walk, so each
