@@ -221,14 +221,20 @@ final class Services
             static function () use ($db, $shop, $hook): StockBulk {
                 [$scope, $pending, $default] = $shop();
 
-                return new StockBulk($db, $scope, $pending, self::log(), $default, $hook, static function (int $product, int $variant, int $quantity, int $shopId): void {
-                    StockAvailable::setQuantity($product, $variant, $quantity, $shopId);
-                }, static function (int $product, int $policy, int $shopId, int $variant): void {
-                    StockAvailable::setProductOutOfStock($product, $policy, $shopId, $variant);
-                }, static function (): void {
+                return new StockBulk($db, $scope, $pending, self::log(), $default, $hook, static function (int $id): StockAvailable {
+                    return new StockAvailable($id);
+                }, static function (array $products): void {
                     Cache::clean('StockAvailable::*');
+                    Cache::clean('objectmodel_StockAvailable_*');
                     Cache::clean('objectmodel_Product_*');
-                });
+                    // StockAvailable::postSave() before 9.0 drops a product's color list when one of its
+                    // combinations is out of stock and unavailable combinations are hidden.
+                    if ($products !== [] && version_compare(_PS_VERSION_, '9.0.0', '<') && ! Configuration::get('PS_DISP_UNAVAILABLE_ATTR')) {
+                        foreach ($products as $id) {
+                            Tools::clearColorListCache((int) $id);
+                        }
+                    }
+                }, version_compare(_PS_VERSION_, '8.1.0', '>='));
             },
             static function () use ($db, $shop): Maintenance {
                 [$scope] = $shop();

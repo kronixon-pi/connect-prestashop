@@ -12,10 +12,12 @@ declare(strict_types=1);
  * locks only its own rows: another product's row stays free while the chunk waits. PrestaShop's own
  * end-of-order statement (StockManager::updatePhysicalProductQuantity()) for an order whose lines
  * run against the chunk's lock order succeeds and the chunk is written (9.x: the chunk loses the
- * deadlock and runs once more). Then 1 000 rows per request while that statement runs in a loop for
- * an order of a product in chunk 6: its longest wait is what a checkout waits. Last, the session's
- * lock wait is its own again after a chunk's commit or rollback. One line per check; exit 1 on any
- * failure.
+ * deadlock and runs once more). A deadlock after the chunk has written rolls the whole chunk back,
+ * and it runs once more. With kxprobe installed, a stock module's hooks see each changed row once,
+ * committed. Then 1 000 rows per request while that statement runs in a loop for an order of a
+ * product in chunk 6: its longest wait is what a checkout waits. Last, the session's lock wait (and
+ * a bulk chunk's autocommit) is its own again after a chunk's commit or rollback. One line per check;
+ * exit 1 on any failure.
  *
  *   php bulk-race.php <shop base URL> <apache address, e.g. 127.0.0.1:80>
  */
@@ -271,6 +273,73 @@ $kx->check('fast: an order of a product of the chunk, which takes the index entr
 $db->execute("DELETE FROM {$p}order_detail WHERE id_order = $idOrder", false);
 $dropCopies($from);
 
+// A deadlock after the chunk has written: B has no stock row yet and another session X, heavier
+// (400 changed product_lang rows), has inserted one, uncommitted. The chunk locks and writes A, then
+// waits on its insert of B for X; X asks for A's row: the server rolls the chunk back as the
+// lighter one. The chunk sees the failure of its own statement: nothing of the first run stays, it
+// runs once more after X has ended, and the answer is what the second run committed. Before the fix,
+// PrestaShop's setQuantity() swallowed the failed insert and the rest of the chunk ran in
+// autocommit: A was answered `ok/updated` with the value the server had rolled back.
+$afterWrite = [];
+foreach (['safe', 'fast'] as $mode) {
+    $from = $copies(2);
+    [$a, $b] = $byStockId($from, $from + 1);
+    $db->execute("DELETE FROM {$p}stock_available WHERE id_product = $b", false);
+    $before = $logged();
+    $session = $other();
+    $session->exec('SET SESSION innodb_lock_wait_timeout = 20');
+    $session->beginTransaction();
+    $heavy = $session->exec("UPDATE {$p}product_lang SET meta_title = CONCAT(IFNULL(meta_title, ''), 'k') LIMIT 400");
+    $session->exec("INSERT INTO {$p}stock_available (id_product, id_product_attribute, id_shop, id_shop_group, quantity) VALUES ($b, 0, $shop, 0, 1)");
+    $request = $start('stock/bulk', ['options' => ['mode' => $mode], 'rows' => [['product_id' => (string) $a, 'variant_id' => '0', 'quantity' => 51], ['product_id' => (string) $b, 'variant_id' => '0', 'quantity' => 52]]]);
+    usleep(900000);
+    $t0 = microtime(true);
+    try {
+        $session->exec("UPDATE {$p}stock_available SET quantity = quantity WHERE id_product = $a AND id_product_attribute = 0");
+        $xGotA = round(microtime(true) - $t0, 3);
+    } catch (PDOException $e) {
+        $xGotA = 'X failed '.$e->getCode();
+    }
+    usleep(1500000);
+    $session->rollBack();
+    $answer = $finish($request);
+    $afterWrite[$mode] = ['x_rows' => $heavy, 'x_got_a_after_s' => $xGotA, 'chunk' => array_map(static function (array $r): string {
+        return ($r['status'] ?? '?').'/'.($r['action'] ?? $r['code'] ?? '?');
+    }, $answer['data']['results'] ?? []), 'runs_again' => $logged() - $before, 'stock' => [$state($a)[0], $state($b)[0]]];
+    $kx->check("$mode: a deadlock after the chunk has written rolls it back whole; it runs again and commits what it answers", $afterWrite[$mode]['chunk'] === ['ok/updated', 'ok/updated'] && $afterWrite[$mode]['stock'] === [51, 52] && $afterWrite[$mode]['runs_again'] === 1 && is_float($xGotA), (string) json_encode($afterWrite[$mode]));
+    $dropCopies($from);
+}
+
+// A module that follows stock (a feed, an ERP connector) sees each changed row once, after the commit:
+// what another database session reads of the row in the hook is the new quantity (kxprobe, when it is
+// installed: ps-smoke.sh installs it for this script).
+$hooksSeen = 'kxprobe not installed';
+if (Module::isEnabled('kxprobe')) {
+    Module::getInstanceByName('kxprobe')->registerAll();
+    $from = $copies(2);
+    [$a, $b] = $byStockId($from, $from + 1);
+    file_put_contents('/tmp/kxprobe-stock', $a.','.$b);
+    $hooksSeen = [];
+    foreach (['safe' => [], 'fast' => ['fire_hooks' => true]] as $mode => $extra) {
+        @unlink('/tmp/kxprobe-seen.log');
+        $q = $mode === 'safe' ? [61, 62] : [71, 72];
+        $kx->post('stock/bulk', ['options' => ['mode' => $mode] + $extra, 'rows' => [['product_id' => (string) $a, 'variant_id' => '0', 'quantity' => $q[0]], ['product_id' => (string) $b, 'variant_id' => '0', 'quantity' => $q[1]]]]);
+        $lines = array_values(array_filter(explode("\n", (string) @file_get_contents('/tmp/kxprobe-seen.log'))));
+        $hooksSeen[$mode] = $lines;
+        $shopParam = version_compare(_PS_VERSION_, '8.1.0', '>=') ? (string) $shop : '-';
+        $expected = [];
+        foreach ([$a => $q[0], $b => $q[1]] as $product => $quantity) {
+            if ($mode === 'safe') {
+                $expected[] = "actionObjectStockAvailableUpdateAfter stock $product:0 quantity=$quantity committed=$quantity shop=$shop id_shop=-";
+            }
+            $expected[] = "actionUpdateQuantity stock $product:0 quantity=$quantity committed=$quantity shop=$shop id_shop=$shopParam";
+        }
+        $kx->check("$mode: a stock module sees each changed row once, after the commit, with the new quantity", $lines === $expected, (string) json_encode($lines));
+    }
+    @unlink('/tmp/kxprobe-stock');
+    $dropCopies($from);
+}
+
 // 1 000 rows per request while PrestaShop's end-of-order statement runs in a loop for an order of a
 // product in chunk 6 (prices: a back-office save of its row) and for an order of a product outside
 // the request: their longest waits are what a checkout waits.
@@ -343,11 +412,27 @@ foreach (['commit', 'rollback'] as $end) {
     $waits[$end] = [$during, $sessionWait()];
 }
 $kx->check("the session's lock wait ($own s) is back after a chunk's commit and rollback", $waits === ['commit' => [3, $own], 'rollback' => [3, $own]] && $own !== 3, (string) json_encode($waits));
+// A bulk chunk also leaves autocommit while it runs, and its marker table stays empty.
+$autocommit = static function () use ($db): int {
+    return (int) $db->getValue('SELECT @@SESSION.autocommit', false);
+};
+$chunkEnds = [];
+foreach (['commitChunk', 'rollbackChunk'] as $end) {
+    $shopDb->beginChunk();
+    $shopDb->lockRows("SELECT id_stock_available FROM {$p}stock_available WHERE id_product = $id ORDER BY id_stock_available", 3);
+    $during = [$autocommit(), $sessionWait()];
+    $shopDb->$end();
+    $chunkEnds[$end] = [$during, [$autocommit(), $sessionWait()]];
+}
+$markers = (int) $db->getValue("SELECT COUNT(*) FROM {$p}kx_bulk_chunk", false);
+$kx->check('a bulk chunk runs without autocommit; autocommit and the lock wait are back after it, no marker row stays', $chunkEnds === ['commitChunk' => [[0, 3], [1, $own]], 'rollbackChunk' => [[0, 3], [1, $own]]] && $markers === 0, (string) json_encode([$chunkEnds, $markers]));
 
 echo 'RACE TABLE ', json_encode($table), "\n";
 echo 'SMALL SHOP ', json_encode($small), "\n";
 echo 'ORDER DEADLOCK ', json_encode($deadlock), "\n";
 echo 'FAST INDEX ENTRY ', json_encode($entry), "\n";
+echo 'DEADLOCK AFTER WRITE ', json_encode($afterWrite), "\n";
+echo 'HOOKS AFTER COMMIT ', json_encode($hooksSeen), "\n";
 echo 'LOCK HOLDS ', json_encode($holds), "\n";
 echo 'BULK RACE failures=', $kx->failures(), "\n";
 exit($kx->failures() === 0 ? 0 : 1);

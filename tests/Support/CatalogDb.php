@@ -7,6 +7,7 @@ namespace Kronixon\Connect\Tests\Support;
 use DateTimeZone;
 use Kronixon\Connect\Catalog\ImageUrls;
 use Kronixon\Connect\Catalog\Scope;
+use Kronixon\Connect\Write\ChunkRolledBack;
 use Kronixon\Connect\Write\Database;
 use Kronixon\Connect\Write\RowsLocked;
 use LogicException;
@@ -123,6 +124,15 @@ final class CatalogDb implements Database, ImageUrls
     /** @var int lockRows() calls still to lose a deadlock (RowsLocked::deadlock()) */
     public $deadlocks = 0;
 
+    /** @var list<int> numbers (1-based, counted over the test) of bulk() calls that lose a deadlock after they ran */
+    public $bulkDeadlocks = [];
+
+    /** @var int commitChunk() calls still to find the marker gone (ChunkRolledBack) */
+    public $lostChunks = 0;
+
+    /** @var list<string> beginChunk, commitChunk, rollbackChunk, in order */
+    public $chunks = [];
+
     /** @var bool 1.7.8: no product_shop.unit_price */
     public $legacy = false;
 
@@ -177,7 +187,13 @@ final class CatalogDb implements Database, ImageUrls
     public function bulk(string $sql): void
     {
         $this->bulks[] = $sql;
+        // MySQL's upsert of a stock row, as SQLite writes it.
+        $sql = str_replace('ON DUPLICATE KEY UPDATE', 'ON CONFLICT (id_product, id_product_attribute, id_shop, id_shop_group) DO UPDATE SET', $sql);
         $this->pdo->exec(str_replace('NOW()', "datetime('now')", $sql));
+        if (in_array(count($this->bulks), $this->bulkDeadlocks, true)) {
+            // Written, then the server picks the transaction as a deadlock's victim.
+            throw new RowsLocked('deadlock', true);
+        }
     }
 
     public function setActive(string $class, string $table, string $primary, int $id, bool $active): void
@@ -224,6 +240,30 @@ final class CatalogDb implements Database, ImageUrls
     public function rollback(): void
     {
         $this->pdo->rollBack();
+    }
+
+    public function beginChunk(): void
+    {
+        $this->chunks[] = 'beginChunk';
+        $this->pdo->beginTransaction();
+    }
+
+    public function commitChunk(): void
+    {
+        $this->chunks[] = 'commitChunk';
+        if ($this->lostChunks > 0) {
+            $this->lostChunks--;
+            throw new ChunkRolledBack('lost');
+        }
+        $this->pdo->commit();
+    }
+
+    public function rollbackChunk(): void
+    {
+        $this->chunks[] = 'rollbackChunk';
+        if ($this->pdo->inTransaction()) {
+            $this->pdo->rollBack();
+        }
     }
 
     public function url(int $imageId, string $slug, ?string $type): string

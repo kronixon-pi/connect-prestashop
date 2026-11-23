@@ -33,7 +33,11 @@ interface Database extends Sql
 
     /**
      * An UPDATE or INSERT on a catalog table of a bulk endpoint or on ps_facetedsearch's tables, inside
-     * the endpoint's own transaction; the caller drops what PrestaShop cached of the rows.
+     * the endpoint's own transaction; the caller drops what PrestaShop cached of the rows. A statement
+     * that waited longer than the lock wait or was a deadlock's victim is RowsLocked (after a deadlock
+     * the server has rolled back the whole transaction); any other failure throws as well.
+     *
+     * @throws RowsLocked
      */
     public function bulk(string $sql): void;
 
@@ -69,4 +73,24 @@ interface Database extends Sql
     public function commit(): void;
 
     public function rollback(): void;
+
+    /**
+     * Opens the transaction of a bulk chunk, in which only the module's own statements run. The session
+     * leaves autocommit, so a statement after a rollback the server made on its own (a deadlock's
+     * victim) opens a new transaction instead of committing by itself; the first statement writes a
+     * marker row in `kx_bulk_chunk`.
+     */
+    public function beginChunk(): void;
+
+    /**
+     * Commits the chunk if its transaction is still the one beginChunk() opened: the last statement
+     * deletes the marker row, which a transaction the server rolled back no longer holds. Otherwise
+     * ChunkRolledBack, and the caller rolls back. The session's autocommit and lock wait come back.
+     *
+     * @throws ChunkRolledBack
+     */
+    public function commitChunk(): void;
+
+    /** Rolls the chunk back; the session's autocommit and lock wait come back. */
+    public function rollbackChunk(): void;
 }

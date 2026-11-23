@@ -430,6 +430,9 @@ class Db
     /** @return int */
     public function Affected_Rows() {}
 
+    /** @return int|string */
+    public function Insert_ID() {}
+
     /** @return int */
     public function getNumberError() {}
 
