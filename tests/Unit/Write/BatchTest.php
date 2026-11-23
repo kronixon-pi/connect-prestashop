@@ -180,6 +180,7 @@ final class BatchTest extends TestCase
         self::assertTrue($data['continue']);
         self::assertSame(['ok' => 2, 'error' => 0, 'skipped' => 1, 'time_ms' => 24000], $data['summary']);
         self::assertSame([], ProtocolSchemas::errors('products.json', $data));
+        self::assertContains('skipped c', $this->steps(), 'the writer hears of a skipped item');
     }
 
     /**

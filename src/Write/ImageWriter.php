@@ -41,7 +41,9 @@ use Throwable;
  * every read until the item is complete. After the last item `strategy` decides what else the product
  * keeps (`sync`: the images of the request and those the shop uploaded itself, after ours; `replace_all`:
  * only those of the request; `append`: all), then the order and the cover (exactly one: the last item
- * with `cover: true`, else the cover there was, else the first).
+ * with `cover: true`, else the cover there was, else the first). When the time budget skips items the
+ * request is not the whole list: nothing is removed, and the `continue` request (the whole list again)
+ * removes the rest.
  *
  * `variant_id` links every image of the request to that combination of the product (others it has
  * stay). A combination sent before its images (`image_key_unknown` of `POST variants`) is linked by
@@ -102,6 +104,9 @@ final class ImageWriter extends ShopWriter
 
     /** @var string|null kx_key of the last item with `cover: true` */
     private $cover;
+
+    /** @var bool an item was skipped for the time budget: the request is not the whole list */
+    private $incomplete = false;
 
     public function __construct(Shop $shop, Download $download, ImageFiles $files, Item $body)
     {
@@ -256,6 +261,19 @@ final class ImageWriter extends ShopWriter
         return $clean;
     }
 
+    /**
+     * A skipped item's image is in the request: it counts as sent (kept, in its place) and, as the
+     * request is not the whole list, finish() removes nothing.
+     */
+    public function skipped(Item $item): void
+    {
+        $this->incomplete = true;
+        $kxKey = $item->string('kx_key', 64);
+        if ($kxKey !== null && $kxKey !== '' && ! in_array($kxKey, $this->sent, true)) {
+            $this->sent[] = $kxKey;
+        }
+    }
+
     /** After the last item: what the strategy removes, then the order and the cover. */
     public function finish(): void
     {
@@ -344,7 +362,9 @@ final class ImageWriter extends ShopWriter
     }
 
     /**
-     * Removes what the strategy does not keep, then numbers the images and sets the one cover.
+     * Removes what the strategy does not keep, then numbers the images and sets the one cover. When an
+     * item was skipped (`continue: true`) nothing is removed: the request does not list every image the
+     * product keeps, and the `continue` request (the whole list again) removes the rest.
      */
     private function arrange(): void
     {
@@ -359,7 +379,7 @@ final class ImageWriter extends ShopWriter
         }
         foreach ($this->images as $id => $image) {
             $foreign = $image['kx_key'] === null;
-            if (! isset($ours[$id]) && (($this->strategy === 'sync' && ! $foreign) || $this->strategy === 'replace_all')) {
+            if (! $this->incomplete && ! isset($ours[$id]) && (($this->strategy === 'sync' && ! $foreign) || $this->strategy === 'replace_all')) {
                 $this->delete($id);
             }
         }

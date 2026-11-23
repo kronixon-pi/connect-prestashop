@@ -219,6 +219,29 @@ if ($installed) {
     echo "  --   kxprobe is not installed: no request that dies\n";
 }
 
+// The time budget: items skipped for it are in the request, so sync and replace_all remove nothing then;
+// the continue request (the whole list again) is cheap and removes what is no longer sent.
+$four = [];
+foreach (['w', 'x', 'y', 'z'] as $i => $k) {
+    $four[$k] = $picture("$k-$tag.jpg", [30 * $i, 120, 60]);
+}
+foreach (['sync', 'replace_all'] as $strategy) {
+    $setup = $post($product, [$item('w', $four['w']), $item('x', $four['x']), $item('y', $four['y']), $item('z', $four['z'])], ['strategy' => 'replace_all']);
+    $before = array_keys($images($pid));
+    $big = $picture("big-$strategy-$tag.jpg", [250, 10, 10], 'jpg', 4000, 3000);
+    $first = ['key' => 'w', 'kx_key' => "$tag-{$four['w'][0]}", 'url' => $big[1], 'sha256' => $big[2]];
+    Configuration::updateGlobalValue('KX_TIME_BUDGET', '2');
+    $answer = $kx->post('images', ['product_id' => $product, 'strategy' => $strategy, 'items' => [$first, $item('x', $four['x']), $item('y', $four['y']), $item('z', $four['z'])]]);
+    Configuration::updateGlobalValue('KX_TIME_BUDGET', '25');
+    $statuses = array_column($answer['data']['results'] ?? [], 'status', 'key');
+    $kx->check("images, $strategy with a 2 s budget: the first replaced, the rest skipped, continue, no image removed", count($setup) === 4 && ($statuses['w'] ?? '') === 'ok' && in_array('skipped', $statuses, true)
+        && ($answer['data']['continue'] ?? null) === true && array_keys($images($pid)) === $before, (string) json_encode([$statuses, $before, $images($pid)]));
+    $again = $post($product, [$first, $item('x', $four['x']), $item('y', $four['y'])], ['strategy' => $strategy]);
+    $kx->check("images, $strategy continue with the whole list: unchanged items, what is not sent goes", array_column($again, 'action', 'key') === ['w' => 'unchanged', 'x' => 'unchanged', 'y' => 'unchanged']
+        && array_keys($images($pid)) === array_slice($before, 0, 3), (string) json_encode([$again, $images($pid)]));
+}
+$delete(['product_id' => $product, 'all' => true]);
+
 // Cost: ten images in one request.
 $ten = [];
 for ($i = 0; $i < 10; $i++) {

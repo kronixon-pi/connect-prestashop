@@ -69,6 +69,11 @@ final class FakeWriter implements Writer
         return $this->undo === null || ($this->undo)($item);
     }
 
+    public function skipped(Item $item): void
+    {
+        $this->steps[] = 'skipped '.$item->key();
+    }
+
     public function finish(): void
     {
         $this->steps[] = 'finish';

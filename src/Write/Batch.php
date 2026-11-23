@@ -75,6 +75,7 @@ final class Batch
         foreach ($items as $item) {
             if ($budget->exhausted()) {
                 $result = ['status' => 'skipped', 'code' => 'time_budget', 'message' => 'not processed'];
+                $writer->skipped($item);
             } else {
                 $result = $this->item($writer, $item, $warnings, $request);
             }

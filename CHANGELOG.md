@@ -20,6 +20,7 @@ All notable changes of the module are listed here; versions follow [Semantic Ver
 - `POST images` and `DELETE images` (`images`, `image_alt`): ids kept by `kx_key` + sha256, files replaced in place,
   alt texts per language, the strategies `sync`/`append`/`replace_all`, order and one cover, combination links. A
   request that dies while an image is written leaves no half image, and the retry makes exactly one.
+  A request whose items the time budget skips removes no image.
 
 ### Changed
 

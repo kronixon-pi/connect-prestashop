@@ -355,7 +355,10 @@ left so is `cleanup_failed`.
   and not in this request, and keeps the images the shop uploaded itself (no `kx_key`) after ours; `replace_all` keeps
   only the images of the request; `append` removes nothing and adds the new ones at the end. Then the images are
   numbered: the request's by `position`, else in the order sent. Exactly one cover: the last item with `cover: true`,
-  else the cover there was, else the first image. `items: []` with `sync` removes every image of ours.
+  else the cover there was, else the first image. `items: []` with `sync` removes every image of ours. When the time
+  budget skips items (`continue: true`), the request removes nothing: the skipped items' images count as sent and
+  keep their place. The platform then sends the **whole list again** (items already written are `unchanged` without
+  a fetch, so the repeat is cheap), and that request removes what the list no longer has.
 - **Combinations.** `variant_id` links every image of the request to that combination of the product (its other images
   stay). `POST variants` finds the images of `image_keys` by `kx_key` once they are sent: send images before variants,
   or name the combination here (a variant sent before its images is `image_key_unknown`).

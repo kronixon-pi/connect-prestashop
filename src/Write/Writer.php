@@ -58,6 +58,9 @@ interface Writer
      */
     public function rolledBack(Item $item): bool;
 
+    /** The item was not started: the time budget ran out (`skipped`, the request answers `continue`). */
+    public function skipped(Item $item): void;
+
     /** Once after the last item, when any was written (the category tree, caches). */
     public function finish(): void;
 
