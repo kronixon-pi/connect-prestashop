@@ -10,14 +10,28 @@
  * (`{"add": "error", "delete": "exception"}`) for objects whose name or reference holds BOOM. It also
  * stands on actionObjectAddAfter, so that ps-smoke.sh can check that kronixonconnect, installed after
  * it, still runs first there in every shop.
+ *
+ * For products, categories and brands whose name holds SEEN it writes what each hook of their create and
+ * update sees to /tmp/kxprobe-seen.log, as a feed or ERP module would: one line per hook, with the
+ * object's `active` and the stored row's (`product_shop` of the shop for a product).
  */
 class Kxprobe extends Module
 {
+    public const SEEN_LOG = '/tmp/kxprobe-seen.log';
+
     private const HOOKS = [
         'actionProductSave', 'actionProductAdd', 'actionObjectCategoryAddAfter', 'actionObjectManufacturerAddAfter', 'actionObjectFeatureAddAfter',
         'actionObjectCombinationAddAfter', 'actionObjectProductDeleteBefore', 'actionObjectCategoryDeleteBefore', 'actionObjectManufacturerDeleteBefore',
         'actionObjectFeatureDeleteBefore', 'actionObjectCombinationDeleteBefore', 'actionObjectAddAfter',
+        'actionProductUpdate', 'actionObjectProductAddAfter', 'actionObjectProductUpdateAfter', 'actionObjectCategoryUpdateAfter', 'actionCategoryUpdate',
+        'actionObjectManufacturerUpdateAfter',
     ];
+
+    /** The hooks in every shop: an install of an older copy of this probe lacks the newer ones. */
+    public function registerAll()
+    {
+        return $this->registerHook(self::HOOKS, Shop::getShops(true, null, true));
+    }
 
     public function __construct()
     {
@@ -65,23 +79,71 @@ class Kxprobe extends Module
         exit;
     }
 
+    private function seen($hook, $object)
+    {
+        $tables = ['Product' => 'product_shop', 'Category' => 'category', 'Manufacturer' => 'manufacturer'];
+        if (! is_object($object) || ! isset($tables[get_class($object)]) || strpos(implode(' ', (array) $object->name), 'SEEN') === false) {
+            return;
+        }
+        $table = $tables[get_class($object)];
+        $key = $table === 'product_shop' ? 'id_product' : 'id_'.$table;
+        $shop = $table === 'product_shop' ? ' AND id_shop = '.(int) Context::getContext()->shop->id : '';
+        // Db::getValue() adds LIMIT 1 itself.
+        $row = Db::getInstance()->getValue('SELECT active FROM '._DB_PREFIX_.$table.' WHERE '.$key.' = '.(int) $object->id.$shop, false);
+        file_put_contents(self::SEEN_LOG, $hook.' '.$table.' '.(int) $object->id.' object='.(int) $object->active.' row='.(int) $row."\n", FILE_APPEND);
+    }
+
     public function hookActionProductSave($params)
     {
+        $this->seen('actionProductSave', $params['product'] ?? null);
         $this->fail('add', $params['product'] ?? null);
     }
 
     public function hookActionProductAdd($params)
     {
+        $this->seen('actionProductAdd', $params['product'] ?? null);
         $this->fail('added', $params['product'] ?? null);
+    }
+
+    public function hookActionProductUpdate($params)
+    {
+        $this->seen('actionProductUpdate', $params['product'] ?? null);
+    }
+
+    public function hookActionObjectProductAddAfter($params)
+    {
+        $this->seen('actionObjectProductAddAfter', $params['object']);
+    }
+
+    public function hookActionObjectProductUpdateAfter($params)
+    {
+        $this->seen('actionObjectProductUpdateAfter', $params['object']);
+    }
+
+    public function hookActionObjectCategoryUpdateAfter($params)
+    {
+        $this->seen('actionObjectCategoryUpdateAfter', $params['object']);
+    }
+
+    public function hookActionCategoryUpdate($params)
+    {
+        $this->seen('actionCategoryUpdate', $params['category'] ?? null);
+    }
+
+    public function hookActionObjectManufacturerUpdateAfter($params)
+    {
+        $this->seen('actionObjectManufacturerUpdateAfter', $params['object']);
     }
 
     public function hookActionObjectCategoryAddAfter($params)
     {
+        $this->seen('actionObjectCategoryAddAfter', $params['object']);
         $this->fail('add', $params['object']);
     }
 
     public function hookActionObjectManufacturerAddAfter($params)
     {
+        $this->seen('actionObjectManufacturerAddAfter', $params['object']);
         $this->fail('add', $params['object']);
     }
 

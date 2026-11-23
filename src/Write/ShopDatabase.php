@@ -58,10 +58,10 @@ final class ShopDatabase implements Database
         }
     }
 
-    public function activate(string $class, string $table, string $primary, int $id): void
+    public function setActive(string $class, string $table, string $primary, int $id, bool $active): void
     {
-        if (! $this->db->execute('UPDATE '.$this->table($table).' SET active = 1 WHERE '.$primary.' = '.$id, false)) {
-            throw new RuntimeException('An object could not be shown.');
+        if (! $this->db->execute('UPDATE '.$this->table($table).' SET active = '.(int) $active.' WHERE '.$primary.' = '.$id, false)) {
+            throw new RuntimeException('The active flag of an object could not be set.');
         }
         Cache::clean('objectmodel_'.$class.'_'.$id.'_*');
     }

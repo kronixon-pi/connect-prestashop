@@ -96,12 +96,12 @@ final class Kernel
     /** @var int */
     private $suppressedErrors = 0;
 
-    /** @var (callable(Budget): void)|null */
+    /** @var ReadCleanup|null */
     private $beforeRead;
 
     /**
      * @param  (callable(int): void)|null  $onVerified  called with the time of each verified request
-     * @param  (callable(Budget): void)|null  $beforeRead  the clean-up of half-written objects (PendingWrites), before a GET under the free write lock
+     * @param  ReadCleanup|null  $beforeRead  the clean-up of half-written objects (PendingWrites), before a GET under the free write lock
      */
     public function __construct(
         Router $router,
@@ -114,7 +114,7 @@ final class Kernel
         int $rateLimit = Protocol::RATE_LIMIT_PER_MINUTE,
         ?callable $onVerified = null,
         ?IdempotencyStore $idempotency = null,
-        ?callable $beforeRead = null
+        ?ReadCleanup $beforeRead = null
     ) {
         $this->beforeRead = $beforeRead;
         $this->idempotency = $idempotency;
@@ -277,16 +277,28 @@ final class Kernel
 
     /**
      * What a dead write left half-written also goes on a store that only gets reads: before a GET, when
-     * no write holds the lock (one that does cleans up itself). The reads leave such objects out anyway;
-     * a failure here is logged and the read goes on.
+     * there is any and no write holds the lock (one that does cleans up itself). Only then the read takes
+     * the lock, so a write that comes meanwhile may get `409 busy`. The reads leave such objects out
+     * anyway; a failure here is logged and the read goes on.
      */
     private function beforeRead(Budget $budget): void
     {
-        if ($this->beforeRead === null || ! $this->lock->acquire()) {
+        if ($this->beforeRead === null) {
             return;
         }
         try {
-            ($this->beforeRead)($budget);
+            if (! $this->beforeRead->needed() || ! $this->lock->acquire()) {
+                return;
+            }
+        } catch (Throwable $error) {
+            if ($this->log !== null) {
+                $this->log->warning('api', 'The clean-up before a read failed', ['exception' => get_class($error)], $this->requestId);
+            }
+
+            return;
+        }
+        try {
+            $this->beforeRead->run($budget);
         } catch (Throwable $error) {
             if ($this->log !== null) {
                 $this->log->warning('api', 'The clean-up before a read failed', ['exception' => get_class($error)], $this->requestId);

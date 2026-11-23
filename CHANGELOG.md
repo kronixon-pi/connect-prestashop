@@ -18,6 +18,9 @@ All notable changes of the module are listed here; versions follow [Semantic Ver
   with the same key `409 idempotency_conflict`. A key that is not a UUID is now refused (`400`).
 - `kx_pending` and the hook `actionObjectAddAfter`: what a failed item or a request that died has left half-written is
   removed, at the latest before the next write (`cleanup_failed` until then). An upgrade adds both.
+- A created product, category or brand stays inactive until its item is complete; then the module runs PrestaShop's
+  hooks of an update for it, so other modules see it active. A read deletes what is left over only when there is
+  some, and only then takes the write lock.
 - Releases are built reproducibly and signed ([docs/RELEASING.md](docs/RELEASING.md)); the first one is 0.3.2 on the
   staging channel.
 

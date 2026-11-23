@@ -18,6 +18,7 @@ declare(strict_types=1);
 
 namespace Kronixon\Connect\Write;
 
+use Hook;
 use Kronixon\Connect\Api\Budget;
 use Kronixon\Connect\Support\Log;
 use ObjectModel;
@@ -105,11 +106,23 @@ final class PendingWrites
     /** @var list<ObjectModel> what the item created inactive, to be shown by seal() */
     private $hidden = [];
 
-    public function __construct(Database $db, int $shopId, Log $log)
+    /** @var list<ObjectModel> what seal() showed, for announce() once the item is committed */
+    private $shown = [];
+
+    /** @var callable(string, array<string, mixed>): void Hook::exec() */
+    private $hook;
+
+    /**
+     * @param  (callable(string, array<string, mixed>): void)|null  $hook  Hook::exec() unless given
+     */
+    public function __construct(Database $db, int $shopId, Log $log, ?callable $hook = null)
     {
         $this->db = $db;
         $this->shopId = $shopId;
         $this->log = $log;
+        $this->hook = $hook ?? static function (string $name, array $params): void {
+            Hook::exec($name, $params);
+        };
     }
 
     /** What is created from here on belongs to this item. */
@@ -117,9 +130,7 @@ final class PendingWrites
     {
         $this->itemKey = $item->key();
         $this->kxId = $item->kxId();
-        $this->created = [];
-        $this->marked = [];
-        $this->hidden = [];
+        $this->reset();
     }
 
     /** PrestaShop's add(), with the object known whatever add() does; one with a page is added inactive. */
@@ -159,38 +170,107 @@ final class PendingWrites
 
     /**
      * The item is complete, its `kx_id` linked: what it created hidden is shown, then its marks go, the
-     * last statements of its transaction.
+     * last statements of the item. They are one transaction only when no hook has committed it before
+     * (ps_facetedsearch does), else each statement stands alone: a mark goes only once its object is
+     * shown, and when the marks cannot go the objects are hidden again, so a mark that is left always
+     * names an inactive object.
      */
     public function seal(): void
     {
-        foreach ($this->hidden as $object) {
-            $id = $this->idOf($object);
-            if ($id === 0) {
-                continue;
+        $shown = [];
+        try {
+            foreach ($this->hidden as $object) {
+                if ($this->idOf($object) !== 0) {
+                    $shown[] = $object;
+                    $this->show($object, true);
+                }
             }
-            foreach (self::SHOWN[$this->tableOf($object)] as $table) {
-                $this->db->activate(get_class($object), $table, $this->primaryOf($object), $id);
+            $objects = [];
+            foreach ($this->marked as [$table, $id]) {
+                $objects[] = '('.$this->object($table, $id).')';
             }
+            if ($objects !== []) {
+                $this->db->execute('DELETE FROM '.$this->db->table('kx_pending').' WHERE id_shop = '.$this->shopId.' AND ('.implode(' OR ', $objects).')');
+            }
+        } catch (Throwable $error) {
+            foreach ($shown as $object) {
+                try {
+                    $this->show($object, false);
+                } catch (Throwable $ignored) {
+                    // the rollback or the clean-up takes it
+                }
+            }
+            throw $error;
+        }
+        $this->hidden = [];
+        foreach ($shown as $object) {
             if (property_exists($object, 'active')) {
                 $object->active = true;
             }
         }
-        $this->hidden = [];
-        $objects = [];
-        foreach ($this->marked as [$table, $id]) {
-            $objects[] = '('.$this->object($table, $id).')';
-        }
-        if ($objects !== []) {
-            $this->db->execute('DELETE FROM '.$this->db->table('kx_pending').' WHERE id_shop = '.$this->shopId.' AND ('.implode(' OR ', $objects).')');
+        $this->shown = $shown;
+    }
+
+    /** The item is committed: what it created stays, and what seal() showed is announced. */
+    public function keep(): void
+    {
+        $shown = $this->shown;
+        $this->reset();
+        foreach ($shown as $object) {
+            $this->announce($object);
         }
     }
 
-    /** The item is committed: what it created stays. */
-    public function keep(): void
+    /**
+     * PrestaShop's hooks of an update (ObjectModel, Product and Category update()) for an object seal()
+     * showed, after the commit: the hooks of its create saw it inactive. The object is loaded as it is
+     * stored, in the paired shop, as its create's hooks ran. Nothing is saved, so no `date_upd` and no
+     * `content_hash` changes; this module's own handlers record nothing. A hook that fails is logged:
+     * the item is written.
+     */
+    private function announce(ObjectModel $object): void
+    {
+        $class = get_class($object);
+        $id = $this->idOf($object);
+        try {
+            $stored = new $class($id);
+            $name = str_replace('\\', '', $class);
+            $hooks = [
+                'actionObjectUpdateBefore' => ['object' => $stored],
+                'actionObject'.$name.'UpdateBefore' => ['object' => $stored],
+                'actionObjectUpdateAfter' => ['object' => $stored],
+                'actionObject'.$name.'UpdateAfter' => ['object' => $stored],
+            ];
+            $table = $this->tableOf($object);
+            if ($table === 'product') {
+                $hooks += [
+                    'actionProductSave' => ['id_product' => $id, 'product' => $stored],
+                    'actionProductUpdate' => ['id_product' => $id, 'product' => $stored],
+                ];
+            } elseif ($table === 'category') {
+                $hooks['actionCategoryUpdate'] = ['category' => $stored];
+            }
+            foreach ($hooks as $hook => $params) {
+                ($this->hook)($hook, $params);
+            }
+        } catch (Throwable $error) {
+            $this->log->warning('write', 'A hook after showing an object failed', ['entity' => $this->tableOf($object), 'id' => $id, 'exception' => get_class($error)]);
+        }
+    }
+
+    private function show(ObjectModel $object, bool $active): void
+    {
+        foreach (self::SHOWN[$this->tableOf($object)] as $table) {
+            $this->db->setActive(get_class($object), $table, $this->primaryOf($object), $this->idOf($object), $active);
+        }
+    }
+
+    private function reset(): void
     {
         $this->created = [];
         $this->marked = [];
         $this->hidden = [];
+        $this->shown = [];
     }
 
     /**
@@ -202,7 +282,7 @@ final class PendingWrites
     public function undo(): bool
     {
         $created = array_reverse($this->created);
-        $this->keep();
+        $this->reset();
         $clean = true;
         foreach ($created as $object) {
             try {

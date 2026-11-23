@@ -329,6 +329,33 @@ final class SignedKernelTest extends TestCase
         self::assertSame(['acquire', 'release'], $module->guards->lockLog);
     }
 
+    public function test_a_read_of_a_clean_shop_takes_no_lock_so_a_write_never_waits_for_it(): void
+    {
+        $module = $this->pairedModule();
+        $secret = (string) $module->secrets->current();
+        $runs = [];
+        $asked = [];
+        $module->beforeRead = static function () use (&$runs): void {
+            $runs[] = 'run';
+        };
+        $module->cleanupNeeded = static function () use ($module, &$asked): bool {
+            $asked[] = $module->guards->lockLog;
+
+            return false;
+        };
+        $module->guards->lockLog = [];
+
+        self::assertSame(200, $module->kernel()->handle($module->signedServer($secret, 'GET', 'health'), '')->status());
+        self::assertSame([[]], $asked, 'asked without the lock');
+        self::assertSame([[], []], [$runs, $module->guards->lockLog], 'no mark: no clean-up and no lock');
+
+        $module->cleanupNeeded = static function (): bool {
+            throw new RuntimeException('the database');
+        };
+        self::assertSame(200, $module->kernel()->handle($module->signedServer($secret, 'GET', 'health'), '')->status(), 'a failed lookup does not fail the read');
+        self::assertSame([[], []], [$runs, $module->guards->lockLog]);
+    }
+
     public function test_a_read_cleans_up_first_when_no_write_holds_the_lock_and_never_waits(): void
     {
         $module = $this->pairedModule();

@@ -23,7 +23,6 @@ use Context;
 use Db;
 use Dispatcher;
 use Employee;
-use Kronixon\Connect\Api\Budget;
 use Kronixon\Connect\Api\Endpoints;
 use Kronixon\Connect\Api\Kernel;
 use Kronixon\Connect\Api\Router;
@@ -52,6 +51,7 @@ use Kronixon\Connect\Write\Batch;
 use Kronixon\Connect\Write\Download;
 use Kronixon\Connect\Write\Item;
 use Kronixon\Connect\Write\PendingWrites;
+use Kronixon\Connect\Write\ReadRecovery;
 use Kronixon\Connect\Write\Shop;
 use Kronixon\Connect\Write\ShopDatabase;
 use Kronixon\Connect\Write\Warnings;
@@ -210,22 +210,15 @@ final class Services
         );
     }
 
-    /**
-     * Before a read: at most PendingWrites::PER_READ objects a dead write left go (Kernel, under the write
-     * lock), on the master connection and with the hooks of a write; nothing but one lookup when there is
-     * no mark.
-     *
-     * @return callable(Budget): void
-     */
-    private static function recoverOnRead(Context $context): callable
+    /** Before a read (ReadRecovery), on the master connection. */
+    private static function recoverOnRead(Context $context): ReadRecovery
     {
-        return static function (Budget $budget) use ($context): void {
-            $pending = new PendingWrites(new ShopDatabase(Db::getInstance(), _DB_PREFIX_), (int) $context->shop->id, self::log());
-            if ($pending->any()) {
+        return new ReadRecovery(
+            new PendingWrites(new ShopDatabase(Db::getInstance(), _DB_PREFIX_), (int) $context->shop->id, self::log()),
+            static function () use ($context): void {
                 self::backOfficeHooks($context);
-                $pending->recover($budget, PendingWrites::PER_READ);
             }
-        };
+        );
     }
 
     /** Hooks as in the back office (writes()). */
