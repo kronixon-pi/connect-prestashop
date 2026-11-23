@@ -55,12 +55,15 @@ final class Heartbeat
     /** @var string */
     private $psVersion;
 
+    /** @var Delivery */
+    private $delivery;
+
     /**
      * @param  callable(): array<string, mixed>  $capabilities  GET capabilities
      * @param  callable(): array<string, int>  $counts  entity => rows
      * @param  callable(): array{count: int, last: list<array{at: string, code: string, message: string}>}  $errors  warnings of 24 h
      */
-    public function __construct(callable $capabilities, callable $counts, callable $errors, OutboxStore $store, Settings $settings, Clock $clock, string $psVersion)
+    public function __construct(callable $capabilities, callable $counts, callable $errors, OutboxStore $store, Settings $settings, Clock $clock, string $psVersion, Delivery $delivery)
     {
         $this->capabilities = $capabilities;
         $this->counts = $counts;
@@ -69,6 +72,23 @@ final class Heartbeat
         $this->settings = $settings;
         $this->clock = $clock;
         $this->psVersion = $psVersion;
+        $this->delivery = $delivery;
+    }
+
+    /**
+     * Records module.heartbeat in the outbox when the last one is a day old (the flush calls it, and so
+     * does a pull, so a shop that never flushes still tells the platform how it delivers).
+     */
+    public function recordIfDue(): bool
+    {
+        $now = (int) floor($this->clock->now());
+        if ($now - (int) $this->settings->get(Flusher::HEARTBEAT_AT) < Flusher::HEARTBEAT_S) {
+            return false;
+        }
+        $this->store->insert(new Change('module.heartbeat', null, $this->payload()), Recorder::time($this->clock->now()));
+        $this->settings->set(Flusher::HEARTBEAT_AT, (string) $now);
+
+        return true;
     }
 
     /**
@@ -89,6 +109,8 @@ final class Heartbeat
             'counts' => ($this->counts)(),
             'outbox' => $this->store->counts(),
             'cron' => ['configured' => $cron > 0 && $now - $cron <= self::CRON_FRESH_S, 'last_run_at' => $cron > 0 ? gmdate('Y-m-d\TH:i:s\Z', $cron) : null],
+            // pull_only: no cron and no flush after page views; the platform warns (README §8).
+            'delivery' => $this->delivery->mode($this->settings, $now),
             'errors_24h' => $errors['count'],
             'last_errors' => array_slice($errors['last'], 0, 20),
             'settings' => ['rate_limit' => $rate > 0 ? $rate : Protocol::RATE_LIMIT_PER_MINUTE],

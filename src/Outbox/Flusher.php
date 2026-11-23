@@ -38,11 +38,12 @@ use Throwable;
  * events. Accepted and duplicate events are sent, rejected ones failed; a request the platform did not
  * answer (network, 5xx, 429, 401, 403, an unsigned answer) puts the rows back and waits:
  * `Retry-After`, else 2^failures × 30 s up to 6 h. A 400, 413 or 422 fails the batch's rows (the payload
- * is wrong). A row fails after 10 attempts (OutboxStore::MAX_ATTEMPTS).
+ * is wrong). A row fails after 10 attempts (OutboxStore::MAX_ATTEMPTS); sending a batch again counts an
+ * attempt, so a batch whose build or send kills the process every time fails too.
  *
  * Before sending, the flusher records what the platform must be told: a gap left by a failed hook and
- * an outbox above its cap (`module.outbox_overflow`), and the daily `module.heartbeat`. Afterwards it
- * removes sent rows older than 7 days and failed ones older than 30.
+ * an outbox above its cap (`module.outbox_overflow`), and the daily `module.heartbeat`. These go first,
+ * in a batch of their own. Afterwards it removes sent rows older than 7 days and failed ones older than 30.
  */
 final class Flusher
 {
@@ -84,7 +85,7 @@ final class Flusher
     /** @var Clock */
     private $clock;
 
-    /** @var callable(): array<string, mixed> */
+    /** @var Heartbeat */
     private $heartbeat;
 
     /** @var Log|null */
@@ -92,9 +93,8 @@ final class Flusher
 
     /**
      * @param  callable(array<string, mixed>, int): array<string, mixed>  $send  the signed POST; the verified 200 body, or PlatformError
-     * @param  callable(): array<string, mixed>  $heartbeat  the payload of module.heartbeat
      */
-    public function __construct(OutboxStore $store, Events $events, callable $send, Settings $settings, Clock $clock, callable $heartbeat, ?Log $log = null)
+    public function __construct(OutboxStore $store, Events $events, callable $send, Settings $settings, Clock $clock, Heartbeat $heartbeat, ?Log $log = null)
     {
         $this->store = $store;
         $this->events = $events;
@@ -119,18 +119,20 @@ final class Flusher
         $result = ['sent' => 0, 'failed' => 0, 'batches' => 0, 'state' => 'done'];
         $now = $this->now();
         $this->settings->set(self::LAST_FLUSH, (string) $now);
-        $this->announce($now);
+        $this->announce();
         if (self::waiting($this->settings, $now)) {
             $result['state'] = 'waiting';
 
             return $result;
         }
+        $first = true;
         while (true) {
             if ($budget->remaining() < 1.5) {
                 $result['state'] = 'budget';
                 break;
             }
-            $rows = $this->nextBatch();
+            $rows = $this->nextBatch($first);
+            $first = false;
             if ($rows === []) {
                 break;
             }
@@ -149,19 +151,27 @@ final class Flusher
     }
 
     /**
-     * Rows of a batch a dead process left, else new pending rows of at most MAX_EVENTS entities, claimed.
+     * In this order: the rows of a batch a dead process left (sent again as they were, the attempt
+     * counted, so a batch that kills the process every time fails after MAX_ATTEMPTS instead of
+     * blocking the queue); then, once per run, the pending module.* events (gap, overflow, heartbeat)
+     * in a batch of their own; then pending rows of at most MAX_EVENTS entities, oldest first. Claimed.
      *
      * @return list<array<string, string|null>>
      */
-    private function nextBatch(): array
+    private function nextBatch(bool $first): array
     {
-        $left = $this->store->unfinished(5 * self::MAX_EVENTS);
-        if ($left !== []) {
-            $batch = (string) $left[0]['batch_id'];
-
-            return array_values(array_filter($left, static function (array $row) use ($batch): bool {
-                return (string) $row['batch_id'] === $batch;
-            }));
+        // Each pass fails or returns one left batch; the bound only guards against a store that does neither.
+        for ($i = 0; $i < 100 && ($left = $this->store->unfinished(1)) !== []; $i++) {
+            $rows = $this->store->resume((string) $left[0]['batch_id']);
+            if ($rows !== []) {
+                return $rows;
+            }
+        }
+        if ($first) {
+            $ids = array_map('intval', array_column($this->store->pendingModule(self::MAX_EVENTS), 'id_outbox'));
+            if ($ids !== []) {
+                return $this->store->claim($ids, Uuid::v4());
+            }
         }
         $ids = [];
         $keys = [];
@@ -272,24 +282,21 @@ final class Flusher
     }
 
     /** What the platform must hear before the changes themselves: a gap, an overflow, the heartbeat. */
-    private function announce(int $now): void
+    private function announce(): void
     {
         $gap = $this->settings->get(Recorder::GAP);
         if ($gap !== null) {
             $this->store->insert(new Change('module.outbox_overflow', null, ['merged' => 0, 'since' => gmdate('Y-m-d\TH:i:s\Z', (int) $gap)]), Recorder::time($this->clock->now()));
             $this->settings->delete(Recorder::GAP);
         }
-        $overflow = $this->store->bound();
-        if ($overflow !== null) {
-            $this->store->insert(new Change('module.outbox_overflow', null, ['merged' => $overflow['merged'], 'since' => Events::iso($overflow['since'])]), Recorder::time($this->clock->now()));
-            if ($this->log !== null) {
-                $this->log->warning('outbox', 'The outbox overflowed; the platform is asked to read everything again', ['merged' => $overflow['merged']]);
-            }
+        // The overflow row is in before any pending row goes: a process that dies in between loses nothing.
+        $overflow = $this->store->bound(OutboxStore::CAP, function (int $merged, string $since): void {
+            $this->store->insert(new Change('module.outbox_overflow', null, ['merged' => $merged, 'since' => Events::iso($since)]), Recorder::time($this->clock->now()));
+        });
+        if ($overflow !== null && $this->log !== null) {
+            $this->log->warning('outbox', 'The outbox overflowed; the platform is asked to read everything again', ['merged' => $overflow['merged']]);
         }
-        if ($now - (int) $this->settings->get(self::HEARTBEAT_AT) >= self::HEARTBEAT_S) {
-            $this->store->insert(new Change('module.heartbeat', null, ($this->heartbeat)()), Recorder::time($this->clock->now()));
-            $this->settings->set(self::HEARTBEAT_AT, (string) $now);
-        }
+        $this->heartbeat->recordIfDue();
     }
 
     private function prune(int $now): void

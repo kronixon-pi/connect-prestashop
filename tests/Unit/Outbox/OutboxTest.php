@@ -193,6 +193,26 @@ final class OutboxTest extends TestCase
         self::assertSame(0, $this->store->pendingCount());
     }
 
+    public function test_the_overflow_row_is_in_before_any_pending_row_goes_and_module_rows_stay(): void
+    {
+        $recorder = $this->recorder();
+        $this->store->insert(new Change('module.outbox_overflow', null, ['merged' => 0, 'since' => '2026-09-30T12:00:00Z']), '2026-09-30 12:39:00.000');
+        foreach ([1, 2, 3] as $brand) {
+            $recorder->record(new Change('brand.updated', (string) $brand));
+        }
+        $seen = null;
+
+        $overflow = $this->store->bound(2, function (int $merged, string $since) use (&$seen): void {
+            // What the row says, recorded while every change is still there.
+            $seen = [$merged, $since, $this->store->pendingCount()];
+            $this->store->insert(new Change('module.outbox_overflow', null, ['merged' => $merged, 'since' => $since]), '2026-09-30 12:41:00.000');
+        });
+
+        self::assertSame([3, '2026-09-30 12:40:00.250', 4], $seen);
+        self::assertSame(['merged' => 3, 'since' => '2026-09-30 12:40:00.250'], $overflow);
+        self::assertSame(['module.outbox_overflow', 'module.outbox_overflow'], array_column($this->store->pending(10), 'type'), 'the earlier overflow keeps its since; the new row stays');
+    }
+
     public function test_pull_lists_pending_and_failed_rows_and_ack_marks_them_sent(): void
     {
         $recorder = $this->recorder();

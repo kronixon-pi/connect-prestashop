@@ -40,6 +40,7 @@ use Kronixon\Connect\Catalog\Scope;
 use Kronixon\Connect\Compat\Version;
 use Kronixon\Connect\Crypto\ShopCipher;
 use Kronixon\Connect\Outbox\CatalogEnricher;
+use Kronixon\Connect\Outbox\Delivery;
 use Kronixon\Connect\Outbox\EventEndpoints;
 use Kronixon\Connect\Outbox\Events;
 use Kronixon\Connect\Outbox\Flusher;
@@ -354,24 +355,7 @@ final class Services
                 $compat = Version::select(_PS_VERSION_);
                 $clock = new SystemClock();
                 $client = new PlatformClient(new CurlTransport(), $secrets, $clock);
-                $heartbeat = new Heartbeat(static function () use ($context): array {
-                    return self::endpoints($context)->capabilities();
-                }, static function () use ($db): array {
-                    $counts = [];
-                    foreach (['products' => 'product', 'variants' => 'product_attribute', 'categories' => 'category', 'images' => 'image', 'brands' => 'manufacturer'] as $name => $table) {
-                        $counts[$name] = (int) ($db->rows('SELECT COUNT(*) AS n FROM '.$db->table($table))[0]['n'] ?? 0);
-                    }
-
-                    return $counts;
-                }, static function () use ($db): array {
-                    $since = ' WHERE level = \'warning\' AND created_at >= DATE_SUB(NOW(), INTERVAL 1 DAY)';
-                    $last = [];
-                    foreach ($db->rows('SELECT UNIX_TIMESTAMP(created_at) AS at, channel, message FROM '.$db->table('kx_log').$since.' ORDER BY id_kx_log DESC LIMIT 5') as $row) {
-                        $last[] = ['at' => gmdate('Y-m-d\TH:i:s\Z', (int) $row['at']), 'code' => (string) $row['channel'], 'message' => (string) $row['message']];
-                    }
-
-                    return ['count' => (int) ($db->rows('SELECT COUNT(*) AS n FROM '.$db->table('kx_log').$since)[0]['n'] ?? 0), 'last' => $last];
-                }, $store, self::settings(), $clock, _PS_VERSION_);
+                $heartbeat = self::heartbeat($context, $db, $store, $clock);
 
                 return (new Flusher(
                     $store,
@@ -381,7 +365,7 @@ final class Services
                     },
                     self::settings(),
                     $clock,
-                    [$heartbeat, 'payload'],
+                    $heartbeat,
                     self::log()
                 ))->run(new Budget($clock, $budgetSeconds));
             } finally {
@@ -392,29 +376,27 @@ final class Services
         }
     }
 
+    /** How the outbox reaches the platform on this server (Outbox\Delivery). */
+    public static function delivery(): Delivery
+    {
+        return new Delivery([Runtime::class, 'canCall'], 'register_shutdown_function');
+    }
+
     /**
-     * On a page view of the storefront or the back office: a flush after the answer, at most once a
-     * minute, when no cron runs, nothing asked to wait and the request is a GET. Everything it reads
-     * here is cached by PrestaShop for the request: a page view costs no query.
+     * On a page view of the storefront or the back office (a GET): a flush after the answer, only when
+     * the server can send the answer first (Outbox\Delivery::onPageView()), at most once a minute. A
+     * page view never waits for the platform. Everything it reads here is cached by PrestaShop for the
+     * request: a page view costs no query.
      */
     public static function flushOnVisit(Context $context): void
     {
         if (self::$visitFlush || Origin::isPlatform() || ($_SERVER['REQUEST_METHOD'] ?? '') !== 'GET') {
             return;
         }
-        $settings = self::settings();
-        $now = time();
-        if ($settings->get(SecretStore::STORE_ID) === null || $now - (int) $settings->get(Flusher::LAST_FLUSH) < 60
-            || Flusher::waiting($settings, $now) || $now - (int) $settings->get(Heartbeat::CRON_AT) < 300) {
-            return;
-        }
-        self::$visitFlush = true;
-        register_shutdown_function(static function () use ($context): void {
+        self::$visitFlush = self::delivery()->onPageView(self::settings(), time(), static function () use ($context): void {
             try {
-                // The visitor has the page before the flush starts when PHP runs under FastCGI.
-                $detached = Runtime::canCall('fastcgi_finish_request') && fastcgi_finish_request();
                 ignore_user_abort(true);
-                self::flushOutbox($context, $detached ? 5 : 2);
+                self::flushOutbox($context, 5);
             } catch (Throwable $error) {
                 // a page view never fails because of the outbox
             }
@@ -424,24 +406,60 @@ final class Services
     /** The cron URL's token (KX_CRON_TOKEN), made the first time it is asked for. */
     public static function cronToken(): string
     {
-        $settings = self::settings();
-        $token = $settings->get(self::CRON_TOKEN);
-        if ($token === null || strlen($token) < 32) {
-            $token = bin2hex(random_bytes(24));
-            $settings->set(self::CRON_TOKEN, $token);
-        }
+        $token = self::settings()->get(self::CRON_TOKEN);
+
+        return $token === null || strlen($token) < 32 ? self::rotateCronToken() : $token;
+    }
+
+    /** A new cron URL token; the old URL answers 403 from now on. */
+    public static function rotateCronToken(): string
+    {
+        $token = bin2hex(random_bytes(24));
+        self::settings()->set(self::CRON_TOKEN, $token);
 
         return $token;
     }
 
-    /** GET events and POST events/ack, on the master connection. */
+    /**
+     * GET events and POST events/ack, on the master connection. A pull records the daily heartbeat when
+     * it is due, so the platform hears how this shop delivers even when nothing flushes.
+     */
     public static function events(Context $context): EventEndpoints
     {
         return new EventEndpoints(static function () use ($context): array {
             $db = new ShopDatabase(Db::getInstance(), _DB_PREFIX_);
+            $store = new OutboxStore($db);
+            try {
+                self::heartbeat($context, $db, $store, new SystemClock())->recordIfDue();
+            } catch (Throwable $error) {
+                // the pull answers without it
+            }
 
-            return [new OutboxStore($db), new Events(new CatalogEnricher($db, PrestaShopScope::of($context, Version::select(_PS_VERSION_)), new PrestaShopImageUrls($context->link)))];
+            return [$store, new Events(new CatalogEnricher($db, PrestaShopScope::of($context, Version::select(_PS_VERSION_)), new PrestaShopImageUrls($context->link)))];
         }, new SystemClock());
+    }
+
+    /** The daily module.heartbeat of this shop (Outbox\Heartbeat). */
+    private static function heartbeat(Context $context, ShopDatabase $db, OutboxStore $store, SystemClock $clock): Heartbeat
+    {
+        return new Heartbeat(static function () use ($context): array {
+            return self::endpoints($context)->capabilities();
+        }, static function () use ($db): array {
+            $counts = [];
+            foreach (['products' => 'product', 'variants' => 'product_attribute', 'categories' => 'category', 'images' => 'image', 'brands' => 'manufacturer'] as $name => $table) {
+                $counts[$name] = (int) ($db->rows('SELECT COUNT(*) AS n FROM '.$db->table($table))[0]['n'] ?? 0);
+            }
+
+            return $counts;
+        }, static function () use ($db): array {
+            $since = ' WHERE level = \'warning\' AND created_at >= DATE_SUB(NOW(), INTERVAL 1 DAY)';
+            $last = [];
+            foreach ($db->rows('SELECT UNIX_TIMESTAMP(created_at) AS at, channel, message FROM '.$db->table('kx_log').$since.' ORDER BY id_kx_log DESC LIMIT 5') as $row) {
+                $last[] = ['at' => gmdate('Y-m-d\TH:i:s\Z', (int) $row['at']), 'code' => (string) $row['channel'], 'message' => (string) $row['message']];
+            }
+
+            return ['count' => (int) ($db->rows('SELECT COUNT(*) AS n FROM '.$db->table('kx_log').$since)[0]['n'] ?? 0), 'last' => $last];
+        }, $store, self::settings(), $clock, _PS_VERSION_, self::delivery());
     }
 
     public static function redirects(Context $context): RedirectStore

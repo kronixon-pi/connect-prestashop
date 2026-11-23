@@ -346,8 +346,9 @@ Platform rule: 401/403/404/405/413/422 are not retried and put the job or item i
 ## 8. Events (module → platform)
 
 The module records shop changes in an outbox (hooks only insert; no HTTP inside a hook) and sends
-them signed to `POST /v1/stores/{store_id}/events`, at most 200 per request and 1 MB, on page visits,
-from a cron URL and with backoff (`2^attempts × 30 s`, at most 6 h, 10 attempts). Delivery is
+them signed to `POST /v1/stores/{store_id}/events`, at most 200 per request and 1 MB, from a cron URL,
+or after page views when the server can answer the visitor first, with backoff (`2^attempts × 30 s`,
+at most 6 h, 10 attempts). Delivery is
 at-least-once; the platform deduplicates by `event_id` and treats an event as a hint: it re-reads
 the entity through `GET catalog/*` instead of trusting the payload. Changes made by the platform's
 own requests are not recorded (`origin: kronixon` is suppressed). `module.heartbeat` is sent every
@@ -383,22 +384,30 @@ Recording (module 0.6.0):
 - **`GET events`** lists pending and failed rows oldest first, one event per row, without coalescing,
   so each row can be acknowledged. **`POST events/ack`** marks rows sent by event id. Unknown ids are
   ignored, and acknowledging twice is harmless.
+- **When.** A flush runs when the cron URL is called, or after a page view (at most once a minute, no
+  cron in the last 5 minutes) only when PHP can finish the answer first (`fastcgi_finish_request()`
+  under PHP-FPM, `litespeed_finish_request()` under LiteSpeed): a page view never waits for the
+  platform. Without either (Apache mod_php and no cron), the module pushes nothing and the events
+  reach the platform only through `GET events`; the heartbeat says so with `delivery: pull_only`,
+  and the platform should ask the merchant to set up the cron URL. A pull records the heartbeat
+  when it is due, so this reaches the platform too.
 - **Delivery.** One flush runs at a time, under a server-wide lock and on a connection of its own. It
   claims a batch's rows by primary key before sending them. If the flush process dies, the next flush
   sends the claimed rows again as the same batch, with the same `batch_id` and `event_id`s, before
-  anything new. The platform answers 200 with `accepted`, `duplicates` and `rejected`:
+  anything new; that counts an attempt, so a batch that kills the process every time fails after 10.
+  The platform answers 200 with `accepted`, `duplicates` and `rejected`:
   - accepted and duplicate events are done;
   - rejected events fail and are not sent again;
   - events missing from the answer go in a later batch.
 
   A 400, 413 or 422 fails the batch. Any other failure puts the rows back: network errors, 5xx, 429,
   401, 403, and a 2xx without a valid response signature. The module then waits `Retry-After`, or
-  else 60 s doubling up to 6 h. A row fails after 10 attempts. Every batch starts with any gap or
-  overflow, and with the daily heartbeat when it is due.
+  else 60 s doubling up to 6 h. A row fails after 10 attempts. A gap, an overflow and the daily
+  heartbeat go first in each flush, in a batch of their own (after a batch sent again as it was).
 - **Bounds.** Above 50 000 pending rows, the older rows of an entity that has a newer one are deleted.
-  If more than 50 000 entities are still pending after that, every pending row is deleted and one
-  `module.outbox_overflow {merged, since}` is recorded; the platform then reads everything changed
-  since `since`.
+  If more than 50 000 entities are still pending after that, one `module.outbox_overflow {merged,
+  since}` is recorded and then every pending change older than it is deleted; the platform then reads
+  everything changed since `since`.
 
 ## 9. Limits
 

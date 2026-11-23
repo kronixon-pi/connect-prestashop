@@ -6,8 +6,10 @@ namespace Kronixon\Connect\Tests\Unit\Outbox;
 
 use Kronixon\Connect\Api\Budget;
 use Kronixon\Connect\Api\Response;
+use Kronixon\Connect\Catalog\ImageUrls;
 use Kronixon\Connect\Outbox\CatalogEnricher;
 use Kronixon\Connect\Outbox\Change;
+use Kronixon\Connect\Outbox\Delivery;
 use Kronixon\Connect\Outbox\Events;
 use Kronixon\Connect\Outbox\Flusher;
 use Kronixon\Connect\Outbox\Heartbeat;
@@ -209,16 +211,77 @@ final class FlusherTest extends TestCase
 
         $this->flusher()->run($this->budget());
 
+        self::assertCount(2, $this->requests);
         $events = $this->requests[0]['events'];
-        self::assertSame(['brand.updated', 'module.outbox_overflow', 'module.heartbeat'], array_column($events, 'type'));
-        self::assertSame(['merged' => 0, 'since' => '2026-09-30T12:23:20Z'], (array) $events[1]['payload']);
-        self::assertSame(['products' => 2], $events[2]['payload']['counts']);
+        self::assertSame(['module.outbox_overflow', 'module.heartbeat'], array_column($events, 'type'), 'first, in a batch of their own');
+        self::assertSame(['merged' => 0, 'since' => '2026-09-30T12:23:20Z'], (array) $events[0]['payload']);
+        self::assertSame(['products' => 2], $events[1]['payload']['counts']);
+        self::assertSame('pull_only', $events[1]['payload']['delivery'], 'no cron, no finish function');
+        self::assertSame(['brand.updated'], array_column($this->requests[1]['events'], 'type'));
         self::assertSame([], ProtocolSchemas::platformRequestErrors('store-events.json', $this->raw[0]));
         self::assertNull($this->settings->get(Recorder::GAP));
 
         $this->clock->advance(3600);
         $this->flusher()->run($this->budget());
-        self::assertCount(1, $this->requests, 'one heartbeat a day');
+        self::assertCount(2, $this->requests, 'one heartbeat a day');
+    }
+
+    public function test_the_gap_goes_before_thousands_of_pending_changes(): void
+    {
+        $recorder = $this->recorder();
+        for ($i = 1; $i <= 1000; $i++) {
+            $recorder->record(new Change('brand.updated', (string) $i));
+        }
+        $this->settings->set(Recorder::GAP, '1790771000');
+
+        $this->flusher()->run($this->budget());
+
+        self::assertSame(['module.outbox_overflow'], array_column($this->requests[0]['events'], 'type'));
+        self::assertCount(6, $this->requests);
+    }
+
+    public function test_a_batch_that_kills_the_process_every_time_fails_after_ten_attempts_and_the_queue_moves_on(): void
+    {
+        $recorder = $this->recorder();
+        $recorder->record(new Change('product.updated', '2'));
+        $recorder->record(new Change('brand.updated', '12'));
+        $this->store->claim([(int) $this->store->pending(1)[0]['id_outbox']], '0192b2e4-9b3c-7d4e-9f50-6b7c8d9e0f1b');
+        // Building product 2's event (its content_hash reads its images) kills the process, as a memory or
+        // time limit would: run() never returns.
+        $dies = new class ($this->db) implements ImageUrls {
+            /** @var ImageUrls */
+            private $inner;
+
+            public function __construct(ImageUrls $inner)
+            {
+                $this->inner = $inner;
+            }
+
+            public function url(int $imageId, string $slug, ?string $type): string
+            {
+                throw new RuntimeException('the process dies');
+            }
+
+            public function brandLogo(int $brandId): ?string
+            {
+                return $this->inner->brandLogo($brandId);
+            }
+        };
+        $deaths = 0;
+        $result = null;
+        for ($run = 1; $run <= OutboxStore::MAX_ATTEMPTS + 1 && $result === null; $run++) {
+            try {
+                $result = $this->flusher($dies)->run($this->budget());
+            } catch (RuntimeException $death) {
+                $deaths++;
+            }
+        }
+
+        self::assertSame(OutboxStore::MAX_ATTEMPTS - 1, $deaths, 'claimed once, then sent again nine times');
+        self::assertSame(['sent' => 1, 'failed' => 0, 'batches' => 1, 'state' => 'done'], $result);
+        self::assertSame(['12'], array_column($this->requests[0]['events'], 'external_id'), 'the queue moved on');
+        self::assertSame(['pending' => 0, 'failed' => 1], $this->store->counts());
+        self::assertSame('process_died', $this->db->rows("SELECT last_error FROM ps_kx_outbox WHERE status = 'failed'")[0]['last_error']);
     }
 
     public function test_a_failure_of_the_transport_is_a_network_error(): void
@@ -243,7 +306,7 @@ final class FlusherTest extends TestCase
         return new Budget($this->clock, 25);
     }
 
-    private function flusher(): Flusher
+    private function flusher(?ImageUrls $urls = null): Flusher
     {
         $heartbeat = new Heartbeat(static function (): array {
             return ['protocol' => 'v1'];
@@ -251,13 +314,16 @@ final class FlusherTest extends TestCase
             return ['products' => 2];
         }, static function (): array {
             return ['count' => 0, 'last' => []];
-        }, $this->store, $this->settings, $this->clock, '9.1.5');
+        }, $this->store, $this->settings, $this->clock, '9.1.5', new Delivery(static function (): bool {
+            return false;
+        }, static function (): void {
+        }));
 
-        return new Flusher($this->store, new Events(new CatalogEnricher($this->db, $this->db->scope(), $this->db)), function (array $body, int $timeout): array {
+        return new Flusher($this->store, new Events(new CatalogEnricher($this->db, $this->db->scope(), $urls ?? $this->db)), function (array $body, int $timeout): array {
             $this->raw[] = (string) json_encode($body, Response::JSON_FLAGS);
             $this->requests[] = json_decode($this->raw[count($this->raw) - 1], true);
 
             return ($this->answer)($body);
-        }, $this->settings, $this->clock, [$heartbeat, 'payload']);
+        }, $this->settings, $this->clock, $heartbeat);
     }
 }
