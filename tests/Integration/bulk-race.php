@@ -163,7 +163,8 @@ $dropCopies = static function (int $from) use ($db, $p): void {
 $orderOf = static function (array $products) use ($db, $p): int {
     // Order lines only: what the end-of-order statement reads to find the order's stock rows.
     $idOrder = 900000000 + random_int(1, 99999999);
-    $template = $db->getRow("SELECT * FROM {$p}order_detail ORDER BY id_order_detail DESC LIMIT 1", false);
+    // getRow() adds LIMIT 1 itself (8.x and 9.0 append it even to a statement that has one).
+    $template = $db->getRow("SELECT * FROM {$p}order_detail ORDER BY id_order_detail DESC", false);
     foreach ($products as $product) {
         $line = $template;
         unset($line['id_order_detail']);
