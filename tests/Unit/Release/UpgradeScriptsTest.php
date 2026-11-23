@@ -18,6 +18,8 @@ use PHPUnit\Framework\TestCase;
  *   `CREATE INDEX IF NOT EXISTS` do not count, MySQL refuses them.
  * - Whether the check's answer really decides the statement is not looked at.
  * - DML (`INSERT`, `UPDATE … SET x = x * 100`, a Configuration value computed from itself) is out of scope.
+ * - Not seen: a statement built by string concatenation (`'ALTER TABLE x '.'ADD y'`), and an `ADD/DROP/CHANGE/RENAME`
+ *   more than 200 characters after its `ALTER TABLE`.
  */
 final class UpgradeScriptsTest extends TestCase
 {
