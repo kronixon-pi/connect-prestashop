@@ -292,13 +292,19 @@ final class PendingWritesTest extends TestCase
 
     public function test_a_failed_hook_after_the_commit_is_logged_and_one_rolled_back_announces_nothing(): void
     {
-        $failing = $this->request(1, static function (): void {
-            throw new RuntimeException('a hook of another module');
+        $ran = [];
+        $failing = $this->request(1, static function (string $name) use (&$ran): void {
+            if ($name === 'actionObjectUpdateBefore') {
+                throw new RuntimeException('a hook of another module');
+            }
+            $ran[] = $name;
         });
         $failing->add($this->withPage(new Product(), 'product', true));
         $failing->seal();
         $failing->keep();
         self::assertSame(['A hook after showing an object failed'], array_column($this->logged, 'message'));
+        self::assertSame('actionObjectUpdateBefore', $this->logged[0]['context'] === null ? null : json_decode((string) $this->logged[0]['context'], true)['hook']);
+        self::assertSame(['actionObjectProductUpdateBefore', 'actionObjectUpdateAfter', 'actionObjectProductUpdateAfter', 'actionProductSave', 'actionProductUpdate'], $ran, 'one module that throws does not stop the others (1.7.8 lets it through)');
         self::assertSame(1, $this->active('product', 77), 'the item stays written');
 
         $this->db->delete('product', 'id_product = 77');

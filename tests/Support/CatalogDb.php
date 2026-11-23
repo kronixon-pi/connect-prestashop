@@ -7,7 +7,10 @@ namespace Kronixon\Connect\Tests\Support;
 use DateTimeZone;
 use Kronixon\Connect\Catalog\ImageUrls;
 use Kronixon\Connect\Catalog\Scope;
+use Kronixon\Connect\Write\ChunkRolledBack;
 use Kronixon\Connect\Write\Database;
+use Kronixon\Connect\Write\RowsLocked;
+use LogicException;
 use PDO;
 
 /**
@@ -23,9 +26,11 @@ final class CatalogDb implements Database, ImageUrls
             upc TEXT DEFAULT \'\', mpn TEXT DEFAULT \'\', isbn TEXT DEFAULT \'\', price TEXT DEFAULT \'0.000000\', wholesale_price TEXT DEFAULT \'0.000000\',
             weight TEXT DEFAULT \'0.000000\', width TEXT DEFAULT \'0.000000\', height TEXT DEFAULT \'0.000000\', depth TEXT DEFAULT \'0.000000\',
             is_virtual INT DEFAULT 0, cache_is_pack INT DEFAULT 0, product_type TEXT DEFAULT \'standard\', active INT DEFAULT 1,
-            date_add TEXT DEFAULT \'2026-09-01 10:00:00\'',
+            unit_price_ratio TEXT DEFAULT \'0.000000\', unit_price TEXT DEFAULT \'0.000000\', visibility TEXT DEFAULT \'both\', indexed INT DEFAULT 1,
+            date_add TEXT DEFAULT \'2026-09-01 10:00:00\', date_upd TEXT DEFAULT \'2026-09-01 10:00:00\'',
         'product_shop' => 'id_product INT, id_shop INT, id_category_default INT DEFAULT 2, id_tax_rules_group INT DEFAULT 1, price TEXT DEFAULT \'0.000000\',
             wholesale_price TEXT DEFAULT \'0.000000\', unity TEXT DEFAULT \'\', unit_price_ratio TEXT DEFAULT \'0.000000\', unit_price TEXT DEFAULT \'0.000000\',
+            indexed INT DEFAULT 1,
             active INT DEFAULT 1, visibility TEXT DEFAULT \'both\', available_for_order INT DEFAULT 1, show_price INT DEFAULT 1, `condition` TEXT DEFAULT \'new\',
             online_only INT DEFAULT 0, redirect_type TEXT DEFAULT \'404\', id_type_redirected INT DEFAULT 0, cache_default_attribute INT DEFAULT 0,
             date_add TEXT DEFAULT \'2026-09-01 10:00:00\', date_upd TEXT DEFAULT \'2026-09-01 10:00:00\', PRIMARY KEY (id_product, id_shop)',
@@ -68,7 +73,12 @@ final class CatalogDb implements Database, ImageUrls
         'image' => 'id_image INTEGER PRIMARY KEY, id_product INT, position INT DEFAULT 0, cover INT NULL',
         'image_shop' => 'id_product INT, id_image INT, id_shop INT, cover INT NULL, PRIMARY KEY (id_image, id_shop)',
         'image_lang' => 'id_image INT, id_lang INT, legend TEXT DEFAULT \'\', PRIMARY KEY (id_image, id_lang)',
-        'product_attribute' => 'id_product_attribute INTEGER PRIMARY KEY, id_product INT, reference TEXT DEFAULT \'\', ean13 TEXT DEFAULT \'\', mpn TEXT DEFAULT \'\'',
+        'product_attribute' => 'id_product_attribute INTEGER PRIMARY KEY, id_product INT, reference TEXT DEFAULT \'\', ean13 TEXT DEFAULT \'\', mpn TEXT DEFAULT \'\',
+            price TEXT DEFAULT \'0.000000\', wholesale_price TEXT DEFAULT \'0.000000\'',
+        'tax_rules_group' => 'id_tax_rules_group INTEGER PRIMARY KEY, active INT DEFAULT 1, deleted INT DEFAULT 0',
+        'layered_category' => 'id_layered_category INTEGER PRIMARY KEY, id_shop INT, controller TEXT, id_category INT, id_value INT DEFAULT 0, type TEXT,
+            position INT, filter_type INT DEFAULT 0, filter_show_limit INT DEFAULT 0',
+        'layered_filter' => 'id_layered_filter INTEGER PRIMARY KEY, name TEXT, filters TEXT, n_categories INT, date_add TEXT',
         'product_attribute_shop' => 'id_product INT, id_product_attribute INT, id_shop INT, price TEXT DEFAULT \'0.000000\', wholesale_price TEXT DEFAULT \'0.000000\',
             weight TEXT DEFAULT \'0.000000\', default_on INT NULL, minimal_quantity INT DEFAULT 1, available_date TEXT NULL, PRIMARY KEY (id_product_attribute, id_shop)',
         'product_attribute_combination' => 'id_attribute INT, id_product_attribute INT, PRIMARY KEY (id_attribute, id_product_attribute)',
@@ -96,6 +106,33 @@ final class CatalogDb implements Database, ImageUrls
     /** @var list<string>|null when an array, every statement run through rows() is appended */
     public $log;
 
+    /** @var list<string> with $log, the statements of rows() run outside a transaction */
+    public $outside = [];
+
+    /** @var list<string> the statements of bulk() */
+    public $bulks = [];
+
+    /** @var list<array{0: string, 1: int}> the statements and waits of lockRows() */
+    public $locks = [];
+
+    /** @var (callable(self): void)|null runs inside lockRows() before the read: another session's commit */
+    public $onLock;
+
+    /** @var bool lockRows() is not granted the locks */
+    public $lockFails = false;
+
+    /** @var int lockRows() calls still to lose a deadlock (RowsLocked::deadlock()) */
+    public $deadlocks = 0;
+
+    /** @var list<int> numbers (1-based, counted over the test) of bulk() calls that lose a deadlock after they ran */
+    public $bulkDeadlocks = [];
+
+    /** @var int commitChunk() calls still to find the marker gone (ChunkRolledBack) */
+    public $lostChunks = 0;
+
+    /** @var list<string> beginChunk, commitChunk, rollbackChunk, in order */
+    public $chunks = [];
+
     /** @var bool 1.7.8: no product_shop.unit_price */
     public $legacy = false;
 
@@ -118,6 +155,9 @@ final class CatalogDb implements Database, ImageUrls
         $this->queries++;
         if ($this->log !== null) {
             $this->log[] = $sql;
+            if (! $this->pdo->inTransaction()) {
+                $this->outside[] = $sql;
+            }
         }
         $rows = [];
         $statement = $this->pdo->query($sql);
@@ -144,9 +184,42 @@ final class CatalogDb implements Database, ImageUrls
         $this->pdo->exec($sql);
     }
 
+    public function bulk(string $sql): void
+    {
+        $this->bulks[] = $sql;
+        // MySQL's upsert of a stock row, as SQLite writes it.
+        $sql = str_replace('ON DUPLICATE KEY UPDATE', 'ON CONFLICT (id_product, id_product_attribute, id_shop, id_shop_group) DO UPDATE SET', $sql);
+        $this->pdo->exec(str_replace('NOW()', "datetime('now')", $sql));
+        if (in_array(count($this->bulks), $this->bulkDeadlocks, true)) {
+            // Written, then the server picks the transaction as a deadlock's victim.
+            throw new RowsLocked('deadlock', true);
+        }
+    }
+
     public function setActive(string $class, string $table, string $primary, int $id, bool $active): void
     {
         $this->pdo->exec('UPDATE '.$this->table($table).' SET active = '.(int) $active.' WHERE '.$primary.' = '.$id);
+    }
+
+    public function lockRows(string $sql, int $waitSeconds): array
+    {
+        if (! $this->pdo->inTransaction()) {
+            throw new LogicException('Rows are locked inside a transaction only.');
+        }
+        $this->locks[] = [$sql, $waitSeconds];
+        if ($this->onLock !== null) {
+            // What another session commits while this one waits for the lock.
+            ($this->onLock)($this);
+        }
+        if ($this->lockFails) {
+            throw new RowsLocked('locked');
+        }
+        if ($this->deadlocks > 0) {
+            $this->deadlocks--;
+            throw new RowsLocked('deadlock', true);
+        }
+
+        return $this->rows($sql);
     }
 
     public function quote(string $text): string
@@ -167,6 +240,30 @@ final class CatalogDb implements Database, ImageUrls
     public function rollback(): void
     {
         $this->pdo->rollBack();
+    }
+
+    public function beginChunk(): void
+    {
+        $this->chunks[] = 'beginChunk';
+        $this->pdo->beginTransaction();
+    }
+
+    public function commitChunk(): void
+    {
+        $this->chunks[] = 'commitChunk';
+        if ($this->lostChunks > 0) {
+            $this->lostChunks--;
+            throw new ChunkRolledBack('lost');
+        }
+        $this->pdo->commit();
+    }
+
+    public function rollbackChunk(): void
+    {
+        $this->chunks[] = 'rollbackChunk';
+        if ($this->pdo->inTransaction()) {
+            $this->pdo->rollBack();
+        }
     }
 
     public function url(int $imageId, string $slug, ?string $type): string

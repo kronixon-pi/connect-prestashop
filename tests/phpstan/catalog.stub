@@ -45,7 +45,7 @@ class Search
     public static function indexation($full = false, $id_product = false) {}
 }
 
-class StockAvailable
+class StockAvailable extends ObjectModel
 {
     /**
      * @param int $id_product
@@ -59,11 +59,18 @@ class StockAvailable
 
     /**
      * @param int $id_product
-     * @param int $out_of_stock
+     * @param int|bool $out_of_stock
      * @param int|null $id_shop
+     * @param int $id_product_attribute
      * @return bool|void
      */
-    public static function setProductOutOfStock($id_product, $out_of_stock, $id_shop = null) {}
+    public static function setProductOutOfStock($id_product, $out_of_stock = false, $id_shop = null, $id_product_attribute = 0) {}
+}
+
+class Media
+{
+    /** @return void */
+    public static function clearCache() {}
 }
 
 class Product extends ObjectModel

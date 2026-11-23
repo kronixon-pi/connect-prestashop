@@ -26,6 +26,7 @@ use Exception;
 use ImageType;
 use Kronixon\Connect\Compat\CompatInterface;
 use Language;
+use Module;
 use Shop;
 
 /**
@@ -74,6 +75,7 @@ final class PrestaShopScope
         );
         // Every shop, active or not, whatever the multistore switch says: its rows are in the tables.
         $scope->multistore = count(Shop::getShops(false)) > 1;
+        $scope->facets = (bool) Module::isEnabled('ps_facetedsearch');
 
         return $scope;
     }

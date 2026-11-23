@@ -28,7 +28,7 @@ final class InstallTest extends TestCase
 
             return $m[1];
         }, $statements);
-        self::assertSame(['ps_kx_nonce', 'ps_kx_idempotency', 'ps_kx_log', 'ps_kx_entity_map', 'ps_kx_pending', 'ps_kx_image_map', 'ps_kx_redirect', 'ps_kx_outbox'], $tables);
+        self::assertSame(['ps_kx_nonce', 'ps_kx_idempotency', 'ps_kx_log', 'ps_kx_entity_map', 'ps_kx_pending', 'ps_kx_image_map', 'ps_kx_redirect', 'ps_kx_bulk_chunk', 'ps_kx_outbox'], $tables);
         foreach ($statements as $sql) {
             self::assertStringNotContainsString('PREFIX_', $sql);
             self::assertStringContainsString('ENGINE=InnoDB DEFAULT CHARSET=utf8mb4', $sql);
@@ -74,6 +74,11 @@ final class InstallTest extends TestCase
         $column = '`path_from` VARBINARY(764) NOT NULL';
         self::assertStringContainsString($column, (string) file_get_contents(self::ROOT.'/sql/install.sql'), 'no collation folds case or trailing spaces');
         self::assertStringContainsString('MODIFY '.$column, (string) file_get_contents(self::ROOT.'/upgrade/upgrade-0.4.0.php'), 'the text column of 0.3.2 becomes the same');
+    }
+
+    public function test_an_upgrade_to_0_5_0_adds_the_bulk_chunk_table(): void
+    {
+        self::assertStringContainsString('$module->addMissing()', (string) file_get_contents(self::ROOT.'/upgrade/upgrade-0.5.0.php'), 'install.sql creates what is missing');
     }
 
     public function test_sql_file_refuses_unexpected_prefixes(): void

@@ -57,7 +57,7 @@ final class SignedKernelTest extends TestCase
         $secret = Vectors::document()['secrets'][$v['key_id']];
         self::assertTrue(TestModule::signedWith($response, $v['nonce'], $secret), 'signed with the key that verified the request');
         self::assertSame($v['key_id'], $response->header('X-KX-Key-Id'));
-        self::assertSame('0.4.0', $response->header('X-KX-Module-Version'));
+        self::assertSame('0.5.0', $response->header('X-KX-Module-Version'));
         self::assertNotNull($response->header('X-KX-Time-Used'));
     }
 

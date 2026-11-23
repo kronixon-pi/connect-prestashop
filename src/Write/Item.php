@@ -118,6 +118,17 @@ final class Item
         return $value;
     }
 
+    /** An integer of any sign (a quantity). */
+    public function integer(string $name): ?int
+    {
+        $value = $this->data[$name] ?? null;
+        if ($value !== null && ! is_int($value)) {
+            throw ItemError::invalid($this->at($name));
+        }
+
+        return $value;
+    }
+
     /** An amount (README §2): a decimal string. */
     public function money(string $name): ?string
     {

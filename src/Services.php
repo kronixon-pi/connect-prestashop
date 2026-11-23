@@ -19,10 +19,12 @@ declare(strict_types=1);
 namespace Kronixon\Connect;
 
 use Cache;
+use Configuration;
 use Context;
 use Db;
 use Dispatcher;
 use Employee;
+use Hook;
 use Kronixon\Connect\Api\Endpoints;
 use Kronixon\Connect\Api\Kernel;
 use Kronixon\Connect\Api\Router;
@@ -48,15 +50,27 @@ use Kronixon\Connect\Support\Settings;
 use Kronixon\Connect\Support\ShopSettings;
 use Kronixon\Connect\Support\SystemClock;
 use Kronixon\Connect\Write\Batch;
+use Kronixon\Connect\Write\BulkEndpoints;
 use Kronixon\Connect\Write\Download;
+use Kronixon\Connect\Write\Facets;
 use Kronixon\Connect\Write\Item;
+use Kronixon\Connect\Write\Maintenance;
 use Kronixon\Connect\Write\PendingWrites;
+use Kronixon\Connect\Write\PriceBulk;
 use Kronixon\Connect\Write\ReadRecovery;
 use Kronixon\Connect\Write\Shop;
 use Kronixon\Connect\Write\ShopDatabase;
+use Kronixon\Connect\Write\StockBulk;
 use Kronixon\Connect\Write\Warnings;
 use Kronixon\Connect\Write\WriteEndpoints;
+use Media;
+use Module;
+use PrestaShopAutoload;
+use Product;
 use ReflectionProperty;
+use Search;
+use StockAvailable;
+use Tools;
 
 /**
  * Wires the module's services with their PrestaShop implementations (the front controller, the
@@ -146,13 +160,108 @@ final class Services
 
                 $scope = PrestaShopScope::of($context, $compat);
 
-                return new Shop($context, $scope, $compat, $db, new PrestaShopImageUrls($context->link), self::redirects($context), self::pages($scope), new PendingWrites($db, (int) $context->shop->id, self::log()), $warnings, $options->bool('strict_languages') === true);
+                return new Shop($context, $scope, $compat, $db, new PrestaShopImageUrls($context->link), self::redirects($context), self::pages($scope), new PendingWrites($db, (int) $context->shop->id, self::log()), $warnings, $options->bool('strict_languages') === true, self::facets($db, $scope));
             },
             WriteEndpoints::writers(
                 new Download(self::settings()->get(Pairing::ALLOW_HTTP) === '1'),
                 (new PrestaShopInfo($context, $compat))->imageFormats()
             )
         );
+    }
+
+    /**
+     * `prices/bulk`, `stock/bulk` and `maintenance/*`, on the master connection, with the hooks of the
+     * back office (writes()).
+     */
+    public static function bulk(Context $context): BulkEndpoints
+    {
+        $db = new ShopDatabase(Db::getInstance(), _DB_PREFIX_);
+        $shop = static function () use ($context, $db): array {
+            self::backOfficeHooks($context);
+            $scope = PrestaShopScope::of($context, Version::select(_PS_VERSION_));
+
+            return [$scope, new PendingWrites($db, $scope->shopId, self::log()), $scope->shopId === (int) Configuration::get('PS_SHOP_DEFAULT')];
+        };
+        $hook = static function (string $name, array $params): void {
+            Hook::exec($name, $params);
+        };
+
+        return new BulkEndpoints(
+            static function () use ($db, $shop, $hook): PriceBulk {
+                [$scope, $pending, $default] = $shop();
+
+                return new PriceBulk($db, $scope, $pending, self::log(), $default, $hook, self::facets($db, $scope), static function (): void {
+                    Product::flushPriceCache();
+                    Cache::clean('Product::getPriceStatic*');
+                    Cache::clean('Product::priceCalculation*');
+                    Cache::clean('objectmodel_Product_*');
+                    Cache::clean('objectmodel_Combination_*');
+                });
+            },
+            static function () use ($db, $shop, $hook): StockBulk {
+                [$scope, $pending, $default] = $shop();
+
+                return new StockBulk($db, $scope, $pending, self::log(), $default, $hook, static function (int $id): StockAvailable {
+                    return new StockAvailable($id);
+                }, static function (array $products): void {
+                    Cache::clean('StockAvailable::*');
+                    Cache::clean('objectmodel_StockAvailable_*');
+                    Cache::clean('objectmodel_Product_*');
+                    // StockAvailable::postSave() before 9.0 drops a product's color list when one of its
+                    // combinations is out of stock and unavailable combinations are hidden.
+                    if ($products !== [] && version_compare(_PS_VERSION_, '9.0.0', '<') && ! Configuration::get('PS_DISP_UNAVAILABLE_ATTR')) {
+                        foreach ($products as $id) {
+                            Tools::clearColorListCache((int) $id);
+                        }
+                    }
+                }, version_compare(_PS_VERSION_, '8.1.0', '>='));
+            },
+            static function () use ($db, $shop): Maintenance {
+                [$scope] = $shop();
+
+                return new Maintenance($db, $scope, self::facets($db, $scope), static function (int $id): void {
+                    Search::indexation(false, $id);
+                }, static function (string $scope): void {
+                    self::flush($scope);
+                });
+            }
+        );
+    }
+
+    /** ps_facetedsearch when it is installed and active in the paired shop. */
+    public static function facets(ShopDatabase $db, Scope $scope): Facets
+    {
+        $module = Module::isEnabled('ps_facetedsearch') ? Module::getInstanceByName('ps_facetedsearch') : false;
+
+        return new Facets(is_object($module) ? $module : null, $db, $scope);
+    }
+
+    /** The caches of a `maintenance/cache-flush` scope, through PrestaShop's own APIs (Spec §6.29). */
+    private static function flush(string $scope): void
+    {
+        if ($scope === 'prices' || $scope === 'all') {
+            Product::flushPriceCache();
+            Cache::clean('Product::getPriceStatic*');
+            Cache::clean('Product::priceCalculation*');
+        }
+        if ($scope === 'products' || $scope === 'all') {
+            Cache::clean('Product::*');
+            Cache::clean('Category::*');
+            Cache::clean('objectmodel_*');
+        }
+        if ($scope === 'smarty') {
+            Tools::clearSmartyCache();
+        }
+        if ($scope === 'all') {
+            // Smarty and Symfony's cache of the environment (removed at the end of the request).
+            Tools::clearAllCache();
+            Media::clearCache();
+            // The class index of PrestaShop's own autoloader (Tools::generateIndex() up to 8.x); 9.x has none.
+            if (class_exists('PrestaShopAutoload', false)) {
+                PrestaShopAutoload::getInstance()->generateIndex();
+            }
+            Hook::exec('actionClearCache');
+        }
     }
 
     public static function redirects(Context $context): RedirectStore
@@ -191,7 +300,7 @@ final class Services
         $rate = (int) $settings->get('KX_RATE_LIMIT');
 
         return new Kernel(
-            self::writes($context)->register(self::catalog($context)->register(self::endpoints($context)->register(new Router()))),
+            self::bulk($context)->register(self::writes($context)->register(self::catalog($context)->register(self::endpoints($context)->register(new Router())))),
             self::secrets(),
             new SystemClock(),
             $guards,
@@ -224,7 +333,12 @@ final class Services
     /** Hooks as in the back office (writes()). */
     private static function backOfficeHooks(Context $context): void
     {
-        $context->employee = new Employee();
+        // Not loaded (id 0), so no module is left out; a stock movement it causes names it (9.x needs an int id).
+        $employee = new Employee();
+        $employee->id = 0;
+        $employee->firstname = 'Kronixon';
+        $employee->lastname = 'Connect';
+        $context->employee = $employee;
         Cache::clean('hook_module_exec_list_*');
     }
 }

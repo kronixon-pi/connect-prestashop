@@ -26,8 +26,11 @@ use ObjectModel;
 
 /**
  * `POST attributes` (module/attributes.json): features and attribute groups without their values, through
- * `Feature` and `AttributeGroup`. `facets` need the `facets` capability, which this version does not
- * have: the item is written without them and says so in a warning.
+ * `Feature` and `AttributeGroup`. `facets` (with the `facets` capability: ps_facetedsearch is active) are
+ * the categories that offer the feature or group as a filter of the storefront (Facets); without the
+ * capability the item is written without them and says so in a warning. The facetedsearch index is
+ * rebuilt by `POST maintenance/facets`, not here; the storefront's cached filter blocks go after the
+ * last item.
  */
 final class AttributeWriter extends ShopWriter
 {
@@ -38,20 +41,67 @@ final class AttributeWriter extends ShopWriter
     /** `attribute_group_lang.public_name`; the name has 128. */
     private const PUBLIC_NAME = 64;
 
+    /** @var bool an item of the request changed a filter */
+    private $filtersChanged = false;
+
     public function write(Item $item): array
     {
         $kind = $item->choice('kind', [self::FEATURE, self::GROUP]);
         if ($kind === null || ! $item->has('name')) {
             throw ItemError::invalid($kind === null ? 'kind' : 'name');
         }
-        if ($item->has('facets')) {
-            $this->shop->warnings->add('facets_unsupported');
-        }
+        $facets = $this->facets($item);
         $id = $this->idOf($item, $kind, self::matches($item, 'name'));
         [$saved, $changed] = $this->save($item, $kind, $id);
         $this->shop->map->link($kind, $saved, $item->kxId());
+        if ($facets !== null && $this->shop->facets->write($kind === self::FEATURE ? Facets::FEATURE : Facets::GROUP, $saved, $facets[1], $facets[0])) {
+            $changed = true;
+            $this->filtersChanged = true;
+        }
 
         return self::done($saved, $id === null, $changed) + ['kind' => $kind];
+    }
+
+    public function finish(): void
+    {
+        parent::finish();
+        if ($this->filtersChanged) {
+            $this->shop->facets->invalidate();
+        }
+    }
+
+    /**
+     * The item's `facets`, checked before anything is written: whether they replace the others, and
+     * the filters by category id; null when there are none to write.
+     *
+     * @return array{0: bool, 1: array<int, array{position: int|null, filter_type: int, show_limit: int}>}|null
+     */
+    private function facets(Item $item): ?array
+    {
+        $facets = $item->object('facets');
+        if ($facets === null) {
+            return null;
+        }
+        if (! $this->shop->facets->available()) {
+            $this->shop->warnings->add('facets_unsupported');
+
+            return null;
+        }
+        $mode = $facets->choice('mode', ['merge', 'replace']);
+        $categories = $facets->objects('categories');
+        if ($mode === null || $categories === null) {
+            throw ItemError::invalid($facets->at($mode === null ? 'mode' : 'categories'));
+        }
+        $filters = [];
+        foreach ($categories as $category) {
+            $id = $category->id('category_id');
+            if ($id === null || ! $this->shop->holds('category', $id)) {
+                throw ItemError::missing($category->at('category_id'), 'category_not_found');
+            }
+            $filters[$id] = ['position' => $category->int('position'), 'filter_type' => $category->int('filter_type') ?? 0, 'show_limit' => $category->int('show_limit') ?? 0];
+        }
+
+        return [$mode === 'replace', $filters];
     }
 
     /** The feature or group the item names; $byName: also by its name in the default language. */

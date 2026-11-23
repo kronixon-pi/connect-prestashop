@@ -33,8 +33,9 @@ final class SessionEndpointsTest extends TestCase
         $announced = array_keys(array_filter($data['capabilities'], static function ($flag): bool {
             return $flag === true;
         }));
-        // images, stock, prices.bulk, webhooks … come with later versions.
-        self::assertSame(['attribute_values_custom', 'attributes', 'categories', 'multilang', 'products.write', 'redirects', 'seo', 'suppliers', 'tags', 'variants'], $announced);
+        // images, webhooks … come with later versions; facets with ps_facetedsearch (FakeShop has it).
+        self::assertSame(['attribute_values_custom', 'attributes', 'cache_flush', 'categories', 'facets', 'multilang', 'prices.bulk', 'products.write', 'redirects', 'search_reindex', 'seo', 'stock', 'suppliers', 'tags', 'variants'], $announced);
+        self::assertFalse($data['capabilities']['stock_locations'], 'PrestaShop has one stock per shop');
         self::assertSame(100, $data['limits']['batch']);
         self::assertTrue($data['capabilities']['suppliers'], 'GET catalog/suppliers is served');
         self::assertSame(['variants_product_id_in' => true], $data['capabilities']['catalog'], 'GET catalog/variants?product_id_in= is served');

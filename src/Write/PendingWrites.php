@@ -225,36 +225,42 @@ final class PendingWrites
      * PrestaShop's hooks of an update (ObjectModel, Product and Category update()) for an object seal()
      * showed, after the commit: the hooks of its create saw it inactive. The object is loaded as it is
      * stored, in the paired shop, as its create's hooks ran. Nothing is saved, so no `date_upd` and no
-     * `content_hash` changes; this module's own handlers record nothing. A hook that fails is logged:
-     * the item is written.
+     * `content_hash` changes; this module's own handlers record nothing. A hook that fails is logged
+     * and the next one runs (PrestaShop 1.7.8 does not catch a module's exception): the item is written.
      */
     private function announce(ObjectModel $object): void
     {
         $class = get_class($object);
         $id = $this->idOf($object);
+        $table = $this->tableOf($object);
         try {
             $stored = new $class($id);
-            $name = str_replace('\\', '', $class);
-            $hooks = [
-                'actionObjectUpdateBefore' => ['object' => $stored],
-                'actionObject'.$name.'UpdateBefore' => ['object' => $stored],
-                'actionObjectUpdateAfter' => ['object' => $stored],
-                'actionObject'.$name.'UpdateAfter' => ['object' => $stored],
-            ];
-            $table = $this->tableOf($object);
-            if ($table === 'product') {
-                $hooks += [
-                    'actionProductSave' => ['id_product' => $id, 'product' => $stored],
-                    'actionProductUpdate' => ['id_product' => $id, 'product' => $stored],
-                ];
-            } elseif ($table === 'category') {
-                $hooks['actionCategoryUpdate'] = ['category' => $stored];
-            }
-            foreach ($hooks as $hook => $params) {
-                ($this->hook)($hook, $params);
-            }
         } catch (Throwable $error) {
-            $this->log->warning('write', 'A hook after showing an object failed', ['entity' => $this->tableOf($object), 'id' => $id, 'exception' => get_class($error)]);
+            $this->log->warning('write', 'A hook after showing an object failed', ['entity' => $table, 'id' => $id, 'exception' => get_class($error)]);
+
+            return;
+        }
+        $name = str_replace('\\', '', $class);
+        $hooks = [
+            'actionObjectUpdateBefore' => ['object' => $stored],
+            'actionObject'.$name.'UpdateBefore' => ['object' => $stored],
+            'actionObjectUpdateAfter' => ['object' => $stored],
+            'actionObject'.$name.'UpdateAfter' => ['object' => $stored],
+        ];
+        if ($table === 'product') {
+            $hooks += [
+                'actionProductSave' => ['id_product' => $id, 'product' => $stored],
+                'actionProductUpdate' => ['id_product' => $id, 'product' => $stored],
+            ];
+        } elseif ($table === 'category') {
+            $hooks['actionCategoryUpdate'] = ['category' => $stored];
+        }
+        foreach ($hooks as $hook => $params) {
+            try {
+                ($this->hook)($hook, $params);
+            } catch (Throwable $error) {
+                $this->log->warning('write', 'A hook after showing an object failed', ['entity' => $table, 'id' => $id, 'hook' => $hook, 'exception' => get_class($error)]);
+            }
         }
     }
 

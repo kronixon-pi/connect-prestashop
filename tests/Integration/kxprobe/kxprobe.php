@@ -13,11 +13,16 @@
  *
  * For products, categories and brands whose name holds SEEN it writes what each hook of their create and
  * update sees to /tmp/kxprobe-seen.log, as a feed or ERP module would: one line per hook, with the
- * object's `active` and the stored row's (`product_shop` of the shop for a product).
+ * object's `active` and the stored row's (`product_shop` of the shop for a product). For the products
+ * listed in /tmp/kxprobe-stock it writes what each stock hook sees there, with the row as another
+ * database session reads it (bulk-race.php: the hooks of a bulk run after its commit).
  */
 class Kxprobe extends Module
 {
     public const SEEN_LOG = '/tmp/kxprobe-seen.log';
+
+    /** The products whose stock hooks are written to SEEN_LOG (bulk-race.php). */
+    public const STOCK_WATCH = '/tmp/kxprobe-stock';
 
     private const HOOKS = [
         'actionProductSave', 'actionProductAdd', 'actionObjectCategoryAddAfter', 'actionObjectManufacturerAddAfter', 'actionObjectFeatureAddAfter',
@@ -25,6 +30,7 @@ class Kxprobe extends Module
         'actionObjectFeatureDeleteBefore', 'actionObjectCombinationDeleteBefore', 'actionObjectAddAfter',
         'actionProductUpdate', 'actionObjectProductAddAfter', 'actionObjectProductUpdateAfter', 'actionObjectCategoryUpdateAfter', 'actionCategoryUpdate',
         'actionObjectManufacturerUpdateAfter',
+        'actionUpdateQuantity', 'actionObjectStockAvailableUpdateAfter', 'actionObjectStockAvailableAddAfter',
     ];
 
     /** The hooks in every shop: an install of an older copy of this probe lacks the newer ones. */
@@ -185,5 +191,39 @@ class Kxprobe extends Module
     /** Nothing: installed before kronixonconnect it stands first here until kronixonconnect moves itself. */
     public function hookActionObjectAddAfter($params)
     {
+    }
+
+    public function hookActionUpdateQuantity($params)
+    {
+        $this->stockSeen('actionUpdateQuantity', (int) $params['id_product'], (int) $params['id_product_attribute'], (int) $params['quantity'], isset($params['id_shop']) ? (int) $params['id_shop'] : null);
+    }
+
+    public function hookActionObjectStockAvailableUpdateAfter($params)
+    {
+        $object = $params['object'];
+        $this->stockSeen('actionObjectStockAvailableUpdateAfter', (int) $object->id_product, (int) $object->id_product_attribute, (int) $object->quantity, null);
+    }
+
+    public function hookActionObjectStockAvailableAddAfter($params)
+    {
+        $object = $params['object'];
+        $this->stockSeen('actionObjectStockAvailableAddAfter', (int) $object->id_product, (int) $object->id_product_attribute, (int) $object->quantity, null);
+    }
+
+    /**
+     * For the products listed in STOCK_WATCH (ids, comma separated), what a stock hook gets and what
+     * another database session reads of the row meanwhile: the value a feed module that reads in a
+     * connection of its own (or a queue worker) would see, which is the committed one.
+     */
+    private function stockSeen($hook, $product, $variant, $quantity, $shop)
+    {
+        $watched = explode(',', trim((string) @file_get_contents(self::STOCK_WATCH)));
+        if (! in_array((string) $product, $watched, true)) {
+            return;
+        }
+        $context = (int) Context::getContext()->shop->id;
+        $other = new PDO('mysql:host='._DB_SERVER_.';dbname='._DB_NAME_, _DB_USER_, _DB_PASSWD_);
+        $committed = $other->query('SELECT quantity FROM '._DB_PREFIX_.'stock_available WHERE id_product = '.$product.' AND id_product_attribute = '.$variant.' AND id_shop = '.$context)->fetchColumn();
+        file_put_contents(self::SEEN_LOG, $hook.' stock '.$product.':'.$variant.' quantity='.$quantity.' committed='.(int) $committed.' shop='.$context.' id_shop='.($shop === null ? '-' : $shop)."\n", FILE_APPEND);
     }
 }

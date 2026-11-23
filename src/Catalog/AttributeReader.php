@@ -26,8 +26,9 @@ use Kronixon\Connect\Api\Request;
  * group of the same id). The cursor is `{"id":N,"v":K}` with K = 0 for a feature and 1 for an attribute
  * group; `{"id":N}` starts after both of id N; `until_id` bounds the id of both and `max_id` is the
  * higher of the two. `value_count` counts a feature's predefined values (not the per-product custom
- * ones) and a group's values. `facets` are left out: the module announces no `facets` capability.
- * Neither has a change date, so `since` is ignored. At most eight queries a page.
+ * ones) and a group's values. With ps_facetedsearch (the `facets` capability) every item lists the
+ * categories of the paired shop that offer it as a storefront filter, by category id. Neither has a
+ * change date, so `since` is ignored. At most nine queries a page.
  */
 final class AttributeReader implements Reader
 {
@@ -112,6 +113,7 @@ final class AttributeReader implements Reader
             ];
         }
 
+        $facets = $this->scope->facets ? $this->facets($rows) : null;
         $items = [];
         foreach ($rows as $row) {
             $kind = $row['kind'];
@@ -129,11 +131,38 @@ final class AttributeReader implements Reader
                 $item['is_color_group'] = Rows::bool($row['is_color_group']);
             }
             $item['value_count'] = $related[$kind]['counts'][$id] ?? 0;
+            if ($facets !== null) {
+                $item['facets'] = $facets[$kind.':'.$id] ?? [];
+            }
             $items[] = $item;
         }
 
         return new Page($items, $more, static function (array $item): string {
             return Cursor::encode((int) $item['external_id'], $item['kind'] === 'feature' ? 0 : 1);
         });
+    }
+
+    /**
+     * ps_facetedsearch's category filters of the page's features and groups, in one query.
+     *
+     * @param  list<array<string, mixed>>  $rows
+     * @return array<string, list<array{category_id: string, position: int, filter_type: int, show_limit: int}>> `kind:id` => filters
+     */
+    private function facets(array $rows): array
+    {
+        $ids = array_map('intval', array_column($rows, 'id'));
+        $facets = [];
+        foreach ($this->sql->rows('SELECT type, id_value, id_category, position, filter_type, filter_show_limit FROM '.$this->sql->table('layered_category')
+            .' WHERE id_shop = '.$this->scope->shopId." AND controller = 'category' AND type IN ('id_feature', 'id_attribute_group') AND id_value IN (".Rows::in($ids).')'
+            .' ORDER BY id_category') as $row) {
+            $facets[($row['type'] === 'id_feature' ? 0 : 1).':'.(int) $row['id_value']][] = [
+                'category_id' => Rows::id($row['id_category']),
+                'position' => (int) $row['position'],
+                'filter_type' => (int) $row['filter_type'],
+                'show_limit' => (int) $row['filter_show_limit'],
+            ];
+        }
+
+        return $facets;
     }
 }

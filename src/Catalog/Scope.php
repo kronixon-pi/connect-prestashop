@@ -69,6 +69,9 @@ final class Scope
      */
     public $multistore = true;
 
+    /** @var bool ps_facetedsearch is active: features and groups list the categories that filter by them */
+    public $facets = false;
+
     /**
      * @param  array<int, string>  $languages
      * @param  array<int, string>  $currencies

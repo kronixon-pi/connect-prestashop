@@ -36,12 +36,15 @@ final class Endpoints
     /** module/unpair.json `reason`. */
     private const UNPAIR_REASONS = ['user', 'store_deleted', 'revoked', 'tenant_deleted', 'other'];
 
-    /** Capabilities whose operations arrive with later module versions: false until then (README §10). */
-    private const NOT_YET = ['images', 'image_alt', 'stock', 'stock_locations', 'prices.bulk', 'specific_prices',
-        'webhooks', 'search_reindex', 'cache_flush', 'orders.read', 'facets', 'events.pull', ];
+    /**
+     * Capabilities whose operations arrive with later module versions, or that PrestaShop does not have
+     * (`stock_locations`: one stock per shop): false (README §10).
+     */
+    private const NOT_YET = ['images', 'image_alt', 'stock_locations', 'specific_prices', 'webhooks', 'orders.read', 'events.pull'];
 
-    /** Capabilities of the write endpoints this build has (WriteEndpoints). */
-    private const WRITES = ['products.write', 'variants', 'categories', 'attributes', 'attribute_values_custom', 'tags', 'seo', 'redirects'];
+    /** Capabilities of the write endpoints this build has (WriteEndpoints, BulkEndpoints). */
+    private const WRITES = ['products.write', 'variants', 'categories', 'attributes', 'attribute_values_custom', 'tags', 'seo', 'redirects',
+        'prices.bulk', 'stock', 'search_reindex', 'cache_flush', ];
 
     /** @var SecretStore */
     private $secrets;
@@ -103,6 +106,8 @@ final class Endpoints
         $flags['multistore'] = $this->shop->multistore();
         $flags['blog'] = ['enabled' => false, 'adapters' => [], 'import_sources' => []];
         $flags['image_formats'] = $this->shop->imageFormats();
+        // POST maintenance/facets and `facets` of POST attributes: ps_facetedsearch is active.
+        $flags['facets'] = $this->shop->facetedSearch();
         // GET catalog/suppliers (module/catalog-suppliers.json: "with the suppliers capability").
         $flags['suppliers'] = true;
         // GET catalog/variants?product_id_in= (module 0.3.2).

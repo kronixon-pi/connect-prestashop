@@ -6,6 +6,7 @@
 --   kx_pending                        → M3 (what an item that is not complete has created)
 --   kx_redirect                       → M3 (seo/redirects)
 --   kx_image_map                      → M4 (POST/DELETE images)
+--   kx_bulk_chunk                     → M4 (prices/bulk, stock/bulk: a chunk's marker, never committed)
 --   kx_outbox                         → M5 (webhooks outbox, heartbeat)
 
 CREATE TABLE IF NOT EXISTS `PREFIX_kx_nonce` (
@@ -85,6 +86,13 @@ CREATE TABLE IF NOT EXISTS `PREFIX_kx_redirect` (
   `date_add` DATETIME NOT NULL,
   PRIMARY KEY (`id_kx_redirect`),
   UNIQUE KEY `uq_path` (`id_shop`, `path_from`)
+) ENGINE=ENGINE_TYPE DEFAULT CHARSET=utf8mb4;
+
+-- A bulk chunk writes its row first and deletes it last, before COMMIT: a row that is gone by then means
+-- the server rolled the chunk's transaction back while it ran (Database::commitChunk()). Always empty.
+CREATE TABLE IF NOT EXISTS `PREFIX_kx_bulk_chunk` (
+  `id_kx_bulk_chunk` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  PRIMARY KEY (`id_kx_bulk_chunk`)
 ) ENGINE=ENGINE_TYPE DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS `PREFIX_kx_outbox` (
