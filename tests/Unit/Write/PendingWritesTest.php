@@ -199,6 +199,60 @@ final class PendingWritesTest extends TestCase
         self::assertTrue($next->isLeft('product', 77));
     }
 
+    public function test_a_read_removes_at_most_its_share_and_the_next_one_the_rest(): void
+    {
+        foreach ([81, 82, 83, 84] as $id) {
+            $this->db->insert('product', ['id_product' => $id, 'date_add' => date('Y-m-d H:i:s')]);
+            $this->mark('Product', 'product', $id);
+        }
+        self::assertTrue($this->request()->any());
+
+        $this->request()->recover($this->budget(), PendingWrites::PER_READ);
+        self::assertSame(['81'], $this->ids('product'), 'the newest marks first');
+        self::assertTrue($this->request()->any());
+        $this->request()->recover($this->budget(), PendingWrites::PER_READ);
+        self::assertSame([[], []], [$this->ids('product'), $this->marks()]);
+        self::assertFalse($this->request()->any());
+        self::assertFalse($this->request(2)->any(), 'per shop');
+    }
+
+    public function test_a_product_or_category_to_be_active_is_created_inactive_and_shown_by_seal(): void
+    {
+        $product = $this->withPage(new Product(), 'product', true);
+        $category = $this->withPage(new Category(), 'category', true);
+        $this->db->begin();
+        $this->pending->add($product);
+        $this->pending->add($category);
+
+        self::assertSame([0, 0, 0], [$this->active('product', 77), $this->active('product_shop', 77), $this->active('category', 77)], 'stored inactive');
+        self::assertSame([false, false], [$product->active, $category->active]);
+        $this->pending->seal();
+        $this->db->commit();
+        $this->pending->keep();
+
+        self::assertSame([1, 1, 1], [$this->active('product', 77), $this->active('product_shop', 77), $this->active('category', 77)], 'shown with the removal of the marks');
+        self::assertSame([true, true], [$product->active, $category->active]);
+        self::assertSame([], $this->marks());
+    }
+
+    public function test_one_meant_inactive_stays_so_and_a_dead_one_is_never_shown(): void
+    {
+        $this->db->begin();
+        $this->pending->add($this->withPage(new Product(), 'product', false));
+        $this->pending->seal();
+        $this->db->commit();
+        self::assertSame([0, 0], [$this->active('product', 77), $this->active('product_shop', 77)]);
+
+        $this->db->delete('product', 'id_product = 77');
+        $this->db->delete('product_shop', 'id_product = 77');
+        $this->pending->item(new Item(['key' => 'b', 'kx_id' => self::KX]));
+        $this->pending->add($this->withPage(new Product(), 'product', true));
+        self::assertSame([0, 0, ['77']], [$this->active('product', 77), $this->active('product_shop', 77), $this->marks()], 'the request dies here: inactive and marked');
+        $this->pending->item(new Item(['key' => 'c']));
+        $this->pending->seal();
+        self::assertSame(0, $this->active('product', 77), 'the next item shows nothing of it');
+    }
+
     public function test_another_shops_marks_are_its_own(): void
     {
         $this->dead();
@@ -290,6 +344,35 @@ final class PendingWritesTest extends TestCase
         };
 
         return $product;
+    }
+
+    /**
+     * $object whose add() stores its rows in $table (and `product_shop`) with the `active` add() is given.
+     *
+     * @template T of ObjectModel
+     *
+     * @param  T  $object
+     * @return T
+     */
+    private function withPage(ObjectModel $object, string $table, bool $active): ObjectModel
+    {
+        $object->active = $active;
+        $object->onAdd = function (ObjectModel $object) use ($table): void {
+            $this->db->insert($table, ['id_'.$table => 77, 'active' => (int) $object->active, 'date_add' => date('Y-m-d H:i:s')]);
+            if ($table === 'product') {
+                $this->db->insert('product_shop', ['id_product' => 77, 'id_shop' => 1, 'active' => (int) $object->active]);
+            }
+            PendingWrites::added($object);
+        };
+
+        return $object;
+    }
+
+    private function active(string $table, int $id): int
+    {
+        $rows = $this->db->rows('SELECT active FROM '.$this->db->table($table).' WHERE '.($table === 'product_shop' ? 'id_product' : 'id_'.$table).' = '.$id);
+
+        return (int) ($rows[0]['active'] ?? -1);
     }
 
     /** A request that ended after a hook had committed what it was creating. */

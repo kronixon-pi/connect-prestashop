@@ -23,12 +23,19 @@ use Kronixon\Connect\Catalog\Sql;
 /**
  * The database as the writers use it: the lookups of Sql on the master, the transaction around one
  * item and statements on the module's own `kx_*` tables. Catalog tables are written by PrestaShop's
- * object model only, never by execute().
+ * object model only, never by execute(); activate() is the one exception.
  */
 interface Database extends Sql
 {
     /** A statement on a `kx_*` table. */
     public function execute(string $sql): void;
+
+    /**
+     * `active = 1` in $table for the object $id of $class, and what PrestaShop cached of it is dropped:
+     * an object PendingWrites created hidden is shown in the statement before its mark goes, in the
+     * same transaction, without the hooks of an update (which may commit).
+     */
+    public function activate(string $class, string $table, string $primary, int $id): void;
 
     /** The text as a quoted SQL string. */
     public function quote(string $text): string;

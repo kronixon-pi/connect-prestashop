@@ -152,6 +152,8 @@ if (! class_exists('Product', false)) {
 if (! class_exists('Category', false)) {
     class Category extends ObjectModel
     {
+        /** @var mixed */
+        public $active;
     }
 }
 

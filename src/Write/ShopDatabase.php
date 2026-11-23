@@ -58,6 +58,14 @@ final class ShopDatabase implements Database
         }
     }
 
+    public function activate(string $class, string $table, string $primary, int $id): void
+    {
+        if (! $this->db->execute('UPDATE '.$this->table($table).' SET active = 1 WHERE '.$primary.' = '.$id, false)) {
+            throw new RuntimeException('An object could not be shown.');
+        }
+        Cache::clean('objectmodel_'.$class.'_'.$id.'_*');
+    }
+
     public function quote(string $text): string
     {
         return "'".$this->db->escape($text, true)."'";
