@@ -95,6 +95,16 @@ final class ApiError extends RuntimeException
         return new self(409, 'busy', 'Another write holds the write lock.', [], $retryAfter);
     }
 
+    public static function idempotencyConflict(): self
+    {
+        return new self(409, 'idempotency_conflict', 'This Idempotency-Key was used with another request.');
+    }
+
+    public static function batchTooLarge(int $limit): self
+    {
+        return new self(413, 'batch_too_large', 'The request holds too many items.', ['limit_items' => $limit]);
+    }
+
     /**
      * @param  list<string>  $members  the request members that are missing or invalid
      */

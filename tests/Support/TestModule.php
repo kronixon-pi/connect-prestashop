@@ -8,6 +8,7 @@ use Kronixon\Connect\Api\Endpoints;
 use Kronixon\Connect\Api\Kernel;
 use Kronixon\Connect\Api\Response;
 use Kronixon\Connect\Api\Router;
+use Kronixon\Connect\Auth\IdempotencyStore;
 use Kronixon\Connect\Auth\SecretStore;
 use Kronixon\Connect\Auth\Signer;
 use Kronixon\Connect\Compat\Ps9;
@@ -69,9 +70,9 @@ final class TestModule
         return new Endpoints($this->secrets, new FakeShop(), new Ps9(), $this->clock, $this->log());
     }
 
-    public function kernel(): Kernel
+    public function kernel(?IdempotencyStore $idempotency = null): Kernel
     {
-        return new Kernel($this->router, $this->secrets, $this->clock, $this->guards, $this->guards, $this->log(), 25, $this->rateLimit);
+        return new Kernel($this->router, $this->secrets, $this->clock, $this->guards, $this->guards, $this->log(), 25, $this->rateLimit, null, $idempotency);
     }
 
     public function pairing(string $pinnedKey = ''): Pairing
