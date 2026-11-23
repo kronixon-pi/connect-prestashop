@@ -32,9 +32,12 @@ use Throwable;
  * result per row in the order sent, told apart by `product_id` and `variant_id`. The rows are read
  * and written in chunks of 100, each chunk in one transaction that reads the rows it writes with their
  * locks; a row is checked before anything is written, and an order or a save that commits meanwhile
- * waits for the chunk's commit instead of being overwritten. Rows whose locks another session holds
- * longer than the wait are `skipped` (`rows_locked`) with `continue`; a chunk the server rolls back
- * as a deadlock's victim while it takes its locks runs once more first. A row whose current value
+ * waits for the chunk's commit instead of being overwritten. Only the module's own statements run in
+ * that transaction, each one checked; PrestaShop's and other modules' hooks run after its commit.
+ * Rows whose locks another session holds longer than the wait are `skipped` (`rows_locked`) with
+ * `continue`; a chunk the server rolls back by itself (a deadlock's victim) runs once more first, and
+ * is `skipped` or `module_error` if that is rolled back too: a chunk is written whole or not at all,
+ * and its answer is what it committed. A row whose current value
  * the shop already holds is `unchanged`, so a repeat after a lost answer neither writes nor sees a
  * conflict. `expected_*` names the value the platform believes the shop holds: when the shop holds
  * another one (changed in the shop), the row is `conflict` with the shop's value and is not written.
@@ -215,7 +218,16 @@ abstract class Bulk
     abstract protected function row(array $row): array;
 
     /**
-     * The chunk is committed (hooks, indexes).
+     * After the chunk's last row, inside its transaction: what the rows' writes imply (stock/bulk: the
+     * products' totals).
+     */
+    protected function beforeCommit(): void
+    {
+    }
+
+    /**
+     * The chunk is committed: its hooks, in the state it committed, and its indexes. Whatever fails here
+     * leaves the rows written.
      *
      * @param  list<int>  $products  the products whose rows of the chunk changed
      */
@@ -295,9 +307,15 @@ abstract class Bulk
             $results = [];
             $changed = [];
             $failure = null;
+            foreach ($chunk as $i => $row) {
+                // A run again starts without the warnings of the run the server rolled back.
+                $chunk[$i]['warnings'] = new Warnings();
+            }
             try {
                 $this->locate($chunk);
-                $this->db->begin();
+                // Only the module's own statements run until the commit; each one that fails throws.
+                // Hooks run after the commit (committed()).
+                $this->db->beginChunk();
                 $this->load($chunk, $waitSeconds);
                 foreach ($chunk as $i => $row) {
                     try {
@@ -310,20 +328,22 @@ abstract class Bulk
                     }
                     $results[$i] = $result;
                 }
-                $this->db->commit();
+                $this->beforeCommit();
+                $this->db->commitChunk();
             } catch (Throwable $error) {
                 $failure = $error;
                 try {
-                    $this->db->rollback();
+                    $this->db->rollbackChunk();
                 } catch (Throwable $ignored) {
                     // nothing open
                 }
             }
-            if (! $failure instanceof RowsLocked || ! $failure->deadlock() || $attempt > 1) {
+            if (! self::rolledBackByServer($failure) || $attempt > 1) {
                 break;
             }
-            // Chosen as the deadlock's victim while taking its locks, before anything was written: the
-            // other statement (an order's) has gone on, so the chunk is read and written once more.
+            // The server rolled the whole chunk back (a deadlock's victim, while it took its locks or
+            // later): nothing of it is written and nothing answered or announced yet, and the other
+            // session (an order's) has gone on, so the chunk is read and written once more.
             $this->log->info('write', 'A bulk chunk lost a deadlock and runs again');
         }
         if ($failure !== null) {
@@ -347,6 +367,12 @@ abstract class Bulk
         }
 
         return $results;
+    }
+
+    /** The server rolled the chunk's transaction back as a whole, by itself. */
+    private static function rolledBackByServer(?Throwable $failure): bool
+    {
+        return ($failure instanceof RowsLocked && $failure->deadlock()) || $failure instanceof ChunkRolledBack;
     }
 
     /**
