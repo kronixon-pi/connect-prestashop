@@ -30,6 +30,12 @@ All notable changes of the module are listed here; versions follow [Semantic Ver
 - `kx_outbox` has a new shape (`entity_key`, `batch_id`, `occurred_at` with milliseconds); no earlier version wrote
   to it, and the upgrade recreates it.
 
+### Fixed
+
+- The settings page's actions (platform URL, pair, unpair, cron token, test request) run only on a POST. On 9.x a
+  GET to the settings URL with a submit name ran the action, because the redirect to the Symfony route adds a valid
+  token.
+
 ## [0.5.0]
 
 ### Added
