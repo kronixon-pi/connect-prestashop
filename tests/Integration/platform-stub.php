@@ -121,7 +121,7 @@ if ($method === 'POST' && $path === '/v1/pair') {
     return true;
 }
 
-if (preg_match('#\A/v1/stores/([0-9a-f-]{36})/(ping|unpair|rotate-request)\z#', $path, $m) !== 1) {
+if (preg_match('#\A/v1/stores/([0-9a-f-]{36})/(ping|unpair|rotate-request|events)\z#', $path, $m) !== 1) {
     $error(404, 'not_found');
 
     return true;
@@ -173,6 +173,48 @@ if ($m[2] === 'ping') {
 } elseif ($m[2] === 'unpair') {
     $state['unpaired'] = is_array($input) ? ($input['reason'] ?? 'missing') : 'missing';
     $data = ['ok' => true];
+} elseif ($m[2] === 'events') {
+    // Store events (README §8): every batch is kept; `events_mode` (set by a test in the state file)
+    // answers down (503 + Retry-After), hang (keeps the batch, then sleeps before answering) or reject.
+    $mode = (string) ($state['events_mode'] ?? 'ok');
+    if ($mode === 'down') {
+        $state['events_refused'] = (int) ($state['events_refused'] ?? 0) + 1;
+        $save($state);
+        $retry = $state['events_retry_after'] ?? null;
+        $refusal = ['code' => 'maintenance', 'message' => 'maintenance', 'request_id' => $requestId, 'server_time' => $now];
+        if (is_int($retry)) {
+            $refusal['retry_after'] = $retry;
+        }
+        $answer(503, ['error' => $refusal], is_int($retry) ? ['Retry-After' => (string) $retry] : []);
+
+        return true;
+    }
+    $events = is_array($input) && is_array($input['events'] ?? null) ? $input['events'] : [];
+    $seen = $state['events'] ?? [];
+    $data = ['accepted' => [], 'duplicates' => [], 'rejected' => []];
+    foreach ($events as $event) {
+        $id = (string) ($event['event_id'] ?? '');
+        if ($mode === 'reject') {
+            $data['rejected'][] = ['event_id' => $id, 'code' => 'rejected_by_stub'];
+        } elseif (isset($seen[$id])) {
+            $data['duplicates'][] = $id;
+        } else {
+            $data['accepted'][] = $id;
+            $seen[$id] = ['type' => $event['type'] ?? null, 'external_id' => $event['external_id'] ?? null, 'kx_id' => $event['kx_id'] ?? null, 'payload' => $event['payload'] ?? null];
+        }
+    }
+    $state['events'] = $seen;
+    $state['event_batches'][] = ['batch_id' => $input['batch_id'] ?? null, 'event_ids' => array_column($events, 'event_id'), 'bytes' => strlen($body)];
+    // The body as sent, for validate-answers.php.
+    if (! is_dir(dirname($stateFile).'/batches')) {
+        mkdir(dirname($stateFile).'/batches', 0700, true);
+    }
+    file_put_contents(dirname($stateFile).'/batches/platform-store-events.json--'.count($state['event_batches']).'.json', $body);
+    if ($mode === 'hang') {
+        $save($state);
+        sleep((int) ($state['events_hang_s'] ?? 6));
+        $state = $load();
+    }
 } else {
     $data = ['ok' => true, 'rotation_started' => false];
 }

@@ -181,6 +181,8 @@ writes "failed writes leave nothing half-written" failed-writes
 writes "images: create, keep, replace, strategies, links; a request that dies leaves no half image" image-writes
 # Store events: back office, orders, a module that throws after ours, GET events (tests/Integration/events-capture.php).
 writes "store events recorded in the outbox" events-capture
+# Store events sent to the stub: cron URL, platform down and back, a killed flush, a page view (events-delivery.php).
+writes "store events delivered to the platform" events-delivery
 console prestashop:module uninstall kxprobe
 dc exec -T ps rm -rf /var/www/html/modules/kxprobe /tmp/kxprobe.json </dev/null
 step "writes checked in $(( $(date +%s) - w0 ))s"

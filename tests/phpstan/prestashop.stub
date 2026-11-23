@@ -406,6 +406,25 @@ class Db
     public static function getInstance($master = true) {}
 
     /**
+     * @return class-string<Db>
+     */
+    public static function getClass() {}
+
+    /**
+     * @param string $server
+     * @param string $user
+     * @param string $password
+     * @param string $database
+     * @param bool $connect
+     */
+    public function __construct($server, $user, $password, $database, $connect = true) {}
+
+    /**
+     * @return void
+     */
+    public function disconnect() {}
+
+    /**
      * @param string $sql
      * @param bool $use_cache
      * @return bool

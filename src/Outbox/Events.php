@@ -101,6 +101,13 @@ final class Events
     {
         $newest = $group[count($group) - 1];
         $payload = self::payload($newest);
+        if ($newest['type'] === 'module.outbox_overflow' && count($group) > 1) {
+            // Everything since the first gap, whatever was merged in between.
+            $payload['since'] = self::payload($group[0])['since'] ?? ($payload['since'] ?? null);
+            $payload['merged'] = array_sum(array_map(static function (array $row): int {
+                return (int) (self::payload($row)['merged'] ?? 0);
+            }, $group));
+        }
         if ($newest['type'] === 'stock.updated' && count($group) > 1) {
             $oldest = self::payload($group[0]);
             if (array_key_exists('previous_quantity', $oldest)) {

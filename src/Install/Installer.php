@@ -25,7 +25,7 @@ use Kronixon\Connect\Support\Uuid;
 
 /**
  * Tables, Configuration keys, the X25519 key pair and the service account of the module (the cron
- * token arrives with the outbox).
+ * token is made when the settings page first shows it).
  */
 final class Installer
 {
@@ -51,7 +51,14 @@ final class Installer
         'KX_PROFILE_ID',
         'KX_EMPLOYEE_ID',
         'KX_CRON_TOKEN',
+        'KX_CRON_AT',
         'KX_OUTBOX_LAST_FLUSH',
+        'KX_OUTBOX_RETRY_AT',
+        'KX_OUTBOX_FAILURES',
+        'KX_OUTBOX_LAST_ERROR',
+        'KX_OUTBOX_LAST_SENT',
+        'KX_OUTBOX_GAP',
+        'KX_HEARTBEAT_AT',
         'KX_PROFILE_CACHE',
         'KX_REDIRECTS',
         'KX_IP_ALLOWLIST',

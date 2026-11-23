@@ -383,6 +383,18 @@ Recording (module 0.6.0):
 - **`GET events`** lists pending and failed rows oldest first, one event per row, without coalescing,
   so each row can be acknowledged. **`POST events/ack`** marks rows sent by event id. Unknown ids are
   ignored, and acknowledging twice is harmless.
+- **Delivery.** One flush runs at a time, under a server-wide lock and on a connection of its own. It
+  claims a batch's rows by primary key before sending them. If the flush process dies, the next flush
+  sends the claimed rows again as the same batch, with the same `batch_id` and `event_id`s, before
+  anything new. The platform answers 200 with `accepted`, `duplicates` and `rejected`:
+  - accepted and duplicate events are done;
+  - rejected events fail and are not sent again;
+  - events missing from the answer go in a later batch.
+
+  A 400, 413 or 422 fails the batch. Any other failure puts the rows back: network errors, 5xx, 429,
+  401, 403, and a 2xx without a valid response signature. The module then waits `Retry-After`, or
+  else 60 s doubling up to 6 h. A row fails after 10 attempts. Every batch starts with any gap or
+  overflow, and with the daily heartbeat when it is due.
 - **Bounds.** Above 50 000 pending rows, the older rows of an entity that has a newer one are deleted.
   If more than 50 000 entities are still pending after that, every pending row is deleted and one
   `module.outbox_overflow {merged, since}` is recorded; the platform then reads everything changed

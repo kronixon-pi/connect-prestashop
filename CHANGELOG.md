@@ -14,6 +14,13 @@ All notable changes of the module are listed here; versions follow [Semantic Ver
   failed insert never fails the shop's change.
 - `GET events` and `POST events/ack` (announced as `events.pull`): the pending and failed rows as events of
   `schemas/events.json`, with the `content_hash`, `price` and `kx_id` read when the event is built.
+- Delivery to `POST /v1/stores/{id}/events` (announced as `webhooks`). It runs from the cron URL
+  (`/module/kronixonconnect/cron?token=…`), and after page views at most once a minute when no cron runs. Batches
+  are at most 200 events and 1 MB, coalesced per entity, and sent on a connection of their own under one lock. A
+  batch cut short goes again with the same ids. The module waits `Retry-After`, else backs off exponentially up to
+  6 h, and keeps the outbox below 50 000 rows (`module.outbox_overflow`). It also sends a daily `module.heartbeat`.
+- The settings page shows the outbox (waiting, failed), the last delivery, the last error, the next attempt and
+  the cron URL.
 
 ### Changed
 

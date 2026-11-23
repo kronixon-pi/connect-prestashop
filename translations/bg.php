@@ -56,3 +56,11 @@ $_MODULE['<{kronixonconnect}prestashop>configure_888a77f5ac0748b6c8001822417df8b
 $_MODULE['<{kronixonconnect}prestashop>configure_b866ae21552c1156b4b0176e7c61408e'] = 'PrestaShop';
 $_MODULE['<{kronixonconnect}prestashop>configure_2fec392304a5c23ac138da22847f9b7c'] = 'PHP';
 $_MODULE['<{kronixonconnect}prestashop>configure_f5d5d33bfb3613c740f04dea96c3399b'] = 'Профил на съвместимост';
+$_MODULE['<{kronixonconnect}prestashop>configure_aa396472ad434ef29100b0fc846ea960'] = 'Събития от магазина';
+$_MODULE['<{kronixonconnect}prestashop>configure_a30030d5b020413d91e5db4647fa5b19'] = 'Чакат изпращане';
+$_MODULE['<{kronixonconnect}prestashop>configure_d7c8c85bf79bbe1b7188497c32c3b0ca'] = 'Неуспешни';
+$_MODULE['<{kronixonconnect}prestashop>configure_96c8dda77707e2daa54e54f22389ea7c'] = 'Последно изпращане';
+$_MODULE['<{kronixonconnect}prestashop>configure_92de805ae582ce6049f832471539737c'] = 'Последна грешка';
+$_MODULE['<{kronixonconnect}prestashop>configure_e45ef9d06abe410499b4cf5b3e4bd0db'] = 'Следващ опит';
+$_MODULE['<{kronixonconnect}prestashop>configure_0ee80c26200aac48102c0225f716a262'] = 'Cron адрес';
+$_MODULE['<{kronixonconnect}prestashop>configure_52e6837ce4218dc6cae0b4df45ec97fd'] = 'Извиквайте този адрес всяка минута от cron на хостинга. Без cron промените се изпращат, докато магазинът има посетители.';

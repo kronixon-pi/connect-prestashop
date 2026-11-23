@@ -25,6 +25,7 @@ use Db;
 use Dispatcher;
 use Employee;
 use Hook;
+use Kronixon\Connect\Api\Budget;
 use Kronixon\Connect\Api\Endpoints;
 use Kronixon\Connect\Api\Kernel;
 use Kronixon\Connect\Api\Router;
@@ -41,6 +42,9 @@ use Kronixon\Connect\Crypto\ShopCipher;
 use Kronixon\Connect\Outbox\CatalogEnricher;
 use Kronixon\Connect\Outbox\EventEndpoints;
 use Kronixon\Connect\Outbox\Events;
+use Kronixon\Connect\Outbox\Flusher;
+use Kronixon\Connect\Outbox\Heartbeat;
+use Kronixon\Connect\Outbox\Origin;
 use Kronixon\Connect\Outbox\OutboxStore;
 use Kronixon\Connect\Outbox\Recorder;
 use Kronixon\Connect\Outbox\ShopChanges;
@@ -52,6 +56,7 @@ use Kronixon\Connect\Redirect\Pages;
 use Kronixon\Connect\Redirect\RedirectStore;
 use Kronixon\Connect\Shop\PrestaShopInfo;
 use Kronixon\Connect\Support\Log;
+use Kronixon\Connect\Support\Runtime;
 use Kronixon\Connect\Support\Settings;
 use Kronixon\Connect\Support\ShopSettings;
 use Kronixon\Connect\Support\SystemClock;
@@ -76,6 +81,7 @@ use Product;
 use ReflectionProperty;
 use Search;
 use StockAvailable;
+use Throwable;
 use Tools;
 
 /**
@@ -84,8 +90,13 @@ use Tools;
  */
 final class Services
 {
+    public const CRON_TOKEN = 'KX_CRON_TOKEN';
+
     /** @var array{0: Recorder, 1: ShopChanges}|null */
     private static $outbox;
+
+    /** @var bool */
+    private static $visitFlush = false;
 
     private function __construct()
     {
@@ -310,6 +321,117 @@ final class Services
         }
 
         return self::$outbox;
+    }
+
+    /**
+     * One flush of the outbox (Outbox\Flusher) on a connection of its own, so no transaction of the
+     * request it runs after is part of it, under a server-wide lock that the server also releases when
+     * the process dies. Null when the shop is not paired or another flush runs.
+     *
+     * @return array{sent: int, failed: int, batches: int, state: string}|null
+     */
+    public static function flushOutbox(Context $context, int $budgetSeconds): ?array
+    {
+        $secrets = self::secrets();
+        $storeId = $secrets->storeId();
+        $pairing = self::pairing($context);
+        $base = $pairing->normaliseUrl($pairing->platformUrl());
+        if ($storeId === null || $base === null) {
+            return null;
+        }
+        $class = Db::getClass();
+        $own = new $class(_DB_SERVER_, _DB_USER_, _DB_PASSWD_, _DB_NAME_, true);
+        $lock = "'kx_outbox_".substr(sha1(_DB_NAME_.'.'._DB_PREFIX_), 0, 24)."'";
+        try {
+            if ((int) $own->getValue('SELECT GET_LOCK('.$lock.', 0)', false) !== 1) {
+                return null;
+            }
+            try {
+                // A row a checkout holds is waited for briefly; the batch is tried again later.
+                $own->execute('SET SESSION innodb_lock_wait_timeout = 5', false);
+                $db = new ShopDatabase($own, _DB_PREFIX_);
+                $store = new OutboxStore($db);
+                $compat = Version::select(_PS_VERSION_);
+                $clock = new SystemClock();
+                $client = new PlatformClient(new CurlTransport(), $secrets, $clock);
+                $heartbeat = new Heartbeat(static function () use ($context): array {
+                    return self::endpoints($context)->capabilities();
+                }, static function () use ($db): array {
+                    $counts = [];
+                    foreach (['products' => 'product', 'variants' => 'product_attribute', 'categories' => 'category', 'images' => 'image', 'brands' => 'manufacturer'] as $name => $table) {
+                        $counts[$name] = (int) ($db->rows('SELECT COUNT(*) AS n FROM '.$db->table($table))[0]['n'] ?? 0);
+                    }
+
+                    return $counts;
+                }, static function () use ($db): array {
+                    $since = ' WHERE level = \'warning\' AND created_at >= DATE_SUB(NOW(), INTERVAL 1 DAY)';
+                    $last = [];
+                    foreach ($db->rows('SELECT UNIX_TIMESTAMP(created_at) AS at, channel, message FROM '.$db->table('kx_log').$since.' ORDER BY id_kx_log DESC LIMIT 5') as $row) {
+                        $last[] = ['at' => gmdate('Y-m-d\TH:i:s\Z', (int) $row['at']), 'code' => (string) $row['channel'], 'message' => (string) $row['message']];
+                    }
+
+                    return ['count' => (int) ($db->rows('SELECT COUNT(*) AS n FROM '.$db->table('kx_log').$since)[0]['n'] ?? 0), 'last' => $last];
+                }, $store, self::settings(), $clock, _PS_VERSION_);
+
+                return (new Flusher(
+                    $store,
+                    new Events(new CatalogEnricher($db, PrestaShopScope::of($context, $compat), new PrestaShopImageUrls($context->link))),
+                    static function (array $body, int $timeout) use ($client, $base, $storeId): array {
+                        return $client->signed($base, 'POST', '/v1/stores/'.$storeId.'/events', $body, $timeout);
+                    },
+                    self::settings(),
+                    $clock,
+                    [$heartbeat, 'payload'],
+                    self::log()
+                ))->run(new Budget($clock, $budgetSeconds));
+            } finally {
+                $own->getValue('SELECT RELEASE_LOCK('.$lock.')', false);
+            }
+        } finally {
+            $own->disconnect();
+        }
+    }
+
+    /**
+     * On a page view of the storefront or the back office: a flush after the answer, at most once a
+     * minute, when no cron runs, nothing asked to wait and the request is a GET. Everything it reads
+     * here is cached by PrestaShop for the request: a page view costs no query.
+     */
+    public static function flushOnVisit(Context $context): void
+    {
+        if (self::$visitFlush || Origin::isPlatform() || ($_SERVER['REQUEST_METHOD'] ?? '') !== 'GET') {
+            return;
+        }
+        $settings = self::settings();
+        $now = time();
+        if ($settings->get(SecretStore::STORE_ID) === null || $now - (int) $settings->get(Flusher::LAST_FLUSH) < 60
+            || Flusher::waiting($settings, $now) || $now - (int) $settings->get(Heartbeat::CRON_AT) < 300) {
+            return;
+        }
+        self::$visitFlush = true;
+        register_shutdown_function(static function () use ($context): void {
+            try {
+                // The visitor has the page before the flush starts when PHP runs under FastCGI.
+                $detached = Runtime::canCall('fastcgi_finish_request') && fastcgi_finish_request();
+                ignore_user_abort(true);
+                self::flushOutbox($context, $detached ? 5 : 2);
+            } catch (Throwable $error) {
+                // a page view never fails because of the outbox
+            }
+        });
+    }
+
+    /** The cron URL's token (KX_CRON_TOKEN), made the first time it is asked for. */
+    public static function cronToken(): string
+    {
+        $settings = self::settings();
+        $token = $settings->get(self::CRON_TOKEN);
+        if ($token === null || strlen($token) < 32) {
+            $token = bin2hex(random_bytes(24));
+            $settings->set(self::CRON_TOKEN, $token);
+        }
+
+        return $token;
     }
 
     /** GET events and POST events/ack, on the master connection. */

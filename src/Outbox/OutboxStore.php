@@ -133,6 +133,16 @@ final class OutboxStore
     }
 
     /**
+     * Claimed rows that did not fit the batch: pending again, the attempt not counted.
+     *
+     * @param  list<int>  $ids
+     */
+    public function unclaim(array $ids): void
+    {
+        $this->update($ids, "status = 'pending', batch_id = NULL, attempts = attempts - 1", "status = 'sending'");
+    }
+
+    /**
      * @return array{pending: int, failed: int}
      */
     public function counts(): array

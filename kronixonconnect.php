@@ -28,12 +28,15 @@ use Kronixon\Connect\Install\Hooks;
 use Kronixon\Connect\Install\Installer;
 use Kronixon\Connect\Install\ServiceAccount;
 use Kronixon\Connect\Install\TabRoles;
+use Kronixon\Connect\Outbox\Flusher;
+use Kronixon\Connect\Outbox\OutboxStore;
 use Kronixon\Connect\Outbox\ShopChanges;
 use Kronixon\Connect\Platform\Pairing;
 use Kronixon\Connect\Protocol;
 use Kronixon\Connect\Redirect\Front;
 use Kronixon\Connect\Services;
 use Kronixon\Connect\Write\PendingWrites;
+use Kronixon\Connect\Write\ShopDatabase;
 
 /**
  * Kronixon Connect: the only link between this store and Kronixon PI (protocol v1).
@@ -168,8 +171,36 @@ class KronixonConnect extends Module
             'kx_php_version' => PHP_VERSION,
             'kx_compat' => Version::isSupported(_PS_VERSION_) ? Version::select(_PS_VERSION_)->id() : '-',
         ]);
+        if ($paired) {
+            $this->assignOutbox($date);
+        }
 
         return $this->display(__FILE__, 'views/templates/admin/configure.tpl');
+    }
+
+    /**
+     * The store events panel: the outbox, the last delivery and error, the cron URL.
+     *
+     * @param  callable(?string): string  $date
+     */
+    private function assignOutbox(callable $date): void
+    {
+        $settings = Services::settings();
+        try {
+            $counts = (new OutboxStore(new ShopDatabase(Db::getInstance(), _DB_PREFIX_)))->counts();
+        } catch (Throwable $e) {
+            $counts = ['pending' => 0, 'failed' => 0];
+        }
+        $error = explode(' ', (string) $settings->get(Flusher::LAST_ERROR), 2);
+        $retry = (int) $settings->get(Flusher::RETRY_AT);
+        $this->context->smarty->assign([
+            'kx_outbox_pending' => $counts['pending'],
+            'kx_outbox_failed' => $counts['failed'],
+            'kx_outbox_last_sent' => $date($settings->get(Flusher::LAST_SENT)),
+            'kx_outbox_error' => (int) $error[0] > (int) $settings->get(Flusher::LAST_SENT) ? $date($error[0]).' '.($error[1] ?? '') : '',
+            'kx_outbox_retry' => $retry > time() ? $date((string) $retry) : '',
+            'kx_cron_url' => $this->context->link->getModuleLink($this->name, 'cron', ['token' => Services::cronToken()]),
+        ]);
     }
 
     /**
@@ -477,21 +508,32 @@ class KronixonConnect extends Module
     }
 
     /**
-     * Runs on every storefront request: must stay O(1) — M5.
+     * Runs on every storefront request: cached settings only; at most once a minute it leaves a flush of
+     * the outbox for after the answer (Services::flushOnVisit()).
      *
      * @param  array<string, mixed>  $params
      */
     public function hookActionFrontControllerSetMedia(array $params): void
     {
+        try {
+            Services::flushOnVisit($this->context);
+        } catch (Throwable $e) {
+            // a page view never fails because of the outbox
+        }
     }
 
     /**
-     * Runs on every back-office request: must stay O(1) — M5.
+     * Runs on every back-office request, as on the storefront.
      *
      * @param  array<string, mixed>  $params
      */
     public function hookActionAdminControllerSetMedia(array $params): void
     {
+        try {
+            Services::flushOnVisit($this->context);
+        } catch (Throwable $e) {
+            // a page view never fails because of the outbox
+        }
     }
 
     /**

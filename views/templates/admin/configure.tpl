@@ -61,6 +61,23 @@
   {/if}
 </div>
 
+{if $kx_paired}
+<div class="panel" id="kronixonconnect-events">
+  <h3>{l s='Store events' mod='kronixonconnect'}</h3>
+  <table class="table">
+    <tbody>
+      <tr><th>{l s='Waiting to be sent' mod='kronixonconnect'}</th><td id="kx-outbox-pending">{$kx_outbox_pending|intval}</td></tr>
+      <tr><th>{l s='Failed' mod='kronixonconnect'}</th><td id="kx-outbox-failed">{$kx_outbox_failed|intval}</td></tr>
+      <tr><th>{l s='Last delivery' mod='kronixonconnect'}</th><td>{if $kx_outbox_last_sent}{$kx_outbox_last_sent|escape:'htmlall':'UTF-8'}{else}{l s='none yet' mod='kronixonconnect'}{/if}</td></tr>
+      {if $kx_outbox_error}<tr><th>{l s='Last error' mod='kronixonconnect'}</th><td><code>{$kx_outbox_error|escape:'htmlall':'UTF-8'}</code></td></tr>{/if}
+      {if $kx_outbox_retry}<tr><th>{l s='Next attempt' mod='kronixonconnect'}</th><td>{$kx_outbox_retry|escape:'htmlall':'UTF-8'}</td></tr>{/if}
+      <tr><th>{l s='Cron URL' mod='kronixonconnect'}</th><td><code>{$kx_cron_url|escape:'htmlall':'UTF-8'}</code></td></tr>
+    </tbody>
+  </table>
+  <p class="help-block">{l s='Call this URL every minute from the cron of your hosting. Without a cron, changes are sent while the shop has visitors.' mod='kronixonconnect'}</p>
+</div>
+{/if}
+
 <div class="panel" id="kronixonconnect-about">
   <h3>{l s='About this module' mod='kronixonconnect'}</h3>
   <table class="table">
