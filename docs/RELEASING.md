@@ -83,7 +83,10 @@ administrator clicks *Update now* (the module's `src/Update/`):
    An upgrade that dies where PHP cannot catch it (memory or time limit, `exit`, a worker killed each time) is run at
    most twice (the attempts are counted in `KX_UPDATE_STATE` before the scripts run); the request after the second
    one rolls back with `upgrade_failed` (`upgrade_died`). The cron URL sends the store events before it finishes an
-   update, so a dying upgrade does not stop them.
+   update, so a dying upgrade does not stop them. One request at a time finishes an update (a lock), and it decides
+   on the journal as the database holds it under the lock, not on the copy PrestaShop loaded when the request
+   started; it runs the scripts only when the folder on disk is the new version. So a cron call that started before
+   the settings page finished or rolled back the update changes nothing, and `module.updated` is recorded once.
    Only a kill between the two renames (two system calls apart; the time limit and a closed browser cannot cause it)
    leaves no `modules/kronixonconnect`. See *Recovery* below.
 4. A server that does not let PHP replace the module (read-only folder, too little disk space, OPcache that never
@@ -101,7 +104,11 @@ fails on nothing: `CREATE TABLE IF NOT EXISTS`, `DROP TABLE IF EXISTS`, a column
 `SHOW COLUMNS`/`SHOW INDEX` or `information_schema` says it is missing), and its DB changes must be **harmless to the
 previous version's code**, which runs again after a rollback (add, do not rename or drop what the previous version
 reads). `tests/Unit/Release/UpgradeScriptsTest.php` (in `make check` and module-ci) refuses the usual unguarded DDL in
-`upgrade/`. It is a grep: the review of a new script still checks the rest.
+`upgrade/`: `CREATE TABLE` without `IF NOT EXISTS`, `DROP TABLE` without `IF EXISTS`, and an
+`ALTER TABLE … ADD/DROP/CHANGE/RENAME`, `CREATE INDEX`, `DROP INDEX` or `RENAME TABLE` without its own existence check a few lines before it
+(one check per statement; MariaDB's `IF NOT EXISTS` on columns and indexes does not count, MySQL refuses it). It is a
+grep: it does not see whether the check decides the statement, nor DML (`INSERT`, `UPDATE … SET x = x * 100`, a
+`Configuration` value computed from itself); the review of a new script checks the rest.
 
 **Recovery.** If `modules/kronixonconnect` is missing and `modules/.kronixonconnect-prev` is there, the module
 cannot run: the cron URL and `/v1` answer 404, and nothing in the module can repair it. The shop's own pages still

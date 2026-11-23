@@ -23,10 +23,13 @@ All notable changes of the module are listed here; versions follow [Semantic Ver
   An upgrade that dies where PHP cannot catch it (memory or time limit, `exit`) is run at most twice, then rolled back
   (`upgrade_failed`, `upgrade_died`). Only a kill between the two renames leaves no module folder: the module cannot
   run until `.kronixonconnect-prev` is renamed back by hand (`docs/RELEASING.md`, *Recovery*). The cron URL sends the
-  store events before it finishes an update. OPcache is told about the new files.
+  store events before it finishes an update. One request at a time finishes an update, deciding on the journal read
+  from the database under its lock and only when the folder on disk is the new version: a cron call that started
+  before the settings page finished or rolled back the update changes nothing. OPcache is told about the new files.
 - A rollback does not undo the DB changes a failed upgrade script made, and a killed or dying script runs again: every
   `upgrade/upgrade-<version>.php` must be idempotent and harmless to the previous version's code.
-  `UpgradeScriptsTest` refuses unguarded `CREATE TABLE`, `DROP TABLE` and `ALTER TABLE … ADD/DROP/CHANGE/RENAME`.
+  `UpgradeScriptsTest` refuses unguarded `CREATE TABLE`, `DROP TABLE`, and `ALTER TABLE … ADD/DROP/CHANGE/RENAME`,
+  `CREATE INDEX`, `DROP INDEX` and `RENAME TABLE` without their own existence check (a grep; DML is not checked).
 - A server that cannot replace the module (read-only folder, too little disk space, OPcache that never rechecks
   files while `opcache_invalidate()` is not allowed) gets the zip's download link for the Module Manager.
 - `module.updated` and `module.update_failed` through the outbox.
