@@ -109,7 +109,8 @@ schema: `products`, `variants`, `images`, `prices`, `stock`, `categories`, `bran
   `attribute_group`, `feature_value` and `attribute`. A feature value with `custom: true` is a per-product
   text value. `product_count` counts the shop's products (`product_shop`, joined only when the install has
   more than one shop), `value_count` of an attribute group the shop's values (`attribute_shop`) and of a
-  feature its predefined values; `facets` are not read (no `facets` capability).
+  feature its predefined values; `facets` (with the `facets` capability) the categories of the paired shop whose
+  storefront filters offer the feature or group (`layered_category`).
 - **Multistore.** Everything is the paired shop's: a product shared by several shops names only the
   categories, features, suppliers and images that shop has (`*_shop`), and its `brand_id`/`supplier_id`
   are `"0"` when the brand or supplier is not in the shop. What another shop links to a shared product
@@ -151,8 +152,9 @@ and the hooks of other modules run. Rules of the protocol: [§6](protocol/v1/REA
   `attribute-values` (`FeatureValue`, `Attribute` on 1.7.8, `ProductAttribute` from 8.0), `brands`
   (`Manufacturer`), `tags` (`Tag`), `products` (`Product` with `updateCategories()`, `deleteFeatures()` /
   `addFeaturesToDB()`, `FeatureValue`, `ProductSupplier`, `Tag`), `variants` (`Combination`, and the classes of
-  attributes) and `seo/redirects`. Nothing writes a catalog table by SQL; the module's own tables
-  (`kx_entity_map`, `kx_idempotency`, `kx_redirect`) are.
+  attributes) and `seo/redirects`. Nothing of these writes a catalog table by SQL; the module's own tables
+  (`kx_entity_map`, `kx_idempotency`, `kx_redirect`) are, and so are ps_facetedsearch's filters of `facets`. The bulk
+  endpoints are the exception the protocol defines ([below](#bulk-prices-stock-and-maintenance)).
 - **Only what differs.** An item is compared with the shop: an update saves only the fields, in the languages,
   that changed (`setFieldsToUpdate`), so a field or a language that was not sent keeps what the shop holds; an
   item equal to the shop is `unchanged` and saves nothing (no hook, no new `date_upd`). A create needs the name in
@@ -202,8 +204,16 @@ and the hooks of other modules run. Rules of the protocol: [§6](protocol/v1/REA
   under Home (one directly under the Root stays there). The nested tree is rebuilt once, after the last item
   (`options.regenerate_tree: none` leaves it to a later batch). Root and Home are refused (`root_category`). Nothing is
   deleted: deactivate. A position is set on the category alone, its siblings keep theirs.
-- **Attributes.** `public_name` is cut at PrestaShop's 64 characters (warning `public_name_cut`); `facets` are left
-  out (`facets_unsupported`) until the `facets` capability exists.
+- **Attributes.** `public_name` is cut at PrestaShop's 64 characters (warning `public_name_cut`). `facets` (capability
+  `facets`: ps_facetedsearch is active, else they are left out with `facets_unsupported`) are the categories whose
+  storefront filters offer the feature or group: a row of `layered_category` per category of the paired shop (a new
+  one at the category's next position unless `position` is sent) and the member `layered_selection_feat_<id>` /
+  `layered_selection_ag_<id>` of each filter template of the shop that covers the category, so they survive a template
+  saved in the back office (which rebuilds `layered_category` from the templates; a category no template covers
+  loses the filter then, as in the back office). `mode: replace` removes the filter from the categories not sent, and
+  from the templates that cover none of them. An unknown category is `category_not_found`. The storefront's cached
+  filter blocks are cleared after the last item; the index itself is `POST maintenance/facets`. `GET
+  catalog/attributes` lists them (`facets`), outside the `content_hash`.
 - **Brands.** The logo is fetched before the item's transaction, over HTTPS, without redirects, up to 20 MB in 20 s,
   and dropped unless its sha256 is the announced one; a logo the shop already holds is not fetched. A logo PrestaShop
   converts (anything but a JPEG) carries the sha256 of its source in the stored file.
@@ -240,6 +250,62 @@ and the hooks of other modules run. Rules of the protocol: [§6](protocol/v1/REA
   PrestaShop answers for any inactive object: on 1.7.8 `404`; on 9.1 `403` for a product, `404` for a brand and `500`
   for a category, whose tree position is not set yet. Some of these pages carry its name (the breadcrumb, JSON-LD,
   `<title>`). The next signed request that finds no write running deletes it.
+
+## Bulk prices, stock and maintenance
+
+`POST prices/bulk` and `stock/bulk` take up to 1 000 rows (`413 batch_too_large` above) and answer one result per row,
+in the order sent, told apart by `product_id` and `variant_id` (a row naming the same pair as an earlier one is
+refused). They write as the protocol defines it, without `Product::save()`: rows are read and written in chunks of
+100, each chunk in one transaction, a row checked before anything of it is written; a chunk that fails is
+`module_error` for its rows and the next chunk goes on. Under the write lock and once per `Idempotency-Key`, as every
+`POST`; what a dead write left half-written is removed first, and a product that is still left so is
+`cleanup_failed`.
+
+- **`expected_price` / `expected_quantity`** is the value the platform believes the shop holds. When the shop holds
+  another one (changed in the back office), the row is `status: conflict` with `code` `price_changed` /
+  `quantity_changed` and the shop's value (`current_price` / `current_quantity`), and nothing of the row is written. A
+  row whose value the shop already holds is `ok` / `unchanged`, never a conflict: a repeat after a lost answer is safe.
+- **Prices** are net, in the shop's default currency, as PrestaShop stores them (`profile.tax`): no gross price is
+  converted. A product row (`variant_id: "0"`) sets `price`, `wholesale_price`, `tax_rules_group_id`
+  (`tax_rules_group_not_found`) and `unit_price`; a combination row its price **impact** (what `GET catalog/prices`
+  reads as `price_impact`) and `wholesale_price` (`tax_rules_group_id`/`unit_price` there: `product_fields_ignored`).
+  `product_shop`/`product_attribute_shop` of the paired shop are written, and the main table when the paired shop is
+  the default one, as PrestaShop's save does; `date_upd` of the product too unless `touch_date_upd: false`. A unit
+  price follows the version: 8.0+ keeps it and derives the ratio, 1.7.8 keeps only the ratio, so a new price changes
+  its unit price as in the back office. After the last chunk the price caches go (`flush_cache: false` keeps them)
+  and `actionKxBulkPricesUpdated` runs once with the changed product ids; `fire_hooks: true` adds
+  `actionProductUpdate` per changed product. ps_facetedsearch's price filter: `reindex: inline` indexes the changed
+  products after each chunk; `deferred` (the default) lists them in `facets_pending` for `POST maintenance/facets`;
+  `none` leaves it. The search index holds no prices.
+- **Stock** is the paired shop's (its group's when the group shares stock); `location` other than `default` is
+  `location_ignored` and `capabilities.stock_locations` is false: PrestaShop has one stock per shop. A product with
+  combinations takes their quantities (its own row is their total). `mode: safe` (the default) calls
+  `StockAvailable::setQuantity()` as the back office does (`actionUpdateQuantity`, packs, the total; PrestaShop
+  records a stock movement only where its Symfony container runs, which a module's front controller does not have on
+  1.7.8–9.1, so none is recorded); `mode: fast` updates `stock_available` (quantity, and physical quantity = reserved + quantity) and the
+  total per chunk, with `actionUpdateQuantity` per row only for `fire_hooks: true`; a row the shop has no stock row
+  for goes the safe way. `out_of_stock` through `StockAvailable::setProductOutOfStock()`. `shop_id` of another shop is
+  `shop_mismatch`. `available_now`/`available_later` are texts of the product: `available_texts_ignored` (send them
+  with `POST products`, `content`). `visibility_policy: restore_if_hidden` shows a product hidden from everywhere
+  (`visibility: none`) once its total is above 0 (`visibility_restored`); `hide_when_zero` hides a product the
+  platform has linked (a `kx_id`) when its total is 0 (`visibility_hidden`; an unlinked one is
+  `not_hidden_unlinked`) and shows again only those it hid (`kx_entity_map.flags` bit 1). A visibility change marks
+  the product for search indexing. `actionKxBulkStockUpdated` runs once with the changed product ids.
+- **`POST maintenance/reindex`** (`search_reindex`): PrestaShop's `Search::indexation()` per product, by id, within
+  `budget_s` (at most the request's). `pending` indexes the products PrestaShop marked (`indexed = 0`), `products`
+  marks and indexes the listed ones (up to 1 000), `full` marks every product of the paired shop first. While
+  `continue` is true the platform sends the same body with the answer's `cursor`; a call with a cursor marks nothing
+  again, so a walk visits each product once and ends, also where PrestaShop leaves a product unindexed (an inactive
+  one). `remaining` counts the marked active, searchable products after the cursor.
+- **`POST maintenance/cache-flush`** (`cache_flush`): `prices` (the price caches), `products` (the product, category
+  and object caches of the request), `smarty` (`Tools::clearSmartyCache()`), `all` (`Tools::clearAllCache()`, which
+  also removes Symfony's cache of the environment at the end of the request, `Media::clearCache()`,
+  the class index of the autoloader, `actionClearCache`). Only PrestaShop's own APIs; no file is deleted otherwise.
+- **`POST maintenance/facets`** (`facets`, else `403 capability_disabled`): ps_facetedsearch's own index methods per
+  product, by id, with the same `cursor` walk: `prices` (`indexProductPrices`), `attributes` (`indexAttributes`, after
+  `indexFeatures`/`indexAttributeGroup` so new features and groups are indexable), `categories` and `all` both. The
+  products are those of `product_ids`, else those directly in `category_ids`, else every product of the shop. The
+  storefront's cached filter blocks are cleared when the walk ends.
 
 ## What the module adds to the shop
 

@@ -58,6 +58,13 @@ final class ShopDatabase implements Database
         }
     }
 
+    public function bulk(string $sql): void
+    {
+        if (! $this->db->execute($sql, false)) {
+            throw new RuntimeException('A bulk statement failed.');
+        }
+    }
+
     public function setActive(string $class, string $table, string $primary, int $id, bool $active): void
     {
         if (! $this->db->execute('UPDATE '.$this->table($table).' SET active = '.(int) $active.' WHERE '.$primary.' = '.$id, false)) {

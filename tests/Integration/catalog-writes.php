@@ -41,7 +41,7 @@ $tag = substr(SignedClient::uuid(), 0, 8);
 
 $caps = $kx->get('capabilities')['data'];
 $kx->check('capabilities announce the taxonomy writes', $caps['capabilities']['categories'] === true && $caps['capabilities']['attributes'] === true && $caps['capabilities']['tags'] === true
-    && $caps['capabilities']['images'] === false && $caps['capabilities']['stock'] === false && $caps['limits']['batch'] === 100, (string) json_encode($caps));
+    && $caps['capabilities']['images'] === false && $caps['capabilities']['stock'] === true && $caps['limits']['batch'] === 100, (string) json_encode($caps));
 
 // Categories: the tree by parent_key, positions, hashes.
 $kxA = SignedClient::uuid();
@@ -104,7 +104,7 @@ $f = $results($kx->post('attributes', ['items' => [
     ['key' => 'k', 'kind' => 'thing', 'name' => ['en' => 'X']],
 ]]));
 [$feature, $group] = [(int) ($f['f']['external_id'] ?? 0), (int) ($f['g']['external_id'] ?? 0)];
-$kx->check('attributes: a feature and a group created', ($f['f']['action'] ?? '') === 'created' && ($f['g']['action'] ?? '') === 'created' && ($f['k']['field'] ?? '') === 'kind' && $f['f']['warnings'] === ['facets_unsupported'] && $f['g']['warnings'] === ['public_name_cut']
+$kx->check('attributes: a feature and a group created', ($f['f']['action'] ?? '') === 'created' && ($f['g']['action'] ?? '') === 'created' && ($f['k']['field'] ?? '') === 'kind' && $f['f']['warnings'] === ($caps['capabilities']['facets'] ? [] : ['facets_unsupported']) && $f['g']['warnings'] === ['public_name_cut']
     && $value("SELECT is_color_group FROM {$p}attribute_group WHERE id_attribute_group = $group") === 1 && $value("SELECT position FROM {$p}feature WHERE id_feature = $feature") === 7, (string) json_encode($f));
 $f2 = $results($kx->post('attributes', ['items' => [
     ['key' => 'f', 'kind' => 'feature', 'name' => ['en' => "  CAPACITY  $tag"], 'match_by' => ['name']],

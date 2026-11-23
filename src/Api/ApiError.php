@@ -113,6 +113,12 @@ final class ApiError extends RuntimeException
         return new self(422, 'validation_failed', 'The request body does not match the schema.', ['errors' => $members]);
     }
 
+    /** The shop lacks what the endpoint needs (`maintenance/facets` without ps_facetedsearch). */
+    public static function capabilityDisabled(string $capability): self
+    {
+        return new self(403, 'capability_disabled', 'This shop does not offer the operation.', ['capability' => $capability]);
+    }
+
     public static function unpaired(): self
     {
         return new self(403, 'store_unpaired', 'This module is not paired with Kronixon PI.');

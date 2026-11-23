@@ -52,6 +52,11 @@ final class FakeShop implements ShopInfo
         return ['jpg', 'webp'];
     }
 
+    public function facetedSearch(): bool
+    {
+        return true;
+    }
+
     public function profile(): array
     {
         return [

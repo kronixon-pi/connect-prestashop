@@ -53,7 +53,7 @@ $product = static function (int $id) use ($kx): array {
 };
 
 $caps = $kx->get('capabilities')['data']['capabilities'];
-$kx->check('capabilities announce what this build writes', $caps['products.write'] && $caps['variants'] && $caps['seo'] && $caps['redirects'] && $caps['attribute_values_custom'] && ! $caps['images'] && ! $caps['stock'] && ! $caps['prices.bulk'] && ! $caps['facets'], (string) json_encode($caps));
+$kx->check('capabilities announce what this build writes', $caps['products.write'] && $caps['variants'] && $caps['seo'] && $caps['redirects'] && $caps['attribute_values_custom'] && ! $caps['images'] && $caps['stock'] && $caps['prices.bulk'], (string) json_encode($caps));
 
 // What products point at.
 $c = $send('categories', [['key' => 'a', 'name' => ['en' => "Cat A $tag"]], ['key' => 'b', 'name' => ['en' => "Cat B $tag"]]]);

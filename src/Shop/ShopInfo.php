@@ -47,6 +47,9 @@ interface ShopInfo
      */
     public function imageFormats(): array;
 
+    /** Whether ps_facetedsearch is installed and active (`capabilities.facets`). */
+    public function facetedSearch(): bool;
+
     /**
      * The shop-specific members of GET profile (module/profile.json): version, php, mysql, shop,
      * languages, currencies, tax, stock, counts, modules, friendly_urls, maintenance_mode.

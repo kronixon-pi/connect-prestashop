@@ -23,9 +23,11 @@ final class CatalogDb implements Database, ImageUrls
             upc TEXT DEFAULT \'\', mpn TEXT DEFAULT \'\', isbn TEXT DEFAULT \'\', price TEXT DEFAULT \'0.000000\', wholesale_price TEXT DEFAULT \'0.000000\',
             weight TEXT DEFAULT \'0.000000\', width TEXT DEFAULT \'0.000000\', height TEXT DEFAULT \'0.000000\', depth TEXT DEFAULT \'0.000000\',
             is_virtual INT DEFAULT 0, cache_is_pack INT DEFAULT 0, product_type TEXT DEFAULT \'standard\', active INT DEFAULT 1,
-            date_add TEXT DEFAULT \'2026-09-01 10:00:00\'',
+            unit_price_ratio TEXT DEFAULT \'0.000000\', unit_price TEXT DEFAULT \'0.000000\', visibility TEXT DEFAULT \'both\', indexed INT DEFAULT 1,
+            date_add TEXT DEFAULT \'2026-09-01 10:00:00\', date_upd TEXT DEFAULT \'2026-09-01 10:00:00\'',
         'product_shop' => 'id_product INT, id_shop INT, id_category_default INT DEFAULT 2, id_tax_rules_group INT DEFAULT 1, price TEXT DEFAULT \'0.000000\',
             wholesale_price TEXT DEFAULT \'0.000000\', unity TEXT DEFAULT \'\', unit_price_ratio TEXT DEFAULT \'0.000000\', unit_price TEXT DEFAULT \'0.000000\',
+            indexed INT DEFAULT 1,
             active INT DEFAULT 1, visibility TEXT DEFAULT \'both\', available_for_order INT DEFAULT 1, show_price INT DEFAULT 1, `condition` TEXT DEFAULT \'new\',
             online_only INT DEFAULT 0, redirect_type TEXT DEFAULT \'404\', id_type_redirected INT DEFAULT 0, cache_default_attribute INT DEFAULT 0,
             date_add TEXT DEFAULT \'2026-09-01 10:00:00\', date_upd TEXT DEFAULT \'2026-09-01 10:00:00\', PRIMARY KEY (id_product, id_shop)',
@@ -68,7 +70,12 @@ final class CatalogDb implements Database, ImageUrls
         'image' => 'id_image INTEGER PRIMARY KEY, id_product INT, position INT DEFAULT 0, cover INT NULL',
         'image_shop' => 'id_product INT, id_image INT, id_shop INT, cover INT NULL, PRIMARY KEY (id_image, id_shop)',
         'image_lang' => 'id_image INT, id_lang INT, legend TEXT DEFAULT \'\', PRIMARY KEY (id_image, id_lang)',
-        'product_attribute' => 'id_product_attribute INTEGER PRIMARY KEY, id_product INT, reference TEXT DEFAULT \'\', ean13 TEXT DEFAULT \'\', mpn TEXT DEFAULT \'\'',
+        'product_attribute' => 'id_product_attribute INTEGER PRIMARY KEY, id_product INT, reference TEXT DEFAULT \'\', ean13 TEXT DEFAULT \'\', mpn TEXT DEFAULT \'\',
+            price TEXT DEFAULT \'0.000000\', wholesale_price TEXT DEFAULT \'0.000000\'',
+        'tax_rules_group' => 'id_tax_rules_group INTEGER PRIMARY KEY, active INT DEFAULT 1, deleted INT DEFAULT 0',
+        'layered_category' => 'id_layered_category INTEGER PRIMARY KEY, id_shop INT, controller TEXT, id_category INT, id_value INT DEFAULT 0, type TEXT,
+            position INT, filter_type INT DEFAULT 0, filter_show_limit INT DEFAULT 0',
+        'layered_filter' => 'id_layered_filter INTEGER PRIMARY KEY, name TEXT, filters TEXT, n_categories INT, date_add TEXT',
         'product_attribute_shop' => 'id_product INT, id_product_attribute INT, id_shop INT, price TEXT DEFAULT \'0.000000\', wholesale_price TEXT DEFAULT \'0.000000\',
             weight TEXT DEFAULT \'0.000000\', default_on INT NULL, minimal_quantity INT DEFAULT 1, available_date TEXT NULL, PRIMARY KEY (id_product_attribute, id_shop)',
         'product_attribute_combination' => 'id_attribute INT, id_product_attribute INT, PRIMARY KEY (id_attribute, id_product_attribute)',
@@ -142,6 +149,11 @@ final class CatalogDb implements Database, ImageUrls
     public function execute(string $sql): void
     {
         $this->pdo->exec($sql);
+    }
+
+    public function bulk(string $sql): void
+    {
+        $this->pdo->exec(str_replace('NOW()', "datetime('now')", $sql));
     }
 
     public function setActive(string $class, string $table, string $primary, int $id, bool $active): void

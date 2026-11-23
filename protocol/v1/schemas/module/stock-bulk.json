@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://connect.kronixon.com/protocol/v1/schemas/module/stock-bulk.json",
   "title": "POST stock/bulk",
-  "description": "Up to 1 000 quantity rows; mode safe goes through StockAvailable::setQuantity (hooks, packs), fast writes stock_available directly; visibility_policy restores or hides products (Spec §6.22). location is always default for PrestaShop.",
+  "description": "Up to 1 000 quantity rows; mode safe goes through StockAvailable::setQuantity (hooks, packs), fast writes stock_available directly; visibility_policy restores or hides products (Spec §6.22). location is always default for PrestaShop. A product with combinations takes the quantities of its combinations (variant_id \"0\" is refused); expected_quantity turns a change in the shop into status conflict; a row whose quantity the shop already holds is ok/unchanged. available_now/available_later are ignored with a warning (POST products content).",
   "x-kx-endpoint": {
     "method": "POST",
     "path": "/v1/stock/bulk",
@@ -92,9 +92,12 @@
               "product_id": { "$ref": "../common.json#/$defs/external_id" },
               "variant_id": { "$ref": "../common.json#/$defs/external_id" },
               "status": { "enum": ["ok", "conflict", "error", "skipped"] },
+              "action": { "enum": ["updated", "unchanged"] },
               "previous_quantity": { "type": ["integer", "null"] },
               "current_quantity": { "type": ["integer", "null"] },
               "code": { "type": "string" },
+              "message": { "type": "string" },
+              "field": { "type": "string" },
               "warnings": { "type": "array", "items": { "type": "string" } }
             }
           }

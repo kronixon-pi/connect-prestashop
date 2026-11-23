@@ -256,6 +256,7 @@ dc exec -T ps rm -rf /var/www/html/modules/kxprobe /tmp/kxprobe.json </dev/null
 psphp modules/kronixonconnect/scripts/ps/pair.php "$stub" K7PM-3XQ9 >/dev/null
 writes "taxonomy writes with two shops" catalog-writes
 writes "product, variant and redirect writes with two shops" product-writes
+writes "bulk prices and stock, maintenance and filters with two shops" bulk-writes
 total_s=$(elapsed)
 summary="SMOKE ps=$ps image=$(dc config --images 2>/dev/null | grep prestashop | head -n 1) prestashop=$version php=$php_version install_s=$install_s module_install_s=$module_s total_s=$total_s failures=$failures"
 echo "$summary"

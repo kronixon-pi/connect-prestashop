@@ -210,6 +210,25 @@ Writes of entities (`POST products`, `variants`, `categories`, `attributes`, `at
   created a second time; every write request tries the removal again first, so the item is worth resending later. The
   same holds for a request that died: the repeat removes what it left before it writes.
 
+Bulk writes (`POST prices/bulk`, `stock/bulk`):
+
+- Rows have no `key`: each result carries the row's `product_id` and `variant_id`, in the order sent; a row naming the
+  same pair as an earlier one is refused. A broken envelope (`rows` missing or empty, an option of the wrong type) is
+  `422`, more than 1 000 rows `413 batch_too_large`; anything wrong with one row is that row's `error` with `code` and
+  `field`. An `ok` row says `action: updated|unchanged`.
+- `expected_price` / `expected_quantity` names the value the platform believes the shop holds. When the shop holds
+  another one, the row is `status: conflict` (`price_changed` / `quantity_changed`) with the shop's value in
+  `current_price` / `current_quantity`, and nothing of it is written; the platform records the conflict (ours: what it
+  sent, theirs: `current_*`). A row whose value the shop already holds is `ok`/`unchanged`, never a conflict, so a
+  repeat after a lost answer converges. `summary.conflict` counts the conflicts.
+- Item codes, besides those above: `price_changed`, `quantity_changed` (conflict), `shop_mismatch`; warnings
+  `location_ignored`, `available_texts_ignored`, `product_fields_ignored`, `visibility_restored`, `visibility_hidden`,
+  `not_hidden_unlinked`.
+
+Maintenance (`POST maintenance/reindex`, `facets`) walks products by id within `budget_s`: while `continue` is true
+the client sends the same body again with the answer's `cursor`; a call with a cursor starts no new walk, so each
+product is visited once and the walk ends. `maintenance/facets` without ps_facetedsearch is `403 capability_disabled`.
+
 ### 6.1 Module endpoints
 
 | Endpoint | Schema | Spec | Module PR |

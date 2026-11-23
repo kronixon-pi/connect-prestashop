@@ -68,11 +68,15 @@ final class Shop
     /** @var PendingWrites */
     public $pending;
 
+    /** @var Facets ps_facetedsearch, when the shop has it */
+    public $facets;
+
     /** @var array<string, array<string, list<int>>> match_by lists read in this request */
     private $names = [];
 
-    public function __construct(Context $context, Scope $scope, CompatInterface $compat, Database $db, ImageUrls $urls, RedirectStore $redirects, Pages $pages, PendingWrites $pending, Warnings $warnings, bool $strictLanguages)
+    public function __construct(Context $context, Scope $scope, CompatInterface $compat, Database $db, ImageUrls $urls, RedirectStore $redirects, Pages $pages, PendingWrites $pending, Warnings $warnings, bool $strictLanguages, ?Facets $facets = null)
     {
+        $this->facets = $facets ?? new Facets(null, $db, $scope);
         $this->redirects = $redirects;
         $this->pages = $pages;
         $this->context = $context;

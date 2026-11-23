@@ -303,6 +303,21 @@ class Tools
      * @return string|false
      */
     public static function str2url($str) {}
+
+    /** @return void */
+    public static function clearSmartyCache() {}
+
+    /** @return void */
+    public static function clearAllCache() {}
+}
+
+class PrestaShopAutoload
+{
+    /** @return PrestaShopAutoload */
+    public static function getInstance() {}
+
+    /** @return void */
+    public function generateIndex() {}
 }
 
 class Cookie
@@ -554,6 +569,18 @@ abstract class Module
      * @return string
      */
     public function display($file, $template, $cache_id = null, $compile_id = null) {}
+
+    /**
+     * @param string $module_name
+     * @return bool
+     */
+    public static function isEnabled($module_name) {}
+
+    /**
+     * @param string $module_name
+     * @return Module|false
+     */
+    public static function getInstanceByName($module_name) {}
 }
 
 class FrontController

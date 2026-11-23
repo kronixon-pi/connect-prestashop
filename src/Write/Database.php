@@ -23,12 +23,19 @@ use Kronixon\Connect\Catalog\Sql;
 /**
  * The database as the writers use it: the lookups of Sql on the master, the transaction around one
  * item and statements on the module's own `kx_*` tables. Catalog tables are written by PrestaShop's
- * object model only, never by execute(); setActive() is the one exception.
+ * object model, never by execute(); the exceptions are setActive() and bulk(), which the protocol
+ * defines as direct statements (README §6.2: prices/bulk, stock/bulk, ps_facetedsearch's tables).
  */
 interface Database extends Sql
 {
     /** A statement on a `kx_*` table. */
     public function execute(string $sql): void;
+
+    /**
+     * An UPDATE or INSERT on a catalog table of a bulk endpoint or on ps_facetedsearch's tables, inside
+     * the endpoint's own transaction; the caller drops what PrestaShop cached of the rows.
+     */
+    public function bulk(string $sql): void;
 
     /**
      * `active` in $table for the object $id of $class, and what PrestaShop cached of it is dropped: an

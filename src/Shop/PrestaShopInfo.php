@@ -26,6 +26,7 @@ use Group;
 use Kronixon\Connect\Compat\CompatInterface;
 use Kronixon\Connect\Protocol;
 use Language;
+use Module;
 use Shop;
 use TaxRulesGroup;
 use Throwable;
@@ -112,6 +113,11 @@ final class PrestaShopInfo implements ShopInfo
         }
 
         return $formats;
+    }
+
+    public function facetedSearch(): bool
+    {
+        return (bool) Module::isEnabled('ps_facetedsearch');
     }
 
     public function profile(): array

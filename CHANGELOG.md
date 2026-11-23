@@ -4,6 +4,24 @@ All notable changes of the module are listed here; versions follow [Semantic Ver
 
 ## [Unreleased]
 
+## [0.5.0]
+
+### Added
+
+- `POST prices/bulk` and `POST stock/bulk`: up to 1 000 rows in chunks of 100, each chunk in one transaction, a
+  result per row. `expected_price` / `expected_quantity` make a value changed in the shop a `conflict` that writes
+  nothing; a row the shop already holds is `unchanged`. Announced as `prices.bulk` and `stock`
+  (`stock_locations` stays false: one stock per shop).
+- `POST maintenance/reindex`, `cache-flush` and `facets`, bounded by `budget_s` and walked by a `cursor`. Announced as
+  `search_reindex`, `cache_flush` and, with ps_facetedsearch active, `facets`.
+- `facets` of `POST attributes` are written (`layered_category` and the shop's filter templates) and read in `GET
+  catalog/attributes` when the shop has ps_facetedsearch; without it they stay `facets_unsupported`.
+
+### Fixed
+
+- One module whose hook throws no longer stops the update hooks the module runs after showing a created object
+  (PrestaShop 1.7.8 lets the exception through).
+
 ## [0.4.0]
 
 ### Added
