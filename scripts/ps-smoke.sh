@@ -93,8 +93,9 @@ expect_eq "kx_ tables after reinstall" "8" "$(sql "SELECT COUNT(*) FROM informat
 expect_eq "service account after reinstall" "1	1	0	1" "$(account)"
 step "uninstall + reinstall checked"
 
-# The hook that marks what a write creates: registered, before every other module of it.
-added() { sql "SELECT COUNT(*), COALESCE(MIN(hm.position <= (SELECT MIN(o.position) FROM ps_hook_module o WHERE o.id_hook = hm.id_hook AND o.id_shop = hm.id_shop)), 0) FROM ps_hook_module hm JOIN ps_hook h ON h.id_hook = hm.id_hook JOIN ps_module m ON m.id_module = hm.id_module WHERE m.name = 'kronixonconnect' AND h.name = 'actionObjectAddAfter'"; }
+# The hook that marks what a write creates: registered, before every other module of it, in every shop
+# (shops with a row, whether it is first in each of them).
+added() { sql "SELECT COUNT(DISTINCT hm.id_shop), COALESCE(MIN(hm.position <= (SELECT MIN(o.position) FROM ps_hook_module o WHERE o.id_hook = hm.id_hook AND o.id_shop = hm.id_shop)), 0) FROM ps_hook_module hm JOIN ps_hook h ON h.id_hook = hm.id_hook JOIN ps_module m ON m.id_module = hm.id_module WHERE m.name = 'kronixonconnect' AND h.name = 'actionObjectAddAfter'"; }
 expect_eq "actionObjectAddAfter registered, first" "1	1" "$(added)"
 
 check() { # name expected-status expected-error-code curl-args...
@@ -232,6 +233,16 @@ else
     echo "  FAIL multistore"; failures=$((failures + 1))
 fi
 cat "$tmp/multistore"
+# With two shops and another module installed before it on actionObjectAddAfter (kxprobe), an install
+# puts the module first in both.
+dc cp "$root/tests/Integration/kxprobe" ps:/var/www/html/modules/kxprobe
+dc exec -T ps chown -R www-data:www-data /var/www/html/modules/kxprobe </dev/null
+console prestashop:module uninstall kronixonconnect
+console prestashop:module install kxprobe
+console prestashop:module install kronixonconnect
+expect_eq "actionObjectAddAfter first in both shops, after another module" "2	1" "$(added)"
+console prestashop:module uninstall kxprobe
+dc exec -T ps rm -rf /var/www/html/modules/kxprobe /tmp/kxprobe.json </dev/null
 # The writes again: shop 1 is written, shop 2's links and entities stay out of reach.
 psphp modules/kronixonconnect/scripts/ps/pair.php "$stub" K7PM-3XQ9 >/dev/null
 writes "taxonomy writes with two shops" catalog-writes
