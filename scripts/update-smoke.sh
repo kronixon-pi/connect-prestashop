@@ -11,7 +11,9 @@
 #   up to date · read-only module folder · tampered zip (hash; signature) · a zip of another channel · a half stage a
 #   killed process left + update to 0.7.1 · an upgrade script that fails (rollback to 0.7.1) · a worker killed with
 #   SIGKILL during the upgrade to 0.7.3, finished by the next page · a swap nobody followed, finished by the cron URL ·
-#   an upgrade script that dies of the memory limit (0.7.5): run twice, the cron URL still flushes, then rolled back.
+#   an upgrade script that dies of the memory limit (0.7.5): run twice, the cron URL still flushes, then rolled back ·
+#   a cron call that loaded the journal before the settings page finished the update (0.7.6 updated, 0.8.0 rolled
+#   back): it changes nothing, module.updated once · 0.8.1 after the failed 0.8.0: its fixed upgrade-0.8.0.php runs.
 #
 # Needs docker, curl and jq on the host. Prints one line per check and an UPDATE-SMOKE summary.
 set -euo pipefail
@@ -262,9 +264,54 @@ cron="$(curl -sS -H 'Connection: close' "$cron_url")"
 expect_eq "0.7.5: the cron URL flushes again, nothing left to finish" "0 null" "$(printf '%s' "$cron" | jq -r '"\(.flush.failed) \(.update)"' 2>/dev/null || echo "$cron")"
 step "upgrade that dies checked"
 
+# A cron call that loaded the journal before the settings page finished the update: the stub holds its events batch
+# 10 s, the page opened 1.5 s after it runs the 6 s upgrade, and the cron URL reaches the update only afterwards.
+stub_events() { # mode [seconds the stub holds a batch]
+    # shellcheck disable=SC2016  # PHP code
+    inps php -r '$f = "/tmp/kx-stub/state.json"; $s = json_decode((string) file_get_contents($f), true) ?: []; $s["events_mode"] = $argv[1]; $s["events_hang_s"] = (int) ($argv[2] ?? 6); file_put_contents($f, json_encode($s));' "$@"
+}
+race() { # version: click, the cron URL, the settings page 1.5 s later; leaves $tmp/race-cron.json
+    offer "$1"
+    # Something to send (the heartbeat is due) and no back-off, so that the cron URL really flushes.
+    sql "UPDATE ps_configuration SET value = '0' WHERE name IN ('KX_OUTBOX_LAST_FLUSH', 'KX_HEARTBEAT_AT', 'KX_OUTBOX_RETRY_AT', 'KX_OUTBOX_FAILURES')"
+    stub_events hang 10
+    action="$(grep -o '<form method="post" action="[^"]*"' "$page" | head -n 1 | sed 's/.*action="//; s/"$//; s/&amp;/\&/g')"
+    token="$(grep -o 'name="kx_update_token" value="[^"]*"' "$page" | head -n 1 | sed 's/.*value="//; s/"$//')"
+    swapped="$(curl -sS -o /dev/null -w '%{http_code}' -c "$jar" -b "$jar" --data-urlencode "kx_update_token=$token" -d submitKxUpdate=1 -d "kx_update_version=$1" "$action")"
+    expect_eq "$1 race: the click swaps the files and redirects" "302 $1" "$swapped $(files_version)"
+    rm -f "$tmp/race-cron.json"
+    curl -sS -H 'Connection: close' -o "$tmp/race-cron.json" "$cron_url" &
+    local cron_pid=$!
+    sleep 1.5
+    curl -sS -L -H 'Connection: close' -o "$page" -c "$jar" -b "$jar" "$cfg"
+    expect_eq "$1 race: the page finished the update while the cron URL was still sending events" "yes" "$(kill -0 "$cron_pid" 2>/dev/null && [ ! -s "$tmp/race-cron.json" ] && echo yes || echo no)"
+    wait "$cron_pid" || true
+    stub_events ok
+}
+updated_to() { sql "SELECT COUNT(*) FROM ps_kx_outbox WHERE type = 'module.updated' AND payload LIKE '%\"to\":\"$1\"%'"; }
+
+race 0.7.6
+expect_eq "0.7.6 race: the cron URL found nothing left to finish" "null" "$(jq -c '.update' "$tmp/race-cron.json" 2>/dev/null || cat "$tmp/race-cron.json")"
+expect_eq "0.7.6 race: files, module row, upgrade runs, marker" "0.7.6 0.7.6 1 1 1 1" "$(files_version) $(row) $(dc exec -T ps sh -c 'wc -l < /tmp/kx-076-runs' </dev/null | tr -d ' ') $(marker KXTEST_UPGRADED_076)"
+expect_eq "0.7.6 race: module.updated recorded once" "1" "$(updated_to 0.7.6)"
+
+race 0.8.0
+expect_eq "0.8.0 race: the cron URL found nothing left to finish" "null" "$(jq -c '.update' "$tmp/race-cron.json" 2>/dev/null || cat "$tmp/race-cron.json")"
+expect_eq "0.8.0 race: rolled back by the page and left so — files, module row, upgrade runs" "0.7.6 0.7.6 1 1 1" "$(files_version) $(row) $(dc exec -T ps sh -c 'wc -l < /tmp/kx-080-runs' </dev/null | tr -d ' ')"
+open_page
+expect_eq "0.8.0 race: the settings page still names the rollback" "yes" "$(text kx-update-result | grep -q '(upgrade_failed); the previous version was restored' && echo yes || echo no)"
+expect_eq "0.8.0 race: journal gone, nothing left next to the module, no module.updated" "0  0" "$(sql "SELECT COUNT(*) FROM ps_configuration WHERE name = 'KX_UPDATE_STATE'") $(hidden) $(updated_to 0.8.0)"
+step "cron URL racing the settings page checked"
+
+# The release after the failed one carries a fixed upgrade-0.8.0.php: PrestaShop runs it, the module row is below it.
+offer 0.8.1
+submit submitKxUpdate kx_update_version=0.8.1
+expect_eq "0.8.1: files, module row, the fixed 0.8.0 script and its own ran" "0.8.1 0.8.1 1 1 1 1" "$(files_version) $(row) $(marker KXTEST_UPGRADED_080_FIXED) $(marker KXTEST_UPGRADED_081)"
+step "update after a failed release checked"
+
 # The events for the platform (module.updated / module.update_failed through the outbox).
 expect_eq "events: refusals, updates and the rollback, in order" \
-    "module.update_failed read_only|module.update_failed opcache_static|module.update_failed sha256_mismatch|module.update_failed bad_signature|module.update_failed channel_mismatch|module.updated $from>0.7.1|module.update_failed upgrade_failed|module.updated 0.7.1>0.7.3|module.updated 0.7.3>0.7.4|module.update_failed upgrade_failed|" \
+    "module.update_failed read_only|module.update_failed opcache_static|module.update_failed sha256_mismatch|module.update_failed bad_signature|module.update_failed channel_mismatch|module.updated $from>0.7.1|module.update_failed upgrade_failed|module.updated 0.7.1>0.7.3|module.updated 0.7.3>0.7.4|module.update_failed upgrade_failed|module.updated 0.7.4>0.7.6|module.update_failed upgrade_failed|module.updated 0.7.6>0.8.1|" \
     "$(events | sed -E 's/\{"from":"([^"]*)","to":"([^"]*)"\}/\1>\2/g; s/\{"from":"[^"]*","to":"[^"]*","error":"([a-z0-9_]*)[^"]*"\}/\1/g')"
 expect_eq "storefront home after the updates" "200" "$(curl -sL --max-redirs 3 -o /dev/null -w '%{http_code}' "$base/")"
 

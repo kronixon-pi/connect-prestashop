@@ -11,7 +11,10 @@ declare(strict_types=1);
  * - kronixonconnect-<MODULE_VERSION>.zip: the build installed first, which updates itself;
  * - 0.7.1 (its upgrade script sets KXTEST_UPGRADED_071), 0.7.2 (its upgrade script fails), 0.7.3 (its upgrade
  *   script waits while /tmp/kx-update-hold exists, after writing its pid to /tmp/kx-update-pid), 0.7.4, 0.7.5 (its
- *   upgrade script counts its runs in /tmp/kx-075-runs and dies of the memory limit, which PHP cannot catch);
+ *   upgrade script counts its runs in /tmp/kx-075-runs and dies of the memory limit, which PHP cannot catch), 0.7.6
+ *   (its upgrade script counts its runs in /tmp/kx-076-runs and takes 6 s), 0.8.0 (the same in /tmp/kx-080-runs, then
+ *   it fails), 0.8.1; each later release carries the earlier scripts, those of 0.7.2, 0.7.5 and 0.8.0 fixed (the fixed
+ *   0.8.0 sets KXTEST_UPGRADED_080_FIXED);
  * - a 0.7.1 with one byte changed, and a 0.7.1 of the stable channel;
  * - latest-<case>.json: the answer of `GET /v1/module/latest` the stub gives for each case, the file on the stub;
  * - platform-key.txt: the pinned key a release build expects in the pair answer.
@@ -42,9 +45,17 @@ $scripts = [
     '0.7.3' => $upgrade('0.7.3', "    file_put_contents('/tmp/kx-update-runs', getmypid().' '.(\$_SERVER['REQUEST_URI'] ?? 'cli').' '.microtime(true).\"\\n\", FILE_APPEND);\n    file_put_contents('/tmp/kx-update-pid', (string) getmypid());\n    for (\$i = 0; \$i < 120 && is_file('/tmp/kx-update-hold'); \$i++) {\n        usleep(500000);\n    }\n\n    return (bool) Configuration::updateGlobalValue('KXTEST_UPGRADED_073', '1');"),
     '0.7.4' => $upgrade('0.7.4', "    return (bool) Configuration::updateGlobalValue('KXTEST_UPGRADED_074', '1');"),
     '0.7.5' => $upgrade('0.7.5', "    file_put_contents('/tmp/kx-075-runs', getmypid().\"\\n\", FILE_APPEND);\n    ini_set('memory_limit', '128M');\n    \$eaten = [];\n    while (true) {\n        \$eaten[] = str_repeat('x', 1048576);\n    }"),
+    '0.7.6' => $upgrade('0.7.6', "    file_put_contents('/tmp/kx-076-runs', getmypid().\"\\n\", FILE_APPEND);\n    usleep(6000000);\n\n    return (bool) Configuration::updateGlobalValue('KXTEST_UPGRADED_076', '1');"),
+    '0.8.0' => $upgrade('0.8.0', "    file_put_contents('/tmp/kx-080-runs', getmypid().\"\\n\", FILE_APPEND);\n    usleep(6000000);\n\n    return false;"),
+    '0.8.1' => $upgrade('0.8.1', "    return (bool) Configuration::updateGlobalValue('KXTEST_UPGRADED_081', '1');"),
 ];
-// A later release carries the earlier scripts, the one of 0.7.2 fixed.
-$fixed072 = $upgrade('0.7.2', '    return true;');
+// A later release carries the earlier scripts, the failing ones fixed: PrestaShop runs every script above the module
+// row's version, and a rollback leaves the row below the failed release.
+$fixed = [
+    '0.7.2' => $upgrade('0.7.2', '    return true;'),
+    '0.7.5' => $upgrade('0.7.5', '    return true;'),
+    '0.8.0' => $upgrade('0.8.0', "    return (bool) Configuration::updateGlobalValue('KXTEST_UPGRADED_080_FIXED', '1');"),
+];
 
 $write = static function (string $name, string $bytes) use ($out): void {
     if (file_put_contents($out.'/'.$name, $bytes) !== strlen($bytes)) {
@@ -68,7 +79,7 @@ foreach ($scripts as $version => $script) {
     $files = Releases::files($version);
     foreach ($scripts as $earlier => $earlierScript) {
         if (version_compare($earlier, $version, '<=')) {
-            $files['upgrade/upgrade-'.$earlier.'.php'] = $earlier === '0.7.2' && $version !== '0.7.2' ? $fixed072 : $earlierScript;
+            $files['upgrade/upgrade-'.$earlier.'.php'] = $earlier !== $version && isset($fixed[$earlier]) ? $fixed[$earlier] : $earlierScript;
         }
     }
     $zips[$version] = Releases::build($version, 'staging', $files);
