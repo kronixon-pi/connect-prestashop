@@ -262,25 +262,32 @@ refused). They write as the protocol defines it, without `Product::save()`: rows
 before the chunk's transaction; a stock row created in between is not locked, as one that does not exist yet): an
 order or a back-office save that committed meanwhile is what the row is compared with, and one that comes later
 waits for the chunk's commit. Another product's rows stay free.
-Every later write of a stock row goes by primary key too (`fast` quantities, `out_of_stock`, the product's total; `safe`
-through `StockAvailable::setQuantity()`, which does the same): PrestaShop's order statement reaches a stock row through
-the `id_product` index, entry first, so a chunk that held the row and then wrote it through that index could deadlock
-with an order of one of its own products.
+Every later write of a stock row goes by primary key too (quantities, `out_of_stock`, the product's total):
+PrestaShop's order statement reaches a stock row through the `id_product` index, entry first, so a chunk that held
+the row and then wrote it through that index could deadlock with an order of one of its own products.
+Only the module's own statements run in a chunk's transaction, and each one that fails throws: no PrestaShop method
+and no other module's hook runs there, so none can swallow a failed statement or hold the chunk's locks while it
+writes its own rows or waits for the network (on 9.1, ps_eventbus's stock hook has ps_accounts write a configuration
+row, which checkouts write too, and in a linked shop it may call out over HTTP). Hooks run after the commit, with the
+rows as committed (a hook that throws is logged and the rows stay written).
+The chunk runs with the session's autocommit off and writes a marker row (`kx_bulk_chunk`) first, which its last
+statement deletes before `COMMIT`. When the server rolls a chunk back by itself (a deadlock's victim, before or after
+the chunk has written), the statements after it cannot commit one by one, and a marker that is gone at the end rolls
+back whatever ran since. The chunk then runs once more; rolled back again, its rows are `skipped` (`rows_locked`) or
+`module_error`. A chunk is written whole or not at all, and a row is `ok` only with what was committed.
 PrestaShop 1.7.8's end-of-order stock statements (`StockManager::updatePhysicalProductQuantity()`, two of them) scan
 and lock every stock row of the shop, by its design, so on 1.7.8 each of them waits for the chunk that holds stock
-rows at that moment, whether the order's products are in the request or not (a 300-row `safe` request on a shop of
-about 430 stock rows: payment validation 0.51–0.57 s against 0.12 s).
-`safe` runs PrestaShop's stock hooks inside the chunk's transaction, so a row another module writes from them is held
-until the chunk commits, and a checkout that writes the same row waits up to one chunk (on 9.1 ps_accounts writes a
-configuration row so: 0.38–0.45 s against 0.14 s for some checkouts during the request, the others 0.14–0.17 s).
+rows at that moment, whether the order's products are in the request or not: up to one chunk's transaction, a few
+milliseconds to some tens of them (a 300-row `safe` request on a shop of about 430 stock rows: payment validation
+0.12–0.15 s, as without a request).
 9.x updates an order's stock rows in one statement in the order of its lines; when that order runs against the
-chunk's, the two can deadlock. The server then rolls back the chunk, which has written nothing yet, and the chunk
-runs once more; the order's statement goes on (reproduced on MariaDB 10.11 and on MySQL 5.7, 8.0 and 8.4: the chunk
-was the victim every time). If a server rolled back the order's statement instead, PrestaShop would not repeat it,
-and the order's reserved and physical quantities would stay stale until the next stock update of its products.
-Measured with 1 000 rows, PrestaShop's end-of-order statement waited at most 0.06 s during `prices/bulk`; for a
-product in a `stock/bulk` request 0.45 s / 0.38 s (`safe`) and 0.05 s / 0.02 s (`fast`) on 1.7.8 / 9.1; for a
-product outside it 0.45 s / 0.05 s on 1.7.8 and 0.004 s / 0.001 s on 9.1. Rows whose locks
+chunk's, the two can deadlock. The server then rolls back the chunk, which runs once more; the order's statement goes
+on (reproduced on MariaDB 10.11 and on MySQL 5.7, 8.0 and 8.4: the chunk was the victim every time). If a server
+rolled back the order's statement instead, PrestaShop would not repeat it, and the order's reserved and physical
+quantities would stay stale until the next stock update of its products.
+Measured with 1 000 rows, PrestaShop's end-of-order statement waited at most 0.07 s during `prices/bulk`; for a
+product in a `stock/bulk` request 0.03 s / 0.01 s (`safe`) and 0.04 s / 0.02 s (`fast`) on 1.7.8 / 9.1; for a
+product outside it 0.04 s on 1.7.8 and 0.002 s on 9.1. Rows whose locks
 another session holds longer than the chunk's wait (10 s at most, never past the budget) are `skipped` with
 `code: rows_locked` and `continue: true`, nothing of them written. Under the write lock and once per
 `Idempotency-Key`, as every `POST`; what a dead write left half-written is removed first, and a product that is still
@@ -305,25 +312,35 @@ left so is `cleanup_failed`.
   `none` leaves it. The search index holds no prices.
 - **Stock** is the paired shop's (its group's when the group shares stock); `location` other than `default` is
   `location_ignored` and `capabilities.stock_locations` is false: PrestaShop has one stock per shop. A product with
-  combinations takes their quantities (its own row is their total). `mode: safe` (the default) calls
-  `StockAvailable::setQuantity()` as the back office does (`actionUpdateQuantity`, packs, the total; PrestaShop
-  records a stock movement only where its Symfony container runs, which a module's front controller does not have on
-  1.7.8–9.1, so none is recorded); `mode: fast` updates `stock_available` (quantity, and physical quantity =
-  reserved + quantity) and the total per chunk, with `actionUpdateQuantity` per row only for `fire_hooks: true`; a
-  row the shop has no stock row for goes the safe way. What `fast` skips: without `fire_hooks`, modules listening to
-  `actionUpdateQuantity` (such as ps_emailalerts' back-in-stock mails, feed and marketplace modules) miss the change,
-  and the quantities of packs holding the product are not recalculated; `actionKxBulkStockUpdated` reaches only
-  modules that know it.
-  `out_of_stock` through `StockAvailable::setProductOutOfStock()`. `shop_id` of another shop is `shop_mismatch`.
+  combinations takes their quantities (its own row is their total, summed in the chunk from the rows it holds).
+  `mode: safe` (the default) writes what `StockAvailable::setQuantity()` writes: the `quantity` of the row and of
+  the product's total row, nothing else (`physical_quantity`, `reserved_quantity`, `product.quantity` stay as they
+  are; the rows match those of a `setQuantity()` of the same change, column for column, on 1.7.8 and 9.1). After the
+  commit it runs what `setQuantity()` runs, for each row whose quantity changed and then for the product's total row:
+  `actionObjectUpdateBefore`/`After` and `actionObjectStockAvailableUpdateBefore`/`After` (`…Add…` for a row it
+  created) with the StockAvailable as committed, then `actionUpdateQuantity` with the parameters of the shop's
+  version (8.1+ adds `delta_quantity` and `id_shop`). The `Before` hooks run after the commit too: they cannot stop
+  the write. No stock movement is recorded (PrestaShop records one only where its Symfony container runs, which a
+  module's front controller does not have on 1.7.8–9.1), and packs holding the product are not recalculated
+  (`setQuantity()` does not either). Before 9.0, a product whose combination reached or left 0 has its color list
+  cache dropped, as `setQuantity()` does when unavailable combinations are hidden. `mode: fast` also sets
+  `physical_quantity = reserved_quantity + quantity` and runs `actionUpdateQuantity` per changed row (not the total)
+  after the commit only for `fire_hooks: true`; without it, modules listening to `actionUpdateQuantity` (such as
+  ps_emailalerts' back-in-stock mails, feed and marketplace modules) miss the change, and `actionKxBulkStockUpdated`
+  reaches only modules that know it. A row the shop has no stock row for is created by its unique key (product,
+  combination, shop or shared group), with the product's out-of-stock policy unless one is sent.
+  `out_of_stock` is set as `StockAvailable::setProductOutOfStock()` sets it, by an `UPDATE` by primary key with the
+  same effect: for variant `"0"` on every stock row of the product, for a combination on its row; no hook runs, as
+  with PrestaShop's. `shop_id` of another shop is `shop_mismatch`.
   `available_now`/`available_later` are texts of the product: `available_texts_ignored` (send them with
   `POST products`, `content`). `visibility_policy: restore_if_hidden` shows a product hidden from everywhere
   (`visibility: none`) once its total is above 0 (`visibility_restored`); `hide_when_zero` hides a product the
   platform has linked (a `kx_id`) when its total is 0 (`visibility_hidden`; an unlinked one is
   `not_hidden_unlinked`) and shows again only those it hid (`kx_entity_map.flags` bit 1), with the visibility they
   had (`both`, `catalog` or `search`, bits 2–3). A visibility change marks the product for search indexing. The
-  totals of `fast` and the visibility run after the chunk's commit; when that step fails, the rows of its products
-  carry the warning `totals_not_updated` and sending them again sets both. `actionKxBulkStockUpdated` runs once with
-  the changed product ids.
+  visibility runs after the chunk's commit, in a transaction of its own; when that fails, the rows of its products
+  carry the warning `totals_not_updated` and sending them again sets it. `actionKxBulkStockUpdated` runs once with the
+  changed product ids.
 - **`POST maintenance/reindex`** (`search_reindex`): PrestaShop's `Search::indexation()` per product, by id, within
   `budget_s` (at most the request's). `pending` indexes the products PrestaShop marked (`indexed = 0`), `products`
   marks and indexes the listed ones (up to 1 000), `full` marks every product of the paired shop first. While
