@@ -36,6 +36,7 @@ use Kronixon\Connect\Protocol;
 use Kronixon\Connect\Redirect\Front;
 use Kronixon\Connect\Services;
 use Kronixon\Connect\Support\Runtime;
+use Kronixon\Connect\Support\SettingsForm;
 use Kronixon\Connect\Update\UpdateError;
 use Kronixon\Connect\Write\PendingWrites;
 use Kronixon\Connect\Write\ShopDatabase;
@@ -289,27 +290,32 @@ class KronixonConnect extends Module
     }
 
     /**
-     * The settings page's forms (the token of the AdminModules URL guards them).
+     * The settings page's forms: only an administrator's POST to the AdminModules URL acts, never a GET
+     * (Support\SettingsForm: on 9.x the redirect to the Symfony route adds a valid token to a GET).
      *
      * @return array{0: string, 1: bool} the message and whether it is an error
      */
     private function handleForm(Pairing $pairing): array
     {
-        // The update runs only on the administrator's POST that carries the page's own token as well (Spec §10 item 2).
-        $token = $this->updateToken();
-        $posted = ($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && $token !== ''
-            && hash_equals($token, (string) Tools::getValue('kx_update_token'));
-        if ($posted && Tools::isSubmit('submitKxUpdateCheck')) {
+        $action = SettingsForm::action($_SERVER, $_POST);
+        if ($action === SettingsForm::UPDATE_CHECK || $action === SettingsForm::UPDATE) {
+            // On top of the POST, the update actions need the page's own token (Spec §10 item 2).
+            $token = $this->updateToken();
+            if ($token === '' || !hash_equals($token, SettingsForm::field($_POST, 'kx_update_token'))) {
+                return ['', false];
+            }
+        }
+        if ($action === SettingsForm::UPDATE_CHECK) {
             $check = Services::updater($this->context)->check();
 
             return isset($check['error'])
                 ? [sprintf($this->l('Kronixon PI could not be asked for updates (%s).'), (string) $check['error']), true]
                 : [$this->l('Kronixon PI was asked for updates.'), false];
         }
-        if ($posted && Tools::isSubmit('submitKxUpdate')) {
+        if ($action === SettingsForm::UPDATE) {
             Runtime::keepRunning(300);
             try {
-                Services::updater($this->context)->install((string) Tools::getValue('kx_update_version'));
+                Services::updater($this->context)->install(SettingsForm::field($_POST, 'kx_update_version'));
             } catch (UpdateError $error) {
                 // Kept in KX_UPDATE_RESULT and shown in the update panel.
                 return ['', false];
@@ -317,27 +323,27 @@ class KronixonConnect extends Module
             // The new files are in place: the next request (with their code) runs the upgrade (getContent()).
             Tools::redirectAdmin($this->context->link->getAdminLink('AdminModules', true, [], ['configure' => $this->name]));
         }
-        if (Tools::isSubmit('submitKxPlatformUrl')) {
-            return $pairing->setPlatformUrl((string) Tools::getValue('kx_platform_url'))
+        if ($action === SettingsForm::PLATFORM_URL) {
+            return $pairing->setPlatformUrl(SettingsForm::field($_POST, 'kx_platform_url'))
                 ? [$this->l('The platform URL was saved.'), false]
                 : [$this->l('The platform URL must be an https:// address.'), true];
         }
-        if (Tools::isSubmit('submitKxPair')) {
-            $outcome = $pairing->pair((string) Tools::getValue('kx_code'));
+        if ($action === SettingsForm::PAIR) {
+            $outcome = $pairing->pair(SettingsForm::field($_POST, 'kx_code'));
 
             return [($outcome['state'] ?? '') === 'paired' ? $this->l('This shop is now paired with Kronixon PI.') : '', false];
         }
-        if (Tools::isSubmit('submitKxUnpair')) {
+        if ($action === SettingsForm::UNPAIR) {
             $pairing->unpair('user');
 
             return [$this->l('This shop is no longer paired with Kronixon PI.'), false];
         }
-        if (Tools::isSubmit('submitKxRotateCron')) {
+        if ($action === SettingsForm::ROTATE_CRON) {
             Services::rotateCronToken();
 
             return [$this->l('The cron URL has a new token. Update the cron of your hosting; the old URL no longer works.'), false];
         }
-        if (Tools::isSubmit('submitKxPing')) {
+        if ($action === SettingsForm::PING) {
             $error = $pairing->ping();
 
             return $error === null ? [$this->l('Kronixon PI answered the signed test request.'), false] : [$this->errorMessage(['code' => $error]), true];
@@ -635,7 +641,9 @@ class KronixonConnect extends Module
     }
 
     /**
-     * Runs on every back-office request, as on the storefront.
+     * Runs on every back-office request, as on the storefront. Under PHP-FPM a back-office page that
+     * Symfony sends (every one on 9.x) never flushes: Symfony has already finished the answer
+     * (Services::flushOnVisit()).
      *
      * @param  array<string, mixed>  $params
      */

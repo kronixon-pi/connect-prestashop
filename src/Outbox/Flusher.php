@@ -91,6 +91,9 @@ final class Flusher
     /** @var Log|null */
     private $log;
 
+    /** @var bool whether this run still owes the pending module.* events their batch (nextBatch()) */
+    private $moduleBatchDue = false;
+
     /**
      * @param  callable(array<string, mixed>, int): array<string, mixed>  $send  the signed POST; the verified 200 body, or PlatformError
      */
@@ -125,14 +128,13 @@ final class Flusher
 
             return $result;
         }
-        $first = true;
+        $this->moduleBatchDue = true;
         while (true) {
             if ($budget->remaining() < 1.5) {
                 $result['state'] = 'budget';
                 break;
             }
-            $rows = $this->nextBatch($first);
-            $first = false;
+            $rows = $this->nextBatch();
             if ($rows === []) {
                 break;
             }
@@ -154,11 +156,12 @@ final class Flusher
      * In this order: the rows of a batch a dead process left (sent again as they were, the attempt
      * counted, so a batch that kills the process every time fails after MAX_ATTEMPTS instead of
      * blocking the queue); then, once per run, the pending module.* events (gap, overflow, heartbeat)
-     * in a batch of their own; then pending rows of at most MAX_EVENTS entities, oldest first. Claimed.
+     * in a batch of their own, also when a left batch went first; then pending rows of at most
+     * MAX_EVENTS entities, oldest first. Claimed.
      *
      * @return list<array<string, string|null>>
      */
-    private function nextBatch(bool $first): array
+    private function nextBatch(): array
     {
         // Each pass fails or returns one left batch; the bound only guards against a store that does neither.
         for ($i = 0; $i < 100 && ($left = $this->store->unfinished(1)) !== []; $i++) {
@@ -167,7 +170,8 @@ final class Flusher
                 return $rows;
             }
         }
-        if ($first) {
+        if ($this->moduleBatchDue) {
+            $this->moduleBatchDue = false;
             $ids = array_map('intval', array_column($this->store->pendingModule(self::MAX_EVENTS), 'id_outbox'));
             if ($ids !== []) {
                 return $this->store->claim($ids, Uuid::v4());

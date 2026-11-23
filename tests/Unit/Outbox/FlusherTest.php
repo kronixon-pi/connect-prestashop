@@ -241,6 +241,24 @@ final class FlusherTest extends TestCase
         self::assertCount(6, $this->requests);
     }
 
+    public function test_after_a_left_batch_the_gap_still_goes_before_the_changes_that_wait(): void
+    {
+        $recorder = $this->recorder();
+        $recorder->record(new Change('brand.updated', '1'));
+        // The process that claimed the rows died before the answer.
+        $this->store->claim(array_map('intval', array_column($this->store->pending(10), 'id_outbox')), '0192b2e4-9b3c-7d4e-9f50-6b7c8d9e0f1c');
+        $recorder->record(new Change('brand.updated', '12'));
+        $this->settings->set(Recorder::GAP, '1790771000');
+
+        $this->flusher()->run($this->budget());
+
+        self::assertSame('0192b2e4-9b3c-7d4e-9f50-6b7c8d9e0f1c', $this->requests[0]['batch_id'], 'the left batch first, as it was');
+        self::assertSame([['brand.updated'], ['module.outbox_overflow'], ['brand.updated']], array_map(static function (array $request): array {
+            return array_column($request['events'], 'type');
+        }, $this->requests), 'the left batch, then the gap in a batch of its own, then the change that waited');
+        self::assertSame(['pending' => 0, 'failed' => 0], $this->store->counts());
+    }
+
     public function test_a_batch_that_kills_the_process_every_time_fails_after_ten_attempts_and_the_queue_moves_on(): void
     {
         $recorder = $this->recorder();

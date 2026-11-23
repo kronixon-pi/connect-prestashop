@@ -188,6 +188,8 @@ writes "images: create, keep, replace, strategies, links; a request that dies le
 writes "store events recorded in the outbox" events-capture
 # Store events sent to the stub: cron URL, platform down and back, a killed flush, a page view (events-delivery.php).
 writes "store events delivered to the platform" events-delivery
+# The settings page as the demo employee: a GET with a submit name changes nothing, a POST acts (settings-forms.php).
+writes "settings actions only on a POST" settings-forms
 console prestashop:module uninstall kxprobe
 dc exec -T ps rm -rf /var/www/html/modules/kxprobe /tmp/kxprobe.json </dev/null
 step "writes checked in $(( $(date +%s) - w0 ))s"
@@ -276,6 +278,10 @@ console prestashop:module install kxprobe
 writes "bulk writes while another session writes the rows" bulk-race
 console prestashop:module uninstall kxprobe
 dc exec -T ps rm -rf /var/www/html/modules/kxprobe /tmp/kxprobe.json /tmp/kxprobe-stock </dev/null
+# The web server's log holds no PHP warning or notice of the module, or of Db.php, whose connections the
+# module also opens itself (the outbox flush of the cron calls and page views above).
+expect_eq "no PHP warning or notice of the module in the server log" "0" \
+    "$(dc logs ps 2>&1 | grep -cE '(Warning|Notice|Deprecated|Fatal error|Parse error): .*(modules/kronixonconnect/|classes/db/Db\.php)' || true)"
 total_s=$(elapsed)
 summary="SMOKE ps=$ps image=$(dc config --images 2>/dev/null | grep prestashop | head -n 1) prestashop=$version php=$php_version install_s=$install_s module_install_s=$module_s total_s=$total_s failures=$failures"
 echo "$summary"
