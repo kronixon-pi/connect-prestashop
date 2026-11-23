@@ -18,6 +18,7 @@ if (! defined('_PS_VERSION_')) {
     exit;
 }
 
+use Kronixon\Connect\Outbox\Origin;
 use Kronixon\Connect\Protocol;
 use Kronixon\Connect\Services;
 use Kronixon\Connect\Support\Runtime;
@@ -42,6 +43,8 @@ class KronixonConnectApiModuleFrontController extends ModuleFrontController
      */
     public function init(): void
     {
+        // What this request changes is the platform's doing: no store events (README §8).
+        Origin::platformRequest();
         Runtime::prepareApiRequest(Protocol::MAX_TIME_BUDGET_S + 30);
         if (isset($this->context->cookie)) {
             $this->context->cookie->disallowWriting();

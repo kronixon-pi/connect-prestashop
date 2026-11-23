@@ -7,7 +7,7 @@
 --   kx_redirect                       → M3 (seo/redirects)
 --   kx_image_map                      → M4 (POST/DELETE images)
 --   kx_bulk_chunk                     → M4 (prices/bulk, stock/bulk: a chunk's marker, never committed)
---   kx_outbox                         → M5 (webhooks outbox, heartbeat)
+--   kx_outbox                         → M5 (store events, heartbeat; reshaped in 0.6.0)
 
 CREATE TABLE IF NOT EXISTS `PREFIX_kx_nonce` (
   `nonce` CHAR(36) NOT NULL,
@@ -95,23 +95,25 @@ CREATE TABLE IF NOT EXISTS `PREFIX_kx_bulk_chunk` (
   PRIMARY KEY (`id_kx_bulk_chunk`)
 ) ENGINE=ENGINE_TYPE DEFAULT CHARSET=utf8mb4;
 
+-- One row per change a hook saw (Outbox\Recorder). Rows are only ever inserted by a hook, so a checkout
+-- never waits for a lock on another row. Rows with the same entity_key are sent as one event. A batch
+-- claims its rows by primary key (batch_id), and a batch that was cut short is sent again unchanged.
+-- occurred_at is UTC with milliseconds.
 CREATE TABLE IF NOT EXISTS `PREFIX_kx_outbox` (
   `id_outbox` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `event_id` CHAR(36) NOT NULL,
   `type` VARCHAR(48) NOT NULL,
   `external_id` VARCHAR(64) NULL,
-  `dedupe_key` VARCHAR(191) NOT NULL,
-  `origin` ENUM('shop', 'kronixon') NOT NULL DEFAULT 'shop',
-  `payload` MEDIUMTEXT NULL,
-  `occurred_at` DATETIME NOT NULL,
+  `entity_key` VARCHAR(191) NOT NULL,
+  `payload` TEXT NULL,
+  `occurred_at` DATETIME(3) NOT NULL,
   `status` ENUM('pending', 'sending', 'sent', 'failed') NOT NULL DEFAULT 'pending',
+  `batch_id` CHAR(36) NULL,
   `attempts` TINYINT UNSIGNED NOT NULL DEFAULT 0,
-  `next_attempt_at` DATETIME NULL,
   `last_error` VARCHAR(255) NULL,
-  `created_at` DATETIME NOT NULL,
   `sent_at` DATETIME NULL,
   PRIMARY KEY (`id_outbox`),
-  UNIQUE KEY `uq_dedupe` (`dedupe_key`),
-  KEY `ix_status_next` (`status`, `next_attempt_at`),
-  KEY `ix_created` (`created_at`)
+  UNIQUE KEY `uq_event` (`event_id`),
+  KEY `ix_status` (`status`, `id_outbox`),
+  KEY `ix_batch` (`batch_id`)
 ) ENGINE=ENGINE_TYPE DEFAULT CHARSET=utf8mb4;

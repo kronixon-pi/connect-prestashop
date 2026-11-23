@@ -28,6 +28,7 @@ use Kronixon\Connect\Install\Hooks;
 use Kronixon\Connect\Install\Installer;
 use Kronixon\Connect\Install\ServiceAccount;
 use Kronixon\Connect\Install\TabRoles;
+use Kronixon\Connect\Outbox\ShopChanges;
 use Kronixon\Connect\Platform\Pairing;
 use Kronixon\Connect\Protocol;
 use Kronixon\Connect\Redirect\Front;
@@ -265,8 +266,9 @@ class KronixonConnect extends Module
     }
 
     /*
-     * Hook handlers: registered now so that an upgrade does not have to re-register them; they record
-     * nothing until the outbox lands (M5). Each receives PrestaShop's hook parameters.
+     * Hook handlers. The change hooks of Spec §7.2 record store events in the outbox (Outbox\Recorder:
+     * one INSERT, no network, nothing during the platform's own requests); they never throw. Each
+     * receives PrestaShop's hook parameters.
      */
 
     /**
@@ -283,46 +285,93 @@ class KronixonConnect extends Module
     /** @param array<string, mixed> $params */
     public function hookActionProductAdd(array $params): void
     {
+        $this->recordChanges(static function (ShopChanges $changes) use ($params): array {
+            return $changes->product($params, true);
+        });
     }
 
     /** @param array<string, mixed> $params */
     public function hookActionProductUpdate(array $params): void
     {
+        $this->recordChanges(static function (ShopChanges $changes) use ($params): array {
+            return $changes->product(['id_product' => $params['id_product'] ?? null, 'product' => $params['product'] ?? null], false);
+        });
     }
 
     /** @param array<string, mixed> $params */
     public function hookActionProductDelete(array $params): void
     {
+        $this->recordChanges(static function (ShopChanges $changes) use ($params): array {
+            return $changes->productDeleted($params);
+        });
+    }
+
+    /** @param array<string, mixed> $params */
+    public function hookActionObjectProductUpdateBefore(array $params): void
+    {
+        $this->recordChanges(static function (ShopChanges $changes) use ($params): array {
+            $changes->beforeUpdate($params, 'product');
+
+            return [];
+        });
     }
 
     /** @param array<string, mixed> $params */
     public function hookActionObjectProductUpdateAfter(array $params): void
     {
+        $this->recordChanges(static function (ShopChanges $changes) use ($params): array {
+            return $changes->product($params, false);
+        });
     }
 
     /** @param array<string, mixed> $params */
     public function hookActionUpdateQuantity(array $params): void
     {
+        $this->recordChanges(static function (ShopChanges $changes) use ($params): array {
+            return $changes->quantity($params);
+        });
     }
 
     /** @param array<string, mixed> $params */
     public function hookActionObjectCombinationAddAfter(array $params): void
     {
+        $this->recordChanges(static function (ShopChanges $changes) use ($params): array {
+            return $changes->combination($params, 'created');
+        });
+    }
+
+    /** @param array<string, mixed> $params */
+    public function hookActionObjectCombinationUpdateBefore(array $params): void
+    {
+        $this->recordChanges(static function (ShopChanges $changes) use ($params): array {
+            $changes->beforeUpdate($params, 'product_attribute');
+
+            return [];
+        });
     }
 
     /** @param array<string, mixed> $params */
     public function hookActionObjectCombinationUpdateAfter(array $params): void
     {
+        $this->recordChanges(static function (ShopChanges $changes) use ($params): array {
+            return $changes->combination($params, 'updated');
+        });
     }
 
     /** @param array<string, mixed> $params */
     public function hookActionObjectCombinationDeleteAfter(array $params): void
     {
+        $this->recordChanges(static function (ShopChanges $changes) use ($params): array {
+            return $changes->combination($params, 'deleted');
+        });
     }
 
     /** @param array<string, mixed> $params */
     public function hookActionObjectCategoryAddAfter(array $params): void
     {
+        $this->recordChanges(static function (ShopChanges $changes) use ($params): array {
+            return $changes->category($params, 'created');
+        });
     }
 
     /**
@@ -332,6 +381,9 @@ class KronixonConnect extends Module
      */
     public function hookActionObjectCategoryUpdateAfter(array $params): void
     {
+        $this->recordChanges(static function (ShopChanges $changes) use ($params): array {
+            return $changes->category($params, 'updated');
+        });
         try {
             $category = $params['object'] ?? null;
             if ($category instanceof Category && (bool) $category->active && Services::redirects($this->context)->any()) {
@@ -345,26 +397,41 @@ class KronixonConnect extends Module
     /** @param array<string, mixed> $params */
     public function hookActionObjectCategoryDeleteAfter(array $params): void
     {
+        $this->recordChanges(static function (ShopChanges $changes) use ($params): array {
+            return $changes->category($params, 'deleted');
+        });
     }
 
     /** @param array<string, mixed> $params */
     public function hookActionObjectImageAddAfter(array $params): void
     {
+        $this->recordChanges(static function (ShopChanges $changes) use ($params): array {
+            return $changes->image($params, 'created');
+        });
     }
 
     /** @param array<string, mixed> $params */
     public function hookActionObjectImageDeleteAfter(array $params): void
     {
+        $this->recordChanges(static function (ShopChanges $changes) use ($params): array {
+            return $changes->image($params, 'deleted');
+        });
     }
 
     /** @param array<string, mixed> $params */
     public function hookActionObjectManufacturerUpdateAfter(array $params): void
     {
+        $this->recordChanges(static function (ShopChanges $changes) use ($params): array {
+            return $changes->brand($params);
+        });
     }
 
     /** @param array<string, mixed> $params */
     public function hookActionObjectFeatureValueAddAfter(array $params): void
     {
+        $this->recordChanges(static function (ShopChanges $changes) use ($params): array {
+            return $changes->attributeValue($params, 'feature');
+        });
     }
 
     /**
@@ -374,6 +441,9 @@ class KronixonConnect extends Module
      */
     public function hookActionObjectAttributeAddAfter(array $params): void
     {
+        $this->recordChanges(static function (ShopChanges $changes) use ($params): array {
+            return $changes->attributeValue($params, 'attribute_group');
+        });
     }
 
     /**
@@ -383,6 +453,27 @@ class KronixonConnect extends Module
      */
     public function hookActionObjectProductAttributeAddAfter(array $params): void
     {
+        $this->recordChanges(static function (ShopChanges $changes) use ($params): array {
+            return $changes->attributeValue($params, 'attribute_group');
+        });
+    }
+
+    /**
+     * @param  callable(ShopChanges): list<Kronixon\Connect\Outbox\Change>  $find
+     */
+    private function recordChanges(callable $find): void
+    {
+        try {
+            $outbox = Services::outbox();
+            if ($outbox !== null) {
+                [$recorder, $changes] = $outbox;
+                $recorder->capture(static function () use ($find, $changes): array {
+                    return $find($changes);
+                });
+            }
+        } catch (Throwable $e) {
+            // a change of the shop never fails because of its event
+        }
     }
 
     /**

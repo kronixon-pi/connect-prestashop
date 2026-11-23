@@ -128,6 +128,7 @@ class Kxprobe extends Module
     public function hookActionObjectProductUpdateAfter($params)
     {
         $this->seen('actionObjectProductUpdateAfter', $params['object']);
+        $this->fail('updated', $params['object']);
     }
 
     public function hookActionObjectCategoryUpdateAfter($params)
