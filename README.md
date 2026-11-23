@@ -291,9 +291,10 @@ left so is `cleanup_failed`.
   records a stock movement only where its Symfony container runs, which a module's front controller does not have on
   1.7.8–9.1, so none is recorded); `mode: fast` updates `stock_available` (quantity, and physical quantity =
   reserved + quantity) and the total per chunk, with `actionUpdateQuantity` per row only for `fire_hooks: true`; a
-  row the shop has no stock row for goes the safe way. What `fast` skips: without `fire_hooks`, modules listening to `actionUpdateQuantity` (such as
-  ps_emailalerts' back-in-stock mails, feed and marketplace modules) miss the change, and the quantities of packs
-  holding the product are not recalculated; `actionKxBulkStockUpdated` reaches only modules that know it.
+  row the shop has no stock row for goes the safe way. What `fast` skips: without `fire_hooks`, modules listening to
+  `actionUpdateQuantity` (such as ps_emailalerts' back-in-stock mails, feed and marketplace modules) miss the change,
+  and the quantities of packs holding the product are not recalculated; `actionKxBulkStockUpdated` reaches only
+  modules that know it.
   `out_of_stock` through `StockAvailable::setProductOutOfStock()`. `shop_id` of another shop is `shop_mismatch`.
   `available_now`/`available_later` are texts of the product: `available_texts_ignored` (send them with
   `POST products`, `content`). `visibility_policy: restore_if_hidden` shows a product hidden from everywhere
