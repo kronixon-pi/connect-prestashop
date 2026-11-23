@@ -262,10 +262,10 @@ refused). They write as the protocol defines it, without `Product::save()`: rows
 compared with, and one that comes later waits for the chunk's commit (measured with 1 000 rows: a checkout waited at
 most 0.08 s for prices, 0.2 s / 0.35 s for `safe` stock on 1.7.8 / 9.1 and 0.03 s for `fast`). PrestaShop writes an
 order's stock one statement at a time, without a transaction, so the two never wait for each other. Rows whose locks
-another session holds longer than the chunk's wait (10 s at most, never past the budget) are `skipped` with `code:
-rows_locked` and `continue: true`, nothing of them written. Under the write lock and once per `Idempotency-Key`, as every
-`POST`; what a dead write left half-written is removed first, and a product that is still left so is
-`cleanup_failed`.
+another session holds longer than the chunk's wait (10 s at most, never past the budget) are `skipped` with
+`code: rows_locked` and `continue: true`, nothing of them written. Under the write lock and once per
+`Idempotency-Key`, as every `POST`; what a dead write left half-written is removed first, and a product that is still
+left so is `cleanup_failed`.
 
 - **`expected_price` / `expected_quantity`** is the value the platform believes the shop holds. When the shop holds
   another one (changed in the back office), the row is `status: conflict` with `code` `price_changed` /
@@ -289,11 +289,14 @@ rows_locked` and `continue: true`, nothing of them written. Under the write lock
   combinations takes their quantities (its own row is their total). `mode: safe` (the default) calls
   `StockAvailable::setQuantity()` as the back office does (`actionUpdateQuantity`, packs, the total; PrestaShop
   records a stock movement only where its Symfony container runs, which a module's front controller does not have on
-  1.7.8–9.1, so none is recorded); `mode: fast` updates `stock_available` (quantity, and physical quantity = reserved + quantity) and the
-  total per chunk, with `actionUpdateQuantity` per row only for `fire_hooks: true`; a row the shop has no stock row
-  for goes the safe way. `out_of_stock` through `StockAvailable::setProductOutOfStock()`. `shop_id` of another shop is
-  `shop_mismatch`. `available_now`/`available_later` are texts of the product: `available_texts_ignored` (send them
-  with `POST products`, `content`). `visibility_policy: restore_if_hidden` shows a product hidden from everywhere
+  1.7.8–9.1, so none is recorded); `mode: fast` updates `stock_available` (quantity, and physical quantity =
+  reserved + quantity) and the total per chunk, with `actionUpdateQuantity` per row only for `fire_hooks: true`; a
+  row the shop has no stock row for goes the safe way. What `fast` skips: without `fire_hooks`, modules listening to `actionUpdateQuantity` (such as
+  ps_emailalerts' back-in-stock mails, feed and marketplace modules) miss the change, and the quantities of packs
+  holding the product are not recalculated; `actionKxBulkStockUpdated` reaches only modules that know it.
+  `out_of_stock` through `StockAvailable::setProductOutOfStock()`. `shop_id` of another shop is `shop_mismatch`.
+  `available_now`/`available_later` are texts of the product: `available_texts_ignored` (send them with
+  `POST products`, `content`). `visibility_policy: restore_if_hidden` shows a product hidden from everywhere
   (`visibility: none`) once its total is above 0 (`visibility_restored`); `hide_when_zero` hides a product the
   platform has linked (a `kx_id`) when its total is 0 (`visibility_hidden`; an unlinked one is
   `not_hidden_unlinked`) and shows again only those it hid (`kx_entity_map.flags` bit 1), with the visibility they
