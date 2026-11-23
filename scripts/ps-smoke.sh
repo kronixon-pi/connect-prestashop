@@ -2,7 +2,10 @@
 # Smoke test of the module on one PrestaShop version in Docker (used by `make smoke`, `make matrix`,
 # module-ci and matrix workflows).
 #
-#   scripts/ps-smoke.sh <178|81|82|90|91|92> [--keep]
+#   scripts/ps-smoke.sh <178|81|82|90|91|91fpm|92> [--keep]
+#
+# 91fpm is PrestaShop under PHP-FPM behind nginx (every other version runs Apache mod_php); the
+# integration scripts get KX_FPM=1 there.
 #
 # Starts docker/compose.<ps>.yml through scripts/compose.sh (images pinned by digest in
 # docker/images.lock; PS_TAG / PS_PORT override the image tag and port), waits for the
@@ -11,7 +14,9 @@
 # Prints one timing line per step and a SMOKE summary line; --keep leaves the shop running.
 set -euo pipefail
 
-ps="${1:?usage: scripts/ps-smoke.sh <178|81|82|90|91|92> [--keep]}"
+ps="${1:?usage: scripts/ps-smoke.sh <178|81|82|90|91|91fpm|92> [--keep]}"
+fpm=0
+if [[ "$ps" == *fpm ]]; then fpm=1; fi
 keep="${2:-}"
 root="$(cd "$(dirname "$0")/.." && pwd)"
 file="$root/docker/compose.$ps.yml"
@@ -142,7 +147,7 @@ check "missing path" 400 bad_request "${h[@]}" "$base/module/kronixonconnect/api
 # routes, run by the shop's own PHP on 127.0.0.1:8099 inside the container), then the platform's side
 # played by tests/Integration/platform-driver.php: reverse check, refusals, rotation, unpair.
 stub=http://127.0.0.1:8099
-psphp() { dc exec -T -u www-data -e PS_DOMAIN="localhost:$port" ps php "$@" </dev/null; }
+psphp() { dc exec -T -u www-data -e PS_DOMAIN="localhost:$port" -e KX_FPM="$fpm" ps php "$@" </dev/null; }
 dc exec -d -u www-data ps php -S 127.0.0.1:8099 modules/kronixonconnect/tests/Integration/platform-stub.php
 for _ in $(seq 1 20); do
     if psphp -r 'exit(strpos((string) @file_get_contents("http://127.0.0.1:8099/v1/status", false, stream_context_create(["http" => ["header" => "X-KX-Protocol: v1"]])), "\"v1\"") === false ? 1 : 0);'; then break; fi
@@ -181,6 +186,10 @@ writes "failed writes leave nothing half-written" failed-writes
 writes "images: create, keep, replace, strategies, links; a request that dies leaves no half image" image-writes
 # Store events: back office, orders, a module that throws after ours, GET events (tests/Integration/events-capture.php).
 writes "store events recorded in the outbox" events-capture
+# Store events sent to the stub: cron URL, platform down and back, a killed flush, a page view (events-delivery.php).
+writes "store events delivered to the platform" events-delivery
+# The settings page as the demo employee: a GET with a submit name changes nothing, a POST acts (settings-forms.php).
+writes "settings actions only on a POST" settings-forms
 console prestashop:module uninstall kxprobe
 dc exec -T ps rm -rf /var/www/html/modules/kxprobe /tmp/kxprobe.json </dev/null
 step "writes checked in $(( $(date +%s) - w0 ))s"
@@ -269,6 +278,10 @@ console prestashop:module install kxprobe
 writes "bulk writes while another session writes the rows" bulk-race
 console prestashop:module uninstall kxprobe
 dc exec -T ps rm -rf /var/www/html/modules/kxprobe /tmp/kxprobe.json /tmp/kxprobe-stock </dev/null
+# The web server's log holds no PHP warning or notice of the module, or of Db.php, whose connections the
+# module also opens itself (the outbox flush of the cron calls and page views above).
+expect_eq "no PHP warning or notice of the module in the server log" "0" \
+    "$(dc logs ps 2>&1 | grep -cE '(Warning|Notice|Deprecated|Fatal error|Parse error): .*(modules/kronixonconnect/|classes/db/Db\.php)' || true)"
 total_s=$(elapsed)
 summary="SMOKE ps=$ps image=$(dc config --images 2>/dev/null | grep prestashop | head -n 1) prestashop=$version php=$php_version install_s=$install_s module_install_s=$module_s total_s=$total_s failures=$failures"
 echo "$summary"

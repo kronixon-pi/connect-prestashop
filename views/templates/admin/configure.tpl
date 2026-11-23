@@ -61,6 +61,28 @@
   {/if}
 </div>
 
+{if $kx_paired}
+<div class="panel" id="kronixonconnect-events">
+  <h3>{l s='Store events' mod='kronixonconnect'}</h3>
+  {if $kx_delivery == 'pull_only'}<div class="alert alert-warning" id="kx-delivery-warning">{l s='Set up the cron URL below. No cron calls it, and this server cannot send changes after a page view, so store events reach Kronixon PI only when it pulls them.' mod='kronixonconnect'}</div>{/if}
+  <table class="table">
+    <tbody>
+      <tr><th>{l s='Waiting to be sent' mod='kronixonconnect'}</th><td id="kx-outbox-pending">{$kx_outbox_pending|intval}</td></tr>
+      <tr><th>{l s='Failed' mod='kronixonconnect'}</th><td id="kx-outbox-failed">{$kx_outbox_failed|intval}</td></tr>
+      <tr><th>{l s='Last delivery' mod='kronixonconnect'}</th><td>{if $kx_outbox_last_sent}{$kx_outbox_last_sent|escape:'htmlall':'UTF-8'}{else}{l s='none yet' mod='kronixonconnect'}{/if}</td></tr>
+      {if $kx_outbox_error}<tr><th>{l s='Last error' mod='kronixonconnect'}</th><td><code>{$kx_outbox_error|escape:'htmlall':'UTF-8'}</code></td></tr>{/if}
+      {if $kx_outbox_retry}<tr><th>{l s='Next attempt' mod='kronixonconnect'}</th><td>{$kx_outbox_retry|escape:'htmlall':'UTF-8'}</td></tr>{/if}
+      <tr><th>{l s='Cron URL' mod='kronixonconnect'}</th><td><code>{$kx_cron_url|escape:'htmlall':'UTF-8'}</code></td></tr>
+    </tbody>
+  </table>
+  <p class="help-block">{l s='Call this URL every minute from the cron of your hosting. Without a cron, changes are sent after page views only under PHP-FPM or LiteSpeed; otherwise only when Kronixon PI pulls them.' mod='kronixonconnect'}</p>
+  <p class="help-block">{l s='The token is part of the URL, so it is written to the access log of your web server. If it leaked, make a new one.' mod='kronixonconnect'}</p>
+  <form method="post" action="{$kx_action|escape:'htmlall':'UTF-8'}" class="form-inline">
+    <button type="submit" name="submitKxRotateCron" class="btn btn-default" onclick="return confirm('{l s='Make a new cron token? The old cron URL stops working.' mod='kronixonconnect' js=1}');">{l s='New cron token' mod='kronixonconnect'}</button>
+  </form>
+</div>
+{/if}
+
 <div class="panel" id="kronixonconnect-about">
   <h3>{l s='About this module' mod='kronixonconnect'}</h3>
   <table class="table">

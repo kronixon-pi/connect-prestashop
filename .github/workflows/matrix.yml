@@ -35,6 +35,8 @@ jobs:
           - { ps: "82", tag: "8.2.8-8.1-apache", experimental: false }
           - { ps: "90", tag: "9.0.3-8.4", experimental: false }
           - { ps: "91", tag: "9.1.5-8.4", experimental: false }
+          # The only PHP-FPM leg (nginx in front): a page view's flush after the answer runs here.
+          - { ps: "91fpm", tag: "9.1.5-5.0-classic-8.4-fpm", experimental: false }
           - { ps: "92", tag: "9.2.0-6.0-classic-8.2-apache", experimental: true }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -52,6 +54,6 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     steps:
-      - name: the five required versions passed (9.2.0 is continue-on-error)
+      - name: the required legs passed (five versions under Apache, 9.1.5 under PHP-FPM; 9.2.0 is continue-on-error)
         env: { RESULT: "${{ needs.install.result }}" }
         run: test "$RESULT" = "success"

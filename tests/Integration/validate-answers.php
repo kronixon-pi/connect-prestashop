@@ -8,7 +8,9 @@ declare(strict_types=1);
  *
  * Validates answers a real shop gave (written by catalog-walk.php and platform-driver.php as
  * `<schema file>--<name>.json`, e.g. `catalog-products.json--walk.json`) against `$defs.response` of
- * protocol/v1/schemas/module/<schema file>. Needs the development tools (tools/vendor) and runs without
+ * protocol/v1/schemas/module/<schema file>; a file named `platform-<schema file>--<name>.json` is a request
+ * the module sent (platform-stub.php keeps the event batches), checked against `$defs.request` of
+ * protocol/v1/schemas/platform/<schema file>. Needs the development tools (tools/vendor) and runs without
  * PrestaShop. Prints one line per file and a count per schema; exit 1 on any invalid answer or none.
  *
  *   php validate-answers.php <dir>
@@ -26,7 +28,8 @@ $failures = 0;
 $counts = [];
 foreach ($files as $file) {
     $schema = explode('--', basename($file), 2)[0];
-    $result = $validator->validate(json_decode((string) file_get_contents($file), false), 'https://connect.kronixon.com/protocol/v1/schemas/module/'.$schema.'#/$defs/response');
+    $target = strpos($schema, 'platform-') === 0 ? 'platform/'.substr($schema, 9).'#/$defs/request' : 'module/'.$schema.'#/$defs/response';
+    $result = $validator->validate(json_decode((string) file_get_contents($file), false), 'https://connect.kronixon.com/protocol/v1/schemas/'.$target);
     $counts[$schema] = ($counts[$schema] ?? 0) + 1;
     if ($result->isValid()) {
         echo '  ok   ', basename($file), "\n";

@@ -89,6 +89,32 @@ final class OutboxStore
     }
 
     /**
+     * Pending module.* rows (gap, overflow, heartbeat), oldest first: they go before the changes.
+     *
+     * @return list<array<string, string|null>>
+     */
+    public function pendingModule(int $limit): array
+    {
+        return $this->select("status = 'pending' AND type LIKE 'module.%'", $limit);
+    }
+
+    /**
+     * A batch a dead process left, to be sent again as it was: rows that already had MAX_ATTEMPTS fail
+     * (`process_died`), the others count one more attempt. The rows to send, or [] when all failed.
+     *
+     * @return list<array<string, string|null>>
+     */
+    public function resume(string $batchId): array
+    {
+        $batch = 'batch_id = '.$this->db->quote($batchId)." AND status = 'sending'";
+        $this->db->execute('UPDATE '.$this->table()." SET status = 'failed', batch_id = NULL, last_error = 'process_died' WHERE ".$batch.' AND attempts >= '.self::MAX_ATTEMPTS);
+        $this->db->execute('UPDATE '.$this->table().' SET attempts = attempts + 1 WHERE '.$batch);
+
+        // A batch claims at most 5 × Flusher::MAX_EVENTS rows.
+        return $this->select($batch, 1000);
+    }
+
+    /**
      * Claims pending rows for a batch; the rows it did get (another process may have taken or
      * acknowledged some meanwhile).
      *
@@ -130,6 +156,16 @@ final class OutboxStore
     {
         $this->update($ids, "status = 'failed', batch_id = NULL, last_error = ".$this->db->quote(substr($code, 0, 255)), "status = 'sending' AND attempts >= ".self::MAX_ATTEMPTS);
         $this->update($ids, "status = 'pending', batch_id = NULL, last_error = ".$this->db->quote(substr($code, 0, 255)), "status = 'sending'");
+    }
+
+    /**
+     * Claimed rows that did not fit the batch: pending again, the attempt not counted.
+     *
+     * @param  list<int>  $ids
+     */
+    public function unclaim(array $ids): void
+    {
+        $this->update($ids, "status = 'pending', batch_id = NULL, attempts = attempts - 1", "status = 'sending'");
     }
 
     /**
@@ -176,24 +212,31 @@ final class OutboxStore
     /**
      * Above CAP pending rows: older rows of an entity that has a newer one go (they are one event
      * anyway). When the entities alone are more than CAP, every pending row goes and the caller sends
-     * `module.outbox_overflow`.
+     * `module.outbox_overflow`: $record gets what will go (rows, oldest occurred_at) and inserts it before
+     * the first row is deleted, so a process that dies in between loses nothing; only rows older than
+     * its row go.
      *
+     * @param  (callable(int, string): void)|null  $record
      * @return array{merged: int, since: string}|null what was dropped when everything went
      */
-    public function bound(int $cap = self::CAP): ?array
+    public function bound(int $cap = self::CAP, ?callable $record = null): ?array
     {
         if ($this->pendingCount() <= $cap) {
             return null;
         }
+        // module.* rows stay: an earlier overflow keeps its own `since` (Events merges them).
+        $changes = "status = 'pending' AND type NOT LIKE 'module.%'";
         $seen = [];
         $older = [];
         $since = null;
+        $top = 0;
         $before = PHP_INT_MAX;
         do {
             $rows = $this->db->rows('SELECT id_outbox, entity_key, occurred_at FROM '.$this->table()
-                ." WHERE status = 'pending' AND id_outbox < ".$before.' ORDER BY id_outbox DESC LIMIT 5000');
+                .' WHERE '.$changes.' AND id_outbox < '.$before.' ORDER BY id_outbox DESC LIMIT 5000');
             foreach ($rows as $row) {
                 $id = (int) $row['id_outbox'];
+                $top = max($top, $id);
                 $before = $id;
                 $since = (string) $row['occurred_at'];
                 if (isset($seen[(string) $row['entity_key']])) {
@@ -211,13 +254,16 @@ final class OutboxStore
         if (count($seen) <= $cap) {
             return null;
         }
-        $merged = 0;
+        $changes .= ' AND id_outbox <= '.$top;
+        $merged = (int) ($this->db->rows('SELECT COUNT(*) AS n FROM '.$this->table().' WHERE '.$changes)[0]['n'] ?? 0);
+        if ($record !== null) {
+            $record($merged, (string) $since);
+        }
         do {
             $ids = array_map(static function (array $row): int {
                 return (int) $row['id_outbox'];
-            }, $this->db->rows('SELECT id_outbox FROM '.$this->table()." WHERE status = 'pending' ORDER BY id_outbox LIMIT ".self::CHUNK));
+            }, $this->db->rows('SELECT id_outbox FROM '.$this->table().' WHERE '.$changes.' ORDER BY id_outbox LIMIT '.self::CHUNK));
             $this->delete($ids);
-            $merged += count($ids);
         } while ($ids !== []);
 
         return ['merged' => $merged, 'since' => (string) $since];

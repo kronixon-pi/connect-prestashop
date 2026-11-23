@@ -40,7 +40,7 @@ final class Endpoints
      * Capabilities whose operations arrive with later module versions, or that PrestaShop does not have
      * (`stock_locations`: one stock per shop): false (README §10).
      */
-    private const NOT_YET = ['stock_locations', 'specific_prices', 'webhooks', 'orders.read'];
+    private const NOT_YET = ['stock_locations', 'specific_prices', 'orders.read'];
 
     /** Capabilities of the write endpoints this build has (WriteEndpoints, BulkEndpoints). */
     private const WRITES = ['products.write', 'variants', 'categories', 'attributes', 'attribute_values_custom', 'tags', 'seo', 'redirects',
@@ -110,8 +110,9 @@ final class Endpoints
         $flags['facets'] = $this->shop->facetedSearch();
         // GET catalog/suppliers (module/catalog-suppliers.json: "with the suppliers capability").
         $flags['suppliers'] = true;
-        // GET events and POST events/ack over the outbox (module 0.6.0).
+        // GET events and POST events/ack over the outbox, and its pushes to the platform (module 0.6.0).
         $flags['events.pull'] = true;
+        $flags['webhooks'] = true;
         // GET catalog/variants?product_id_in= (module 0.3.2).
         $flags['catalog'] = ['variants_product_id_in' => true];
         ksort($flags);

@@ -427,11 +427,62 @@ left so is `cleanup_failed`.
 - A Back Office menu entry *Advanced Parameters → Kronixon Connect* (the settings page).
 - A Profile "Kronixon Connect" without any access right and an inactive Employee in it; uninstalling removes
   both.
-- Hooks on product, stock, category, image, brand, feature and combination changes. They record nothing yet;
-  later they only queue an event in `kx_outbox` (no HTTP call inside a hook). `actionObjectAddAfter` marks what the
-  module's own writes create and does nothing for any other object. The hook that builds the routes serves the
-  redirects of `kx_redirect`.
+- Hooks on product, stock, category, image, brand, feature and combination changes. Each one inserts a row into
+  `kx_outbox` and does nothing else: no HTTP call and no read or update of another row (see *Store events*).
+  `actionObjectAddAfter` marks what the module's own writes create and does nothing for any other object. The hook
+  that builds the routes serves the redirects of `kx_redirect`. The page-view hooks
+  (`actionFrontControllerSetMedia`, `actionAdminControllerSetMedia`) read cached settings only.
+- A cron URL, `/module/kronixonconnect/cron?token=…`; the settings page shows it.
 - No core files are changed, no overrides are installed. Translations: English, Bulgarian, German.
+
+## Store events
+
+The module tells the platform what changed in the shop outside the platform's own requests: back-office edits,
+other modules, imports, and stock changed by orders. It never tells the platform about the platform's own writes
+([protocol/v1/README.md §8](protocol/v1/README.md) lists the rules).
+
+- **Recording.** A change hook inserts one row on the request's own connection, so a change made in a transaction
+  is recorded in it. The module runs first on every change hook. If the insert fails, the shop's change is still
+  saved; the next flush tells the platform to read again everything changed since then.
+- **Sending.** The rows go to `POST /v1/stores/{id}/events`, signed, in batches of at most 200 events and 1 MB. The
+  rows of one entity become one event. A batch is sent:
+  - when the **cron URL** is called. This is recommended: call it every minute (`curl -s
+    'https://shop.example/module/kronixonconnect/cron?token=…'`). It works for up to the time budget (25 s).
+    Within 10 s of the last flush it answers `too_soon` at once and writes nothing.
+  - on **page views**, at most once a minute, when no cron has called in the last 5 minutes, and **only** when
+    PHP can send the page before the flush starts: `fastcgi_finish_request()` (PHP-FPM) or
+    `litespeed_finish_request()` (LiteSpeed). The flush then runs after the visitor has the page, with a 5 s
+    budget. Under Apache mod_php nothing is flushed on a page view: a visitor never waits for the platform.
+    Back-office pages that Symfony sends (all of them on 9.x, the migrated ones before) do not flush:
+    Symfony has already finished the answer, so the module's flush does not start there.
+  - from the platform itself, with `GET events` and `POST events/ack`, when its webhooks have stopped, or when
+    nothing else sends (mod_php without a cron).
+
+  Without a cron and without a finish function the module sends nothing on its own; the settings page shows a
+  warning and the heartbeat says `delivery: pull_only`. Measured with the platform unreachable (median TTFB of
+  the storefront home, flush due / not due, 5 rounds): 9.1.5 mod_php 172 / 167 ms, 1.7.8 mod_php 79 / 71 ms,
+  9.1.5 PHP-FPM 193 / 190 ms.
+
+  A flush runs on a database connection of its own, under a server-wide `GET_LOCK`, so one flush runs at a time.
+  It claims its rows by primary key; nothing the shop's requests hold is locked while it waits.
+- **Cron token.** The token is part of the URL, so the web server writes it to its access log, as any URL. Anyone
+  with it can only trigger a flush (at most one every 10 s). If it leaked, *New cron token* on the settings page
+  replaces it; then update the hosting's cron.
+- **Failures.** A batch that does not reach the platform (network, 5xx, 429, 401, 403) waits for `Retry-After`,
+  else 60 s, doubling up to 6 h; a row fails after 10 attempts. A 400, 413 or 422, and an event the platform
+  rejects, fail at once. If the process dies while a batch is out, that batch goes again unchanged: same batch id,
+  same event ids, which the platform counts as duplicates. That counts an attempt too, so a batch that kills the
+  process every time fails after 10 and the rest goes on.
+- **Order.** A gap, an overflow and the heartbeat go first, in a batch of their own; changes follow oldest first.
+- **Bounds.** Above 50 000 pending rows, older rows of the same entity are merged; if that is not enough, one
+  `module.outbox_overflow` is recorded first and then every pending change older than it goes. Sent rows are kept
+  7 days, failed ones 30.
+- **Heartbeat.** One `module.heartbeat` a day: versions, the capabilities hash, entity counts, the outbox, the
+  cron, how events are delivered (`cron`, `page_views` or `pull_only`), and the module's warnings of the last
+  24 h. A flush records it, and so does a `GET events` pull, so a shop that never flushes still sends it.
+- The settings page shows how many events are waiting and how many failed, the last delivery and error, the next
+  attempt, the cron URL with a button for a new token, and a warning when events can reach the platform only by
+  its pull.
 
 ## Development
 

@@ -1,9 +1,9 @@
 # Local work. PHP and the shops run in Docker; nothing but docker and bash is needed on the host.
 #   make install            development tools into tools/vendor (composer in Docker)
-#   make up PS=91           a shop with the module installed (178 | 81 | 82 | 90 | 91 | 92), left running
+#   make up PS=91           a shop with the module installed (178 | 81 | 82 | 90 | 91 | 91fpm | 92), left running
 #   make test               PHPUnit on PHP 7.4 and 8.5
 #   make check              lint + test + protocol (what module-ci runs, minus the shop)
-#   make matrix             the five required PrestaShop versions, one after another
+#   make matrix             the required legs (five versions, and 9.1.5 under PHP-FPM), one after another
 PS ?= 91
 # Images are pinned by digest in docker/images.lock; scripts/compose.sh resolves them.
 COMPOSE = scripts/compose.sh $(PS)
@@ -12,7 +12,7 @@ RUN = docker run --rm -u $$(id -u):$$(id -g) -v "$$PWD:/app" -w /app
 PHP74 = $(RUN) php:7.4-cli
 PHP85 = $(RUN) php:8.5-cli
 COMPOSER = $(RUN) -e COMPOSER_HOME=/tmp/composer composer:2
-REQUIRED = 178 81 82 90 91
+REQUIRED = 178 81 82 90 91 91fpm
 
 .PHONY: help install up down logs smoke matrix fixture bake test test-74 test-85 lint cs cs-fix compat stan protocol check
 

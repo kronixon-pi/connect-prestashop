@@ -30,9 +30,30 @@ final class ProtocolSchemas
      */
     public static function errors(string $file, $data): array
     {
-        $json = is_string($data) ? $data : (string) json_encode($data, Response::JSON_FLAGS);
-        $result = self::validator()->validate(json_decode($json, false), self::PREFIX.'module/'.$file.'#/$defs/response');
         self::$validated[$file] = (self::$validated[$file] ?? 0) + 1;
+
+        return self::check('module/'.$file.'#/$defs/response', $data);
+    }
+
+    /**
+     * The errors of a request the module sends against `$defs.request` of `platform/<file>`.
+     *
+     * @param  array<string, mixed>|string  $data  a request body or its JSON
+     * @return list<string>
+     */
+    public static function platformRequestErrors(string $file, $data): array
+    {
+        return self::check('platform/'.$file.'#/$defs/request', $data);
+    }
+
+    /**
+     * @param  array<string, mixed>|string  $data
+     * @return list<string>
+     */
+    private static function check(string $schema, $data): array
+    {
+        $json = is_string($data) ? $data : (string) json_encode($data, Response::JSON_FLAGS);
+        $result = self::validator()->validate(json_decode($json, false), self::PREFIX.$schema);
         if ($result->isValid()) {
             return [];
         }

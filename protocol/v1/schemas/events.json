@@ -290,6 +290,10 @@
             "last_run_at": { "$ref": "common.json#/$defs/datetime_or_null" }
           }
         },
+        "delivery": {
+          "description": "How the module pushes events (module 0.6.0+). pull_only: no cron and no flush after page views; the platform warns the merchant to set up the cron URL.",
+          "enum": ["cron", "page_views", "pull_only"]
+        },
         "errors_24h": { "type": "integer", "minimum": 0 },
         "last_errors": {
           "type": "array",

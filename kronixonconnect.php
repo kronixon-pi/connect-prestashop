@@ -28,12 +28,16 @@ use Kronixon\Connect\Install\Hooks;
 use Kronixon\Connect\Install\Installer;
 use Kronixon\Connect\Install\ServiceAccount;
 use Kronixon\Connect\Install\TabRoles;
+use Kronixon\Connect\Outbox\Flusher;
+use Kronixon\Connect\Outbox\OutboxStore;
 use Kronixon\Connect\Outbox\ShopChanges;
 use Kronixon\Connect\Platform\Pairing;
 use Kronixon\Connect\Protocol;
 use Kronixon\Connect\Redirect\Front;
 use Kronixon\Connect\Services;
+use Kronixon\Connect\Support\SettingsForm;
 use Kronixon\Connect\Write\PendingWrites;
+use Kronixon\Connect\Write\ShopDatabase;
 
 /**
  * Kronixon Connect: the only link between this store and Kronixon PI (protocol v1).
@@ -168,33 +172,69 @@ class KronixonConnect extends Module
             'kx_php_version' => PHP_VERSION,
             'kx_compat' => Version::isSupported(_PS_VERSION_) ? Version::select(_PS_VERSION_)->id() : '-',
         ]);
+        if ($paired) {
+            $this->assignOutbox($date);
+        }
 
         return $this->display(__FILE__, 'views/templates/admin/configure.tpl');
     }
 
     /**
-     * The settings page's forms (the token of the AdminModules URL guards them).
+     * The store events panel: the outbox, the last delivery and error, the cron URL.
+     *
+     * @param  callable(?string): string  $date
+     */
+    private function assignOutbox(callable $date): void
+    {
+        $settings = Services::settings();
+        try {
+            $counts = (new OutboxStore(new ShopDatabase(Db::getInstance(), _DB_PREFIX_)))->counts();
+        } catch (Throwable $e) {
+            $counts = ['pending' => 0, 'failed' => 0];
+        }
+        $error = explode(' ', (string) $settings->get(Flusher::LAST_ERROR), 2);
+        $retry = (int) $settings->get(Flusher::RETRY_AT);
+        $this->context->smarty->assign([
+            'kx_outbox_pending' => $counts['pending'],
+            'kx_outbox_failed' => $counts['failed'],
+            'kx_outbox_last_sent' => $date($settings->get(Flusher::LAST_SENT)),
+            'kx_outbox_error' => (int) $error[0] > (int) $settings->get(Flusher::LAST_SENT) ? $date($error[0]).' '.($error[1] ?? '') : '',
+            'kx_outbox_retry' => $retry > time() ? $date((string) $retry) : '',
+            'kx_cron_url' => $this->context->link->getModuleLink($this->name, 'cron', ['token' => Services::cronToken()]),
+            'kx_delivery' => Services::delivery()->mode($settings, time()),
+        ]);
+    }
+
+    /**
+     * The settings page's forms: only an administrator's POST to the AdminModules URL acts, never a GET
+     * (Support\SettingsForm: on 9.x the redirect to the Symfony route adds a valid token to a GET).
      *
      * @return array{0: string, 1: bool} the message and whether it is an error
      */
     private function handleForm(Pairing $pairing): array
     {
-        if (Tools::isSubmit('submitKxPlatformUrl')) {
-            return $pairing->setPlatformUrl((string) Tools::getValue('kx_platform_url'))
+        $action = SettingsForm::action($_SERVER, $_POST);
+        if ($action === SettingsForm::PLATFORM_URL) {
+            return $pairing->setPlatformUrl(SettingsForm::field($_POST, 'kx_platform_url'))
                 ? [$this->l('The platform URL was saved.'), false]
                 : [$this->l('The platform URL must be an https:// address.'), true];
         }
-        if (Tools::isSubmit('submitKxPair')) {
-            $outcome = $pairing->pair((string) Tools::getValue('kx_code'));
+        if ($action === SettingsForm::PAIR) {
+            $outcome = $pairing->pair(SettingsForm::field($_POST, 'kx_code'));
 
             return [($outcome['state'] ?? '') === 'paired' ? $this->l('This shop is now paired with Kronixon PI.') : '', false];
         }
-        if (Tools::isSubmit('submitKxUnpair')) {
+        if ($action === SettingsForm::UNPAIR) {
             $pairing->unpair('user');
 
             return [$this->l('This shop is no longer paired with Kronixon PI.'), false];
         }
-        if (Tools::isSubmit('submitKxPing')) {
+        if ($action === SettingsForm::ROTATE_CRON) {
+            Services::rotateCronToken();
+
+            return [$this->l('The cron URL has a new token. Update the cron of your hosting; the old URL no longer works.'), false];
+        }
+        if ($action === SettingsForm::PING) {
             $error = $pairing->ping();
 
             return $error === null ? [$this->l('Kronixon PI answered the signed test request.'), false] : [$this->errorMessage(['code' => $error]), true];
@@ -477,21 +517,34 @@ class KronixonConnect extends Module
     }
 
     /**
-     * Runs on every storefront request: must stay O(1) — M5.
+     * Runs on every storefront request: cached settings only; at most once a minute it leaves a flush of
+     * the outbox for after the answer (Services::flushOnVisit()).
      *
      * @param  array<string, mixed>  $params
      */
     public function hookActionFrontControllerSetMedia(array $params): void
     {
+        try {
+            Services::flushOnVisit($this->context);
+        } catch (Throwable $e) {
+            // a page view never fails because of the outbox
+        }
     }
 
     /**
-     * Runs on every back-office request: must stay O(1) — M5.
+     * Runs on every back-office request, as on the storefront. Under PHP-FPM a back-office page that
+     * Symfony sends (every one on 9.x) never flushes: Symfony has already finished the answer
+     * (Services::flushOnVisit()).
      *
      * @param  array<string, mixed>  $params
      */
     public function hookActionAdminControllerSetMedia(array $params): void
     {
+        try {
+            Services::flushOnVisit($this->context);
+        } catch (Throwable $e) {
+            // a page view never fails because of the outbox
+        }
     }
 
     /**

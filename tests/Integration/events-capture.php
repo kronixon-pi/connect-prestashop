@@ -40,6 +40,8 @@ $helpers = kxShopHelpers($db, $p);
 [$value, $text] = [$helpers['value'], $helpers['text']];
 Configuration::updateGlobalValue('KX_RATE_LIMIT', '100000');
 Configuration::deleteByName(Recorder::GAP);
+// A heartbeat just sent: a pull (GET events) would record a due one among the rows this script counts.
+Configuration::updateGlobalValue(Kronixon\Connect\Outbox\Flusher::HEARTBEAT_AT, (string) time());
 $context = Context::getContext();
 $shop = (int) $context->shop->id;
 $lang = (int) Configuration::get('PS_LANG_DEFAULT');

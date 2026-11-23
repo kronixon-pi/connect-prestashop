@@ -14,11 +14,27 @@ All notable changes of the module are listed here; versions follow [Semantic Ver
   failed insert never fails the shop's change.
 - `GET events` and `POST events/ack` (announced as `events.pull`): the pending and failed rows as events of
   `schemas/events.json`, with the `content_hash`, `price` and `kx_id` read when the event is built.
+- Delivery to `POST /v1/stores/{id}/events` (announced as `webhooks`). It runs from the cron URL
+  (`/module/kronixonconnect/cron?token=…`, at most one flush per 10 s), and after page views at most once a minute
+  when no cron runs, only where PHP can send the page first (PHP-FPM, LiteSpeed): a page view never waits for the
+  platform. Batches are at most 200 events and 1 MB, coalesced per entity, and sent on a connection of their own
+  under one lock; a gap, an overflow and the heartbeat go first. A batch cut short goes again with the same ids
+  and counts an attempt. The module waits `Retry-After`, else backs off exponentially up to 6 h, and keeps the
+  outbox below 50 000 rows (`module.outbox_overflow`). It also sends a daily `module.heartbeat`, which says how
+  events are delivered (`delivery`: `cron`, `page_views` or `pull_only`).
+- The settings page shows the outbox (waiting, failed), the last delivery, the last error, the next attempt, the
+  cron URL with a button for a new token, and a warning when no cron runs and page views cannot send.
 
 ### Changed
 
 - `kx_outbox` has a new shape (`entity_key`, `batch_id`, `occurred_at` with milliseconds); no earlier version wrote
   to it, and the upgrade recreates it.
+
+### Fixed
+
+- The settings page's actions (platform URL, pair, unpair, cron token, test request) run only on a POST. On 9.x a
+  GET to the settings URL with a submit name ran the action, because the redirect to the Symfony route adds a valid
+  token.
 
 ## [0.5.0]
 
