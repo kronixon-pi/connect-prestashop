@@ -43,13 +43,18 @@ final class Download
     /** @var callable(string): list<string> the addresses of a host name */
     private $resolve;
 
+    /** @var bool the pairing told the module its `download_hosts` (0.5.0+) */
+    private $hostsPaired;
+
     /**
      * @param  list<string>  $hosts  where files may come from: `host` (port 443) or `host:port`
      * @param  (callable(string): list<string>)|null  $resolve  gethostbynamel() unless given
+     * @param  bool  $hostsPaired  false for a pairing made before 0.5.0: a refused host then says "pair again"
      */
-    public function __construct(bool $allowHttp, array $hosts = [], ?callable $resolve = null)
+    public function __construct(bool $allowHttp, array $hosts = [], ?callable $resolve = null, bool $hostsPaired = true)
     {
         $this->allowHttp = $allowHttp;
+        $this->hostsPaired = $hostsPaired;
         $this->hosts = array_values(array_unique(array_map(static function (string $host): string {
             $host = strtolower($host);
 
@@ -128,6 +133,10 @@ final class Download
         $host = strtolower(trim($parts['host'], '[]'));
         $port = (int) ($parts['port'] ?? (strtolower((string) ($parts['scheme'] ?? '')) === 'http' ? 80 : 443));
         if (! in_array($host.':'.$port, $this->hosts, true)) {
+            if (! $this->hostsPaired) {
+                // Paired before 0.5.0: the module knows only the Connect and API hosts until it pairs again.
+                throw new ItemError('download_hosts_unknown', 'The shop was paired before module 0.5.0 and does not know the platform\'s file hosts: pair it again', $field.'.url');
+            }
             throw new ItemError('download_host_refused', 'The file is not on a host of the platform', $field.'.url');
         }
         if ($this->allowHttp) {

@@ -141,6 +141,21 @@ final class DownloadTest extends TestCase
         self::assertNotNull(PublicAddress::refusal('not-an-ip'));
     }
 
+    public function test_a_pairing_before_0_5_0_says_pair_again_for_a_host_it_does_not_know(): void
+    {
+        $old = new Download(false, ['connect.example.test'], static function (): array {
+            return ['8.8.8.8'];
+        }, false);
+        self::assertSame('connect.example.test:443:8.8.8.8', $old->check('https://connect.example.test/dl/1.jpg', 'url'), 'the Connect host still serves files');
+        try {
+            $old->check('https://files.example.test/p/1.jpg', 'url');
+            self::fail('accepted a host of no pairing');
+        } catch (ItemError $error) {
+            self::assertSame(['download_hosts_unknown', 'url.url'], [$error->itemCode(), $error->field()]);
+            self::assertStringContainsString('pair it again', $error->getMessage());
+        }
+    }
+
     public function test_without_hosts_nothing_is_fetched(): void
     {
         $this->expectException(ItemError::class);

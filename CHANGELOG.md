@@ -29,6 +29,8 @@ All notable changes of the module are listed here; versions follow [Semantic Ver
 - Logos and images are fetched only from the platform the shop is paired with (its Connect host and port, and the
   optional `download_hosts` of the pair answer), at public addresses outside development: `download_host_refused`.
   "Public" is an explicit IANA table, also for IPv4-mapped IPv6 on PHP 7.4.
+  A shop paired before 0.5.0 knows no `download_hosts`: logos and images from another host answer
+  `download_hosts_unknown` until it **pairs again** (before, logos came from any HTTPS host).
 
 ### Fixed
 

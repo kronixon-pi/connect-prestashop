@@ -329,6 +329,8 @@ left so is `cleanup_failed`.
 - **Files from the platform.** An image (and a brand logo) is fetched only from a host of the platform the shop is
   paired with: the host and port of its Connect URL and of the pairing's API base, and the `download_hosts` the pair
   answer names (port 443). Anything else is `download_host_refused`.
+  A shop paired before 0.5.0 has no `download_hosts`: a host other than its Connect and API hosts is
+  `download_hosts_unknown` ("pair it again") until it pairs again.
   Over HTTPS with TLS verified (plain HTTP only with the development setting `KX_PLATFORM_ALLOW_HTTP`), no
   redirects, at most 20 MB per file in 20 s and 100 MB per request; outside development the host must resolve to
   public addresses only, and the connection goes to the address that was checked.

@@ -187,6 +187,7 @@ final class Pairing
                 throw new RuntimeException('The pairing could not be stored.');
             }
             $this->settings->set(SecretStore::DOWNLOAD_HOSTS, implode(',', self::hosts($answer['download_hosts'] ?? [])));
+            $this->settings->set(SecretStore::DOWNLOAD_HOSTS_PAIRED, '1');
         } catch (PlatformError $error) {
             $this->log->warning('pairing', 'Pairing refused', ['error_code' => $error->errorCode(), 'status' => $error->status()]);
 

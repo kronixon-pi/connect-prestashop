@@ -186,7 +186,7 @@ final class Services
             }
         }
 
-        return new Download($settings->get(Pairing::ALLOW_HTTP) === '1', $hosts);
+        return new Download($settings->get(Pairing::ALLOW_HTTP) === '1', $hosts, null, $settings->get(SecretStore::DOWNLOAD_HOSTS_PAIRED) === '1');
     }
 
     /**

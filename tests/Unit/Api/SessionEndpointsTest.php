@@ -182,6 +182,7 @@ final class SessionEndpointsTest extends TestCase
             self::assertNotNull($module->settings->get($key), $key.' is written by a pairing or a rotation');
         }
         self::assertSame('files.example.test', $module->settings->get(SecretStore::DOWNLOAD_HOSTS), 'the host names of download_hosts, nothing else');
+        self::assertSame('1', $module->settings->get(SecretStore::DOWNLOAD_HOSTS_PAIRED), 'a pairing of 0.5.0+: its file hosts are known');
 
         $body = '{"reason":"revoked"}';
         $response = $module->kernel()->handle($module->signedServer($new, 'POST', 'unpair', [], $body), $body);
