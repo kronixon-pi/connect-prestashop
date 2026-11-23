@@ -23,8 +23,9 @@ namespace Kronixon\Connect\Write;
  * of the platform the module is paired with (its Connect host and the `download_hosts` of the pairing),
  * HTTPS only (plain HTTP with the development setting KX_PLATFORM_ALLOW_HTTP), TLS verified, no
  * redirects, at most 20 MB in 20 s, and nothing is kept whose sha256 differs. Outside development the
- * host must resolve to public addresses only, and the connection goes to the address that was checked
- * (no second lookup that could answer otherwise).
+ * host must resolve to public addresses only
+ * (PublicAddress), and the connection goes to the address that was checked (no second lookup that
+ * could answer otherwise).
  */
 final class Download
 {
@@ -123,16 +124,18 @@ final class Download
         if ($this->allowHttp) {
             return null;
         }
-        $ips = filter_var($host, FILTER_VALIDATE_IP) !== false ? [$host] : ($this->resolve)($host);
+        $literal = filter_var($host, FILTER_VALIDATE_IP) !== false;
+        $ips = $literal ? [$host] : ($this->resolve)($host);
         foreach ($ips as $ip) {
-            if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false) {
-                throw new ItemError('download_host_refused', 'The host of the file has a private address', $field.'.url');
+            if (PublicAddress::refusal($ip) !== null) {
+                throw new ItemError('download_host_refused', 'The host of the file has an address that is not public', $field.'.url');
             }
         }
         if ($ips === []) {
             throw new ItemError('download_failed', 'The host of the file is unknown', $field.'.url');
         }
 
-        return $host.':'.$port.':'.$ips[0];
+        // An address as the host is what curl connects to: no lookup to pin.
+        return $literal ? null : $host.':'.$port.':'.$ips[0];
     }
 }

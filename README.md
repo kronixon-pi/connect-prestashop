@@ -328,12 +328,19 @@ left so is `cleanup_failed`.
 
 - **Files from the platform.** An image (and a brand logo) is fetched only from a host of the platform the shop is
   paired with: the host and port of its Connect URL and of the pairing's API base, and the `download_hosts` the pair
-  answer names (port 443). Anything else is `download_host_refused`. Over HTTPS with TLS verified (plain HTTP only with
-  the development setting `KX_PLATFORM_ALLOW_HTTP`), no redirects, at most 20 MB per file in 20 s and 100 MB per
-  request; outside development the host must resolve to public addresses only, and the connection goes to the
-  address that was checked. A file whose sha256 is not the one sent is `sha256_mismatch`; one PrestaShop does not
-  take (`getimagesize`: jpg, png, gif or webp, at least 1×1, and `ImageManager::isRealImage`) is `image_invalid`; one
-  above `PS_PRODUCT_PICTURE_MAX_SIZE` is `image_too_large`.
+  answer names (port 443). Anything else is `download_host_refused`.
+  Over HTTPS with TLS verified (plain HTTP only with the development setting `KX_PLATFORM_ALLOW_HTTP`), no
+  redirects, at most 20 MB per file in 20 s and 100 MB per request; outside development the host must resolve to
+  public addresses only, and the connection goes to the address that was checked.
+  "Public" is an explicit table (`src/Write/PublicAddress.php`, IANA's special-purpose registries), not PHP's filter
+  flags: refused are 0/8, 10/8, 100.64/10, 127/8, 169.254/16, 172.16/12, 192.0.0/24, 192.0.2/24, 192.88.99/24,
+  192.168/16, 198.18/15, 198.51.100/24, 203.0.113/24, 224/4 and 240/4 (with 255.255.255.255); for IPv6 everything
+  outside 2000::/3 and, inside it, 2001::/23, 2001:db8::/32, 2002::/16, 3fff::/20, 5f00::/16, besides ::/96,
+  64:ff9b::/96, 64:ff9b:1::/48, 100::/64, fc00::/7, fe80::/10, fec0::/10 and ff00::/8; an IPv4-mapped address
+  (::ffff:a.b.c.d) is judged by its IPv4 address, the same on PHP 7.4 and 8.x.
+  A file whose sha256 is not the one sent is `sha256_mismatch`; one PrestaShop does not take (`getimagesize`: jpg,
+  png, gif or webp, at least 1×1, and `ImageManager::isRealImage`) is `image_invalid`; one above
+  `PS_PRODUCT_PICTURE_MAX_SIZE` is `image_too_large`.
 - **Ids are kept.** `kx_image_map` remembers the `kx_key` and the sha256 of each image the platform sent. An item
   whose `kx_key` (or `external_id`, which must be an image of the product) names an image with the same sha256 is not
   fetched at all: only its alt texts change (`unchanged` when they do not). Another sha256 replaces the files of the

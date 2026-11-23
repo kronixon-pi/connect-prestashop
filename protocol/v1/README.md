@@ -202,6 +202,7 @@ Writes of entities (`POST products`, `variants`, `categories`, `attributes`, `at
   for files (`brands` logos, `images`) also `download_host_refused` (not a host of the platform the shop is paired
   with: the Connect host and the pair answer's `download_hosts`), `image_too_large`, `image_not_stored`; for `DELETE
   images` `image_not_kx`. Clients treat an unknown code as an error of the item.
+- `download_host_refused` is also a host whose address is not public (an explicit IANA table).
 - `images` with `sync` or `replace_all` removes nothing when an item is `skipped`: on `continue` the platform sends
   the whole list again (written items are `unchanged`, nothing fetched), and that request removes the rest.
 - A redirect (`seo/redirects`, `seo.redirect` of a product) leads to a page the shop shows: a missing
