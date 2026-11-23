@@ -191,6 +191,9 @@ final class ImageWriter extends ShopWriter
             if ($this->fetched > self::MAX_REQUEST_BYTES || ($max > 0 && $size > $max)) {
                 throw new ItemError('image_too_large', 'The image is larger than the shop takes', 'url');
             }
+            if (ImageFiles::tooLarge($source)) {
+                throw new ItemError('image_too_large', 'The image has more than 50 megapixels', 'url');
+            }
             if (! ImageFiles::accepts($source)) {
                 throw new ItemError('image_invalid', 'The file is not a jpg, png, gif or webp image', 'url');
             }

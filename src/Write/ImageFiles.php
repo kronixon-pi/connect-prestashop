@@ -21,6 +21,7 @@ namespace Kronixon\Connect\Write;
 use Configuration;
 use ImageManager;
 use ImageType;
+use Throwable;
 
 /**
  * The files of a product image as PrestaShop makes them (ImageManager): the original as `<id>.jpg` and
@@ -33,6 +34,9 @@ final class ImageFiles
 {
     /** What getimagesize() may say of a source (Spec §6.24). */
     private const TYPES = [IMAGETYPE_JPEG, IMAGETYPE_PNG, IMAGETYPE_GIF, IMAGETYPE_WEBP];
+
+    /** The largest picture decoded: 50 megapixels (about 200 MB in GD), whatever `memory_limit` is. */
+    public const MAX_PIXELS = 50000000;
 
     /** @var list<array{name: string, width: int, height: int}> */
     private $types;
@@ -87,6 +91,18 @@ final class ImageFiles
     }
 
     /**
+     * Whether the image's header announces more than MAX_PIXELS, read before anything decodes it: a
+     * small file can announce a picture GD needs gigabytes for, and PrestaShop's own memory check
+     * (ImageManager::checkImageMemoryLimit()) passes everything when `memory_limit` is -1.
+     */
+    public static function tooLarge(string $file): bool
+    {
+        $info = @getimagesize($file);
+
+        return is_array($info) && (float) $info[0] * (float) $info[1] > self::MAX_PIXELS;
+    }
+
+    /**
      * The files of $source in a new work folder; the caller drops it.
      *
      * @throws ItemError
@@ -94,21 +110,28 @@ final class ImageFiles
     public function make(string $source, string $field): string
     {
         $work = $this->workRoot.'kx-'.bin2hex(random_bytes(8)).'/';
-        if (! @mkdir($work, 0775) || ! ImageManager::resize($source, $work.'original.jpg')) {
-            $this->drop($work);
-            throw new ItemError('image_not_stored', 'PrestaShop could not convert the image', $field);
-        }
-        foreach ($this->types as $type) {
-            foreach ($this->formats as $format) {
-                $made = ImageManager::resize($work.'original.jpg', $work.$type['name'].'.'.$format, $type['width'], $type['height'], $format, $format !== 'jpg');
-                if ($made && $this->highDpi) {
-                    $made = ImageManager::resize($work.'original.jpg', $work.$type['name'].'2x.'.$format, $type['width'] * 2, $type['height'] * 2, $format, $format !== 'jpg');
-                }
-                if (! $made) {
-                    $this->drop($work);
-                    throw new ItemError('image_not_stored', 'PrestaShop could not make the thumbnail '.$type['name'], $field);
+        try {
+            // A file GD cannot decode makes ImageManager throw on PHP 8 (a TypeError), not return false.
+            if (! @mkdir($work, 0775) || ! ImageManager::resize($source, $work.'original.jpg')) {
+                throw new ItemError('image_not_stored', 'PrestaShop could not convert the image', $field);
+            }
+            foreach ($this->types as $type) {
+                foreach ($this->formats as $format) {
+                    $made = ImageManager::resize($work.'original.jpg', $work.$type['name'].'.'.$format, $type['width'], $type['height'], $format, $format !== 'jpg');
+                    if ($made && $this->highDpi) {
+                        $made = ImageManager::resize($work.'original.jpg', $work.$type['name'].'2x.'.$format, $type['width'] * 2, $type['height'] * 2, $format, $format !== 'jpg');
+                    }
+                    if (! $made) {
+                        throw new ItemError('image_not_stored', 'PrestaShop could not make the thumbnail '.$type['name'], $field);
+                    }
                 }
             }
+        } catch (ItemError $error) {
+            $this->drop($work);
+            throw $error;
+        } catch (Throwable $error) {
+            $this->drop($work);
+            throw new ItemError('image_not_stored', 'PrestaShop could not convert the image', $field);
         }
 
         return $work;

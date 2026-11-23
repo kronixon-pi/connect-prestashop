@@ -342,6 +342,8 @@ left so is `cleanup_failed`.
   A file whose sha256 is not the one sent is `sha256_mismatch`; one PrestaShop does not take (`getimagesize`: jpg,
   png, gif or webp, at least 1×1, and `ImageManager::isRealImage`) is `image_invalid`; one above
   `PS_PRODUCT_PICTURE_MAX_SIZE` is `image_too_large`.
+  So is one whose header announces more than 50 megapixels, checked before anything decodes it, whatever
+  `memory_limit` is; one GD cannot convert is `image_not_stored`.
 - **Ids are kept.** `kx_image_map` remembers the `kx_key` and the sha256 of each image the platform sent. An item
   whose `kx_key` (or `external_id`, which must be an image of the product) names an image with the same sha256 is not
   fetched at all: only its alt texts change (`unchanged` when they do not). Another sha256 replaces the files of the

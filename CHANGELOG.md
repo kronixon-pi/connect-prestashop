@@ -22,6 +22,7 @@ All notable changes of the module are listed here; versions follow [Semantic Ver
   request that dies while an image is written leaves no half image, and the retry makes exactly one.
   A request whose items the time budget skips removes no image.
   A fetch ends within the time budget.
+  Pictures above 50 megapixels are refused from their header.
 
 ### Changed
 

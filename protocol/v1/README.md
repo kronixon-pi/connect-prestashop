@@ -203,6 +203,7 @@ Writes of entities (`POST products`, `variants`, `categories`, `attributes`, `at
   with: the Connect host and the pair answer's `download_hosts`), `image_too_large`, `image_not_stored`; for `DELETE
   images` `image_not_kx`. Clients treat an unknown code as an error of the item.
 - `download_host_refused` is also a host whose address is not public (an explicit IANA table).
+- `image_too_large` is also a picture of more than 50 megapixels.
 - `time_budget` is `skipped` also when the budget cuts an item's fetch.
 - `images` with `sync` or `replace_all` removes nothing when an item is `skipped`: on `continue` the platform sends
   the whole list again (written items are `unchanged`, nothing fetched), and that request removes the rest.
