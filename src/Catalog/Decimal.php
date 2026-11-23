@@ -79,6 +79,28 @@ final class Decimal
         return self::money(sprintf('%.6F', (float) self::money($a) / $divisor));
     }
 
+    /**
+     * $a / $b cut (not rounded) to 6 decimals, exactly, as PrestaShop's DecimalNumber::dividedBy() does
+     * (1.7.8's Product::__construct() derives the unit price so); 0 when either is not positive.
+     */
+    public static function quotient(string $a, string $b): string
+    {
+        $dividend = self::micros(self::money($a));
+        $divisor = self::micros(self::money($b));
+        if ($dividend <= 0 || $divisor <= 0) {
+            return '0.000000';
+        }
+        $text = intdiv($dividend, $divisor).'.';
+        $rest = $dividend % $divisor;
+        for ($i = 0; $i < self::SCALE; $i++) {
+            $rest *= 10;
+            $text .= intdiv($rest, $divisor);
+            $rest %= $divisor;
+        }
+
+        return $text;
+    }
+
     private static function micros(string $money): int
     {
         $negative = $money[0] === '-';
