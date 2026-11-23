@@ -166,8 +166,11 @@ and the hooks of other modules run. Rules of the protocol: [§6](protocol/v1/REA
   objects before it answers, when no write is running. Until then nothing finds it (`match_by`), links to it or
   creates it again, and no `GET catalog/*` lists it: not in a page, a count, `max_id` or the `profile` counts. A
   product, category or brand to be active is created inactive and switched on when its item is complete, so the
-  storefront does not show what a dead request left either. An object somebody has worked with since (a category
-  with children, a brand with products) is kept and no longer counted as left over.
+  storefront neither lists what a dead request left nor shows its page (see Known limits). The switch is the last
+  step before the item's `kx_pending` row goes; after a hook has committed early these steps no longer share one
+  transaction, and a `kx_pending` row that cannot be deleted switches the object off again, so a row that is left
+  always names an inactive object. An object somebody has worked with since (a category with children, a brand
+  with products) is kept and no longer counted as left over.
   Only a module that commits before the object's own rows are complete, followed by the death of the server process
   itself, can leave an object the module does not know of.
 - **Idempotency.** With an `Idempotency-Key` (a UUID, else `400`) the answer of a `200` is kept for 24 hours in
@@ -176,13 +179,19 @@ and the hooks of other modules run. Rules of the protocol: [§6](protocol/v1/REA
   an answer could not be kept, a repeat finds the same entities again (`external_id`, `kx_id`, `match_by`).
 - **One write at a time.** Every `POST`/`DELETE` runs under a lock of the shop (`GET_LOCK`, released with the
   connection); a second one gets `409 busy` with `retry_after: 5`. The stored answers are read and written under it.
+  A `GET` takes the lock only when `kx_pending` names something to delete, and only while it deletes it; a write
+  that comes meanwhile gets `409 busy` too. On a shop with nothing left over a read never holds the lock.
 - **Limits.** 100 items (`413 batch_too_large`), 4 MB, 25 s: an item starts only with 1.5 s left, the rest is
   `skipped` with `continue: true`.
 - **`content_hash`** of an `ok` item is read back from the shop once, after the last item, with the code of
   `GET catalog/*`.
 - **Hooks** run for every active module of the shop. The module's service account is not the employee of the
   request: PrestaShop before 9.1 runs a module's hook only for an employee who may view that module, and the
-  account has no rights.
+  account has no rights. The hooks of a create see a product, category or brand inactive; once its item is committed
+  the module runs the hooks of an update for it, with the object as stored and active
+  (`actionObjectUpdateBefore`/`After`, `actionObject<Class>UpdateBefore`/`After`, and `actionProductSave` +
+  `actionProductUpdate` for a product, `actionCategoryUpdate` for a category), in the paired shop. They save
+  nothing; one that throws is logged and the item stays `ok`.
 - **Multistore.** Ids of another shop are not found; a created category, feature, group or brand is in the paired
   shop only. Columns PrestaShop shares between shops (a product's reference, a brand's name and logo) change for all.
 - **Categories.** Items are written in order, `parent_key` names an earlier one; without a parent the category is
@@ -195,6 +204,10 @@ and the hooks of other modules run. Rules of the protocol: [§6](protocol/v1/REA
   and dropped unless its sha256 is the announced one; a logo the shop already holds is not fetched. A logo PrestaShop
   converts (anything but a JPEG) carries the sha256 of its source in the stored file.
 - **Tags.** PrestaShop deletes a tag no product has as soon as any product's tags change.
+- **Known limits.** Until a half-written product or category is deleted, its storefront URL answers as PrestaShop
+  answers for any inactive object: on 1.7.8 `404`; on 9.1 `403` for a product, `404` for a brand and `500` for a
+  category, whose tree position is not set yet. Some of these pages carry its name (the breadcrumb, JSON-LD,
+  `<title>`). The next signed request that finds no write running deletes it.
 
 ## What the module adds to the shop
 
