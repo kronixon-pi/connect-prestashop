@@ -163,10 +163,14 @@ and the hooks of other modules run. Rules of the protocol: [§6](protocol/v1/REA
   commits before that), and another may fail after it; so an item is checked as a whole before its first write, and an
   object that a failed item still left is deleted. `kx_pending` names what an item has created until the item is
   complete: it is written with the object, in the same transaction, before any module's hook of that object (this
-  module stands first in `actionObjectAddAfter`). When the deletion fails too the item is `cleanup_failed` and the rest
-  of the batch goes on; when the request died, or the deletion failed, the next write request deletes what is left
-  before its first item. Until then nothing finds it (`match_by`), links to it or creates it again. An object somebody
-  has worked with since (a category with children, a brand with products) is kept and no longer counted as left over.
+  module stands first in `actionObjectAddAfter`, in every shop). When the deletion fails too the item is
+  `cleanup_failed` and the rest of the batch goes on; when the request died, or the deletion failed, the next request
+  deletes what is left: a write before its first item, a read (any `GET`, also `health` and `profile`) at most three
+  objects before it answers, when no write is running. Until then nothing finds it (`match_by`), links to it or
+  creates it again, and no `GET catalog/*` lists it: not in a page, a count, `max_id` or the `profile` counts. A
+  product, category or brand to be active is created inactive and switched on when its item is complete, so the
+  storefront does not show what a dead request left either. An object somebody has worked with since (a category
+  with children, a brand with products) is kept and no longer counted as left over.
   Only a module that commits before the object's own rows are complete, followed by the death of the server process
   itself, can leave an object the module does not know of.
 - **Idempotency.** With an `Idempotency-Key` (a UUID, else `400`) the answer of a `200` is kept for 24 hours in

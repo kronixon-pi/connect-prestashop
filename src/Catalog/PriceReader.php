@@ -49,7 +49,7 @@ final class PriceReader implements Reader
 
     public function maxId(): string
     {
-        return Rows::id($this->sql->rows('SELECT MAX(id_product) AS m FROM '.$this->sql->table('product'))[0]['m'] ?? null);
+        return Rows::maxId($this->sql, $this->scope, 'product', 'id_product');
     }
 
     /** Rows are keyed by (product, variant): `v` is the variant id. */
@@ -68,7 +68,8 @@ final class PriceReader implements Reader
             $variants = $this->sql->rows('SELECT pa.id_product, pa.id_product_attribute, pas.price, pas.wholesale_price FROM '.$this->sql->table('product_attribute')
                 .' pa INNER JOIN '.$this->sql->table('product_attribute_shop').' pas ON pas.id_product_attribute = pa.id_product_attribute AND pas.id_shop = '
                 .$this->scope->shopId.($since === '' ? '' : ' INNER JOIN '.$this->sql->table('product_shop').' ps ON ps.id_product = pa.id_product'.$shop)
-                .' WHERE '.$window.$since.' ORDER BY pa.id_product, pa.id_product_attribute LIMIT '.$n);
+                .' WHERE '.$window.$since.Rows::notPending($this->sql, $this->scope, 'product_attribute', 'pa.id_product_attribute')
+                .Rows::notPending($this->sql, $this->scope, 'product', 'pa.id_product').' ORDER BY pa.id_product, pa.id_product_attribute LIMIT '.$n);
             $products = [];
             if ($kind === 'range') {
                 // Driven from `product` by its primary key, as ProductReader is: `product_shop` alone lets
@@ -76,7 +77,7 @@ final class PriceReader implements Reader
                 // product of the shop for each page.
                 $products = $this->sql->rows('SELECT p.id_product, 0 AS id_product_attribute FROM '.$this->sql->table('product').' p INNER JOIN '
                     .$this->sql->table('product_shop').' ps ON ps.id_product = p.id_product'.$shop.' WHERE '
-                    .str_replace('pa.', 'p.', $window).$since.' ORDER BY p.id_product LIMIT '.$n);
+                    .str_replace('pa.', 'p.', $window).$since.Rows::notPending($this->sql, $this->scope, 'product', 'p.id_product').' ORDER BY p.id_product LIMIT '.$n);
             }
             $window = array_merge($products, $variants);
             usort($window, static function (array $a, array $b): int {

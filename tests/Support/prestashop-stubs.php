@@ -212,6 +212,8 @@ if (! class_exists('Configuration', false)) {
 if (! class_exists('Category', false)) {
     class Category extends ObjectModel
     {
+        /** @var mixed */
+        public $active;
     }
 }
 

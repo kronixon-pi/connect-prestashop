@@ -48,7 +48,7 @@ final class StockReader implements Reader
 
     public function maxId(): string
     {
-        return Rows::id($this->sql->rows('SELECT MAX(id_product) AS m FROM '.$this->sql->table('product'))[0]['m'] ?? null);
+        return Rows::maxId($this->sql, $this->scope, 'product', 'id_product');
     }
 
     /** Rows are keyed by (product, variant): `v` is the variant id. */
@@ -67,7 +67,9 @@ final class StockReader implements Reader
             }
             $rows = array_merge($rows, $this->sql->rows('SELECT sa.id_product, sa.id_product_attribute, sa.quantity, sa.physical_quantity, sa.reserved_quantity,'
                 .' sa.depends_on_stock, sa.out_of_stock FROM '.$this->sql->table('stock_available').' sa WHERE '.$this->scope->stockWhere('sa')
-                .' AND '.$window.' ORDER BY sa.id_product, sa.id_product_attribute LIMIT '.$need));
+                .' AND '.$window.Rows::notPending($this->sql, $this->scope, 'product', 'sa.id_product')
+                .Rows::notPending($this->sql, $this->scope, 'product_attribute', 'sa.id_product_attribute')
+                .' ORDER BY sa.id_product, sa.id_product_attribute LIMIT '.$need));
         }
         $more = count($rows) > $query->limit;
         $items = [];

@@ -47,6 +47,9 @@ final class TestModule
     /** @var int */
     public $rateLimit = 120;
 
+    /** @var (callable(\Kronixon\Connect\Api\Budget): void)|null the Kernel's clean-up before a read */
+    public $beforeRead;
+
     public function __construct(float $now = 1790772000.0)
     {
         $this->settings = new MemorySettings();
@@ -72,7 +75,7 @@ final class TestModule
 
     public function kernel(?IdempotencyStore $idempotency = null): Kernel
     {
-        return new Kernel($this->router, $this->secrets, $this->clock, $this->guards, $this->guards, $this->log(), 25, $this->rateLimit, null, $idempotency);
+        return new Kernel($this->router, $this->secrets, $this->clock, $this->guards, $this->guards, $this->log(), 25, $this->rateLimit, null, $idempotency, $this->beforeRead);
     }
 
     public function pairing(string $pinnedKey = ''): Pairing

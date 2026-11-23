@@ -33,11 +33,23 @@ use Throwable;
  * transaction (actionObjectAddAfter, where this module stands first): whoever commits the object commits
  * its mark, and a rollback takes both. seal() removes the marks in the transaction that completes the
  * item, so a mark that is there at the start of a batch names an object whose item never ended: the
- * request died, or the clean-up failed. recover() removes it, under the write lock. Until that succeeds
- * no item finds, adopts or creates again what is left (EntityMap).
+ * request died, or the clean-up failed. recover() removes it, under the write lock, before a batch and
+ * on reads (Recovery). Until that succeeds no item finds, adopts or creates again what is left
+ * (EntityMap) and no catalog read lists it (Rows::notPending()).
+ *
+ * An object with a storefront page (product, category, brand) that is to be active is created inactive
+ * and shown by seal(), after its `kx_id` link and before its mark goes: what a dead request leaves is
+ * not shown in the shop either.
  */
 final class PendingWrites
 {
+    /** Tables of objects with a storefront page => the tables of their `active` flag. */
+    private const SHOWN = [
+        'product' => ['product', 'product_shop'],
+        'category' => ['category'],
+        'manufacturer' => ['manufacturer'],
+    ];
+
     /**
      * Where others refer to an entity whose delete would take them along or leave them without it:
      * table => [table, column].
@@ -53,6 +65,9 @@ final class PendingWrites
 
     /** Tables with a `date_add`: an object created at another time than its mark is somebody else's. */
     private const DATED = ['product', 'category', 'manufacturer'];
+
+    /** Objects a read tries to remove at most (Kernel): a read stays about as fast as without them. */
+    public const PER_READ = 3;
 
     /** Seconds between the object's `date_add` and its mark at most. */
     private const SAME_MOMENT = 120;
@@ -87,6 +102,9 @@ final class PendingWrites
     /** @var array<string, string> `table:id` of what could not be removed => the kx_id of its item */
     private $left = [];
 
+    /** @var list<ObjectModel> what the item created inactive, to be shown by seal() */
+    private $hidden = [];
+
     public function __construct(Database $db, int $shopId, Log $log)
     {
         $this->db = $db;
@@ -101,11 +119,16 @@ final class PendingWrites
         $this->kxId = $item->kxId();
         $this->created = [];
         $this->marked = [];
+        $this->hidden = [];
     }
 
-    /** PrestaShop's add(), with the object known whatever add() does. */
+    /** PrestaShop's add(), with the object known whatever add() does; one with a page is added inactive. */
     public function add(ObjectModel $object): bool
     {
+        $hide = isset(self::SHOWN[$this->tableOf($object)]) && property_exists($object, 'active') && (bool) $object->active;
+        if ($hide) {
+            $object->active = false;
+        }
         $this->created[] = $object;
         $this->adding = $object;
         self::$listening = $this;
@@ -115,6 +138,9 @@ final class PendingWrites
             self::$listening = null;
             $this->adding = null;
             $this->mark($object);
+            if ($hide) {
+                $this->hidden[] = $object;
+            }
         }
     }
 
@@ -131,9 +157,25 @@ final class PendingWrites
         }
     }
 
-    /** The item is complete: the last statement of its transaction. */
+    /**
+     * The item is complete, its `kx_id` linked: what it created hidden is shown, then its marks go, the
+     * last statements of its transaction.
+     */
     public function seal(): void
     {
+        foreach ($this->hidden as $object) {
+            $id = $this->idOf($object);
+            if ($id === 0) {
+                continue;
+            }
+            foreach (self::SHOWN[$this->tableOf($object)] as $table) {
+                $this->db->activate(get_class($object), $table, $this->primaryOf($object), $id);
+            }
+            if (property_exists($object, 'active')) {
+                $object->active = true;
+            }
+        }
+        $this->hidden = [];
         $objects = [];
         foreach ($this->marked as [$table, $id]) {
             $objects[] = '('.$this->object($table, $id).')';
@@ -148,6 +190,7 @@ final class PendingWrites
     {
         $this->created = [];
         $this->marked = [];
+        $this->hidden = [];
     }
 
     /**
@@ -173,14 +216,24 @@ final class PendingWrites
         return $clean;
     }
 
-    /** Before the first item: what an earlier request left half-written goes. */
-    public function recover(Budget $budget): void
+    /** Whether the paired shop has a mark: something to recover(). One indexed lookup. */
+    public function any(): bool
+    {
+        return $this->db->rows('SELECT 1 AS m FROM '.$this->db->table('kx_pending').' WHERE id_shop = '.$this->shopId.' LIMIT 1') !== [];
+    }
+
+    /**
+     * Before the first item, and before a read (Kernel): what an earlier request left half-written goes,
+     * at most $max objects, the rest the next time.
+     */
+    public function recover(Budget $budget, int $max = PHP_INT_MAX): void
     {
         $this->left = [];
+        $tried = 0;
         foreach ($this->db->rows('SELECT class, entity, id_object, kx_id, removing, created_at FROM '.$this->db->table('kx_pending')
             .' WHERE id_shop = '.$this->shopId.' ORDER BY id_kx_pending DESC') as $row) {
             $gone = false;
-            if (! $budget->exhausted()) {
+            if (! $budget->exhausted() && $tried++ < $max) {
                 try {
                     $gone = $this->removeMarked($row);
                 } catch (Throwable $error) {

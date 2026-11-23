@@ -21,6 +21,7 @@ namespace Kronixon\Connect\Install;
 use Hook;
 use Kronixon\Connect\Compat\CompatInterface;
 use Module;
+use Shop;
 
 /**
  * Hooks registered at install (Spec §7.2 Phase-0 events, §7.3 flush on visit, §6.26 routes).
@@ -67,9 +68,30 @@ final class Hooks
         return array_values(array_unique(array_merge(self::COMMON, $compat->versionHooks())));
     }
 
-    /** Moves the module before the others of ADDED; alone or already first there is nothing to move. */
+    /**
+     * Moves the module before the others of ADDED in every shop, active or not: the paired shop may be
+     * any of them. updatePosition() works on the shops of the context and stops at the first where the
+     * module is already first, so it runs once per shop, and the context is put back afterwards.
+     */
     public static function stayFirst(Module $module): void
     {
-        $module->updatePosition((int) Hook::getIdByName(self::ADDED), false, 1);
+        $hook = (int) Hook::getIdByName(self::ADDED);
+        $context = Shop::getContext();
+        $shopId = Shop::getContextShopID(true);
+        $groupId = Shop::getContextShopGroupID(true);
+        try {
+            foreach (Shop::getShops(false, null, true) as $id) {
+                Shop::setContext(Shop::CONTEXT_SHOP, (int) $id);
+                $module->updatePosition($hook, false, 1);
+            }
+        } finally {
+            if ($context === Shop::CONTEXT_SHOP && $shopId !== null) {
+                Shop::setContext(Shop::CONTEXT_SHOP, (int) $shopId);
+            } elseif ($context === Shop::CONTEXT_GROUP && $groupId !== null) {
+                Shop::setContext(Shop::CONTEXT_GROUP, (int) $groupId);
+            } else {
+                Shop::setContext(Shop::CONTEXT_ALL);
+            }
+        }
     }
 }

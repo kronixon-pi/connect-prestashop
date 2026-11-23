@@ -64,7 +64,7 @@ final class ProductReader implements Reader
 
     public function maxId(): string
     {
-        return Rows::id($this->sql->rows('SELECT MAX(id_product) AS m FROM '.$this->sql->table('product'))[0]['m'] ?? null);
+        return Rows::maxId($this->sql, $this->scope, 'product', 'id_product');
     }
 
     public function maxCursorVariant(Request $request): ?int
@@ -87,7 +87,8 @@ final class ProductReader implements Reader
             return Page::none();
         }
 
-        $where = 'p.id_product > '.$query->afterId.' AND p.id_product <= '.$query->untilId.$query->idCondition('p.id_product');
+        $where = 'p.id_product > '.$query->afterId.' AND p.id_product <= '.$query->untilId.$query->idCondition('p.id_product')
+            .Rows::notPending($this->sql, $this->scope, 'product', 'p.id_product');
         if ($active !== 'all') {
             $where .= ' AND ps.active = '.(int) $active;
         }
@@ -151,7 +152,7 @@ final class ProductReader implements Reader
         // and filtered here: with an inner join MySQL may start from the small *_shop table and walk
         // every product of each category or feature.
         foreach ($this->sql->rows('SELECT cp.id_product, cp.id_category, cs.id_shop FROM '.$this->sql->table('category_product').' cp LEFT JOIN '
-            .$this->sql->table('category_shop').' cs ON cs.id_category = cp.id_category AND cs.id_shop = '.$this->scope->shopId.' WHERE cp.id_product IN ('.$in.')') as $row) {
+            .$this->sql->table('category_shop').' cs ON cs.id_category = cp.id_category AND cs.id_shop = '.$this->scope->shopId.' WHERE cp.id_product IN ('.$in.')'.$this->notPending('category', 'cp.id_category')) as $row) {
             if ($row['id_shop'] !== null) {
                 $related['categories'][(int) $row['id_product']][] = (int) $row['id_category'];
             }
@@ -165,13 +166,14 @@ final class ProductReader implements Reader
         }
         foreach ($this->sql->rows('SELECT fp.id_product, fp.id_feature, fp.id_feature_value, fv.custom, fs.id_shop FROM '.$this->sql->table('feature_product')
             .' fp LEFT JOIN '.$this->sql->table('feature_shop').' fs ON fs.id_feature = fp.id_feature AND fs.id_shop = '.$this->scope->shopId
-            .' LEFT JOIN '.$this->sql->table('feature_value').' fv ON fv.id_feature_value = fp.id_feature_value WHERE fp.id_product IN ('.$in.')') as $row) {
+            .' LEFT JOIN '.$this->sql->table('feature_value').' fv ON fv.id_feature_value = fp.id_feature_value WHERE fp.id_product IN ('.$in.')'
+            .$this->notPending('feature', 'fp.id_feature').$this->notPending('feature_value', 'fp.id_feature_value')) as $row) {
             if ($row['id_shop'] !== null) {
                 $related['features'][(int) $row['id_product']][] = [(int) $row['id_feature'], (int) $row['id_feature_value'], Rows::bool($row['custom'])];
             }
         }
         foreach ($this->sql->rows('SELECT pt.id_product, pt.id_lang, t.name FROM '.$this->sql->table('product_tag').' pt INNER JOIN '
-            .$this->sql->table('tag').' t ON t.id_tag = pt.id_tag WHERE pt.id_product IN ('.$in.')') as $row) {
+            .$this->sql->table('tag').' t ON t.id_tag = pt.id_tag WHERE pt.id_product IN ('.$in.')'.$this->notPending('tag', 't.id_tag')) as $row) {
             $iso = $this->scope->languages[(int) $row['id_lang']] ?? null;
             if ($iso !== null) {
                 $related['tags'][(int) $row['id_product']][(int) $row['id_lang']][] = Rows::text($row['name']);
@@ -179,7 +181,7 @@ final class ProductReader implements Reader
         }
         foreach ($this->sql->rows('SELECT psu.id_product, psu.id_supplier, psu.product_supplier_reference, psu.product_supplier_price_te, psu.id_currency, ss.id_shop FROM '
             .$this->sql->table('product_supplier').' psu LEFT JOIN '.$this->sql->table('supplier_shop').' ss ON ss.id_supplier = psu.id_supplier AND ss.id_shop = '
-            .$this->scope->shopId.' WHERE psu.id_product_attribute = 0 AND psu.id_product IN ('.$in.')') as $row) {
+            .$this->scope->shopId.' WHERE psu.id_product_attribute = 0 AND psu.id_product IN ('.$in.')'.$this->notPending('product_supplier', 'psu.id_product_supplier')) as $row) {
             if ($row['id_shop'] !== null) {
                 $related['suppliers'][(int) $row['id_product']][(int) $row['id_supplier']] = $row;
             }
@@ -385,5 +387,11 @@ final class ProductReader implements Reader
         }
 
         return $value;
+    }
+
+    /** A relation to an object a write has not completed is not read (Rows::notPending()). */
+    private function notPending(string $entity, string $column): string
+    {
+        return Rows::notPending($this->sql, $this->scope, $entity, $column);
     }
 }
