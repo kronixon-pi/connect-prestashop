@@ -39,6 +39,18 @@ final class Protocol
      */
     public const PINNED_PLATFORM_KEY = '';
 
+    /**
+     * The release channel this build belongs to (`staging`, `stable`), written by the release build; empty in a
+     * development checkout, which then never updates itself (Update\ReleaseKeys).
+     */
+    public const CHANNEL = '';
+
+    /**
+     * The channel's release keys the module trusts for its own updates, `key_id:base64[,key_id:base64]`: the key in
+     * use first, during a rotation the next one after it. Written by the release build; empty in a development checkout.
+     */
+    public const RELEASE_KEYS = '';
+
     /** Nonce memory of the receiver, seconds (README §4.4 step 7). */
     public const NONCE_TTL_S = 600;
 
