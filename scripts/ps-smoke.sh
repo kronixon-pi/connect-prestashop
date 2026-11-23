@@ -157,6 +157,7 @@ writes() { # name script
 }
 w0=$(date +%s)
 writes "taxonomy writes" catalog-writes
+writes "product, variant and redirect writes" product-writes
 step "writes checked in $(( $(date +%s) - w0 ))s"
 console prestashop:module uninstall kronixonconnect
 expect_eq "uninstall told the platform (reason)" "uninstall" "$(dc exec -T ps cat /tmp/kx-stub/state.json </dev/null | jq -r '.unpaired')"
@@ -224,6 +225,7 @@ cat "$tmp/multistore"
 # The writes again: shop 1 is written, shop 2's links and entities stay out of reach.
 psphp modules/kronixonconnect/scripts/ps/pair.php "$stub" K7PM-3XQ9 >/dev/null
 writes "taxonomy writes with two shops" catalog-writes
+writes "product, variant and redirect writes with two shops" product-writes
 total_s=$(elapsed)
 summary="SMOKE ps=$ps image=$(dc config --images 2>/dev/null | grep prestashop | head -n 1) prestashop=$version php=$php_version install_s=$install_s module_install_s=$module_s total_s=$total_s failures=$failures"
 echo "$summary"

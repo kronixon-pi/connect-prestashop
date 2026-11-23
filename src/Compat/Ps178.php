@@ -44,6 +44,11 @@ class Ps178 implements CompatInterface
         return ['404', '301-product', '302-product', '301-category', '302-category'];
     }
 
+    public function displayedRedirectTypes(): array
+    {
+        return [];
+    }
+
     public function hasImageFormatSetting(): bool
     {
         return false;

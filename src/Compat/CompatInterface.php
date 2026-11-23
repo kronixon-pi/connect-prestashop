@@ -45,6 +45,13 @@ interface CompatInterface
      */
     public function redirectTypes(): array;
 
+    /**
+     * Further values of `product_shop.redirect_type`, which a product read from the shop may carry.
+     *
+     * @return list<string>
+     */
+    public function displayedRedirectTypes(): array;
+
     /** Whether the shop has the PS_IMAGE_FORMAT setting (webp/avif), PrestaShop 8.1+. */
     public function hasImageFormatSetting(): bool;
 
