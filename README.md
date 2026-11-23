@@ -262,9 +262,13 @@ refused). They write as the protocol defines it, without `Product::save()`: rows
 before the chunk's transaction; a stock row created in between is not locked, as one that does not exist yet): an
 order or a back-office save that committed meanwhile is what the row is compared with, and one that comes later
 waits for the chunk's commit. Another product's rows stay free.
-PrestaShop 1.7.8's end-of-order stock statement (`StockManager::updatePhysicalProductQuantity()`) scans and locks
-every stock row of the shop, by its design, so on 1.7.8 a checkout waits for any chunk that holds stock rows, about
-one chunk, whether its products are in the request or not.
+PrestaShop 1.7.8's end-of-order stock statements (`StockManager::updatePhysicalProductQuantity()`, two of them) scan
+and lock every stock row of the shop, by its design, so on 1.7.8 each of them waits for the chunk that holds stock
+rows at that moment, whether the order's products are in the request or not (a 300-row `safe` request on a shop of
+about 430 stock rows: payment validation 0.51–0.57 s against 0.12 s).
+`safe` runs PrestaShop's stock hooks inside the chunk's transaction, so a row another module writes from them is held
+until the chunk commits, and a checkout that writes the same row waits up to one chunk (on 9.1 ps_accounts writes a
+configuration row so: 0.38–0.45 s against 0.14 s for some checkouts during the request, the others 0.14–0.17 s).
 9.x updates an order's stock rows in one statement in the order of its lines; when that order runs against the
 chunk's, the two can deadlock. The server then rolls back the chunk, which has written nothing yet, and the chunk
 runs once more; the order's statement goes on (reproduced on MariaDB 10.11 and on MySQL 5.7, 8.0 and 8.4: the chunk
