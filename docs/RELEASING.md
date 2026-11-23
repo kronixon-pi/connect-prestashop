@@ -110,6 +110,12 @@ reads). `tests/Unit/Release/UpgradeScriptsTest.php` (in `make check` and module-
 grep: it does not see whether the check decides the statement, nor DML (`INSERT`, `UPDATE … SET x = x * 100`, a
 `Configuration` value computed from itself); the review of a new script checks the rest.
 
+**A broken upgrade script ships again, fixed.** PrestaShop runs every `upgrade/upgrade-<v>.php` with
+`version row < v ≤ new version`. After a rollback the row stays at the old version, so the next update crosses the
+broken release again, and so does a shop that never tried it. Every release after a broken one therefore ships a fixed
+copy of the broken script (or a no-op one): shipped unchanged, it fails again on every shop; dropped, its DB changes
+are lost unless the next release's script makes them.
+
 **Recovery.** If `modules/kronixonconnect` is missing and `modules/.kronixonconnect-prev` is there, the module
 cannot run: the cron URL and `/v1` answer 404, and nothing in the module can repair it. The shop's own pages still
 work. Put the old folder back by hand, as the user the web server runs as, then open the settings page:
