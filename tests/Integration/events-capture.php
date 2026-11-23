@@ -209,31 +209,40 @@ $kx->check(
     "order $orderId, $before → $after, ".json_encode($now)
 );
 
-// The time an order spends in the module's hook: orders with and without it registered (the same shop).
-$timed = static function (int $orders) use ($order, $a): float {
+// The time an order spends in the module's stock hook: orders with and without it registered, in turns
+// (the same shop, the same product), medians of 12 each; and the rows one order records.
+$timed = static function () use ($order, $a): float {
     $start = microtime(true);
-    for ($i = 0; $i < $orders; $i++) {
-        $order($a, 1);
-    }
+    $order($a, 1);
 
-    return (microtime(true) - $start) / $orders * 1000;
+    return (microtime(true) - $start) * 1000;
 };
-$timed(2);
-$with = $timed(10);
-$module->unregisterHook('actionUpdateQuantity');
-Cache::clean('hook_module_exec_list_*');
-$without = $timed(10);
-$module->registerHook('actionUpdateQuantity');
-Hooks::stayFirst($module);
-Cache::clean('hook_module_exec_list_*');
-$withAgain = $timed(10);
+$median = static function (array $values): float {
+    sort($values);
+
+    return (float) $values[intdiv(count($values), 2)];
+};
+$timed();
+[$with, $without, $perOrder] = [[], [], []];
+for ($round = 0; $round < 12; $round++) {
+    $rowsBefore = $rowCount();
+    $with[] = $timed();
+    $perOrder[] = $rowCount() - $rowsBefore;
+    $module->unregisterHook('actionUpdateQuantity');
+    Cache::clean('hook_module_exec_list_*');
+    $without[] = $timed();
+    $module->registerHook('actionUpdateQuantity');
+    Hooks::stayFirst($module);
+    Cache::clean('hook_module_exec_list_*');
+}
 $recorder = new Recorder($sqlDb, Kronixon\Connect\Services::settings(), new Kronixon\Connect\Support\SystemClock());
 $start = microtime(true);
 for ($i = 0; $i < 200; $i++) {
     $recorder->record(new Kronixon\Connect\Outbox\Change('stock.updated', (string) $a, ['variant_id' => '0', 'quantity' => $i], '0'));
 }
 $insert = (microtime(true) - $start) / 200 * 1000;
-printf("  time  order: %.1f ms with the hook, %.1f ms without, %.1f ms with it again; one recorded change %.2f ms\n", $with, $without, $withAgain, $insert);
+printf("  time  order (median of 12): %.1f ms with the hook, %.1f ms without; %d outbox row(s) per order; one recorded change %.2f ms\n", $median($with), $median($without), $median($perOrder), $insert);
+$kx->check('an order of one line records one stock row', $median($perOrder) === 1.0, json_encode($perOrder));
 $kx->check('a recorded change costs at most 3 ms', $insert <= 3.0, sprintf('%.2f ms', $insert));
 
 // Other entities of the back office.
