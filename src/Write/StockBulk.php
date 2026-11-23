@@ -124,7 +124,7 @@ final class StockBulk extends Bulk
         ];
     }
 
-    protected function load(array $rows): void
+    protected function load(array $rows, int $waitSeconds): void
     {
         $products = [];
         $variants = [];
@@ -135,6 +135,16 @@ final class StockBulk extends Bulk
             }
         }
         $ids = self::in($products);
+        // First, before any plain read starts the transaction's snapshot: every stock row of the chunk's
+        // products, their totals included, locked by id. An order that commits while this waits is in
+        // what is read (and in what StockAvailable::setQuantity() reads after it); one that comes later
+        // waits for the commit. An order's statements run without a transaction, one row each, so it
+        // never holds a row this waits for while waiting for one this holds.
+        $this->stock = [];
+        foreach ($this->db->lockRows('SELECT sa.id_product, sa.id_product_attribute, sa.quantity, sa.out_of_stock FROM '.$this->db->table('stock_available').' sa WHERE '
+            .$this->scope->stockWhere('sa').' AND sa.id_product IN ('.$ids.') ORDER BY sa.id_stock_available', $waitSeconds) as $stock) {
+            $this->stock[(int) $stock['id_product'].':'.(int) $stock['id_product_attribute']] = ['quantity' => (int) $stock['quantity'], 'out_of_stock' => (int) $stock['out_of_stock']];
+        }
         $this->products = [];
         foreach ($this->db->rows('SELECT ps.id_product, ps.visibility, (SELECT COUNT(*) FROM '.$this->db->table('product_attribute').' pa WHERE pa.id_product = ps.id_product) AS variants, m.flags FROM '
             .$this->db->table('product_shop').' ps LEFT JOIN '.$this->db->table('kx_entity_map')." m ON m.entity_type = 'product' AND m.external_id = CAST(ps.id_product AS CHAR)"
@@ -147,11 +157,6 @@ final class StockBulk extends Bulk
                 .' pas ON pas.id_product_attribute = pa.id_product_attribute AND pas.id_shop = '.$this->scope->shopId.' WHERE pa.id_product_attribute IN ('.self::in($variants).')') as $variant) {
                 $this->variants[(int) $variant['id_product_attribute']] = (int) $variant['id_product'];
             }
-        }
-        $this->stock = [];
-        foreach ($this->db->rows('SELECT sa.id_product, sa.id_product_attribute, sa.quantity, sa.out_of_stock FROM '.$this->db->table('stock_available').' sa WHERE '
-            .$this->scope->stockWhere('sa').' AND sa.id_product IN ('.$ids.')') as $stock) {
-            $this->stock[(int) $stock['id_product'].':'.(int) $stock['id_product_attribute']] = ['quantity' => (int) $stock['quantity'], 'out_of_stock' => (int) $stock['out_of_stock']];
         }
         $this->rowsOf = [];
         $this->totals = [];

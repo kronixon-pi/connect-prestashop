@@ -120,6 +120,44 @@ final class StockBulkTest extends TestCase
         self::assertSame('0', $this->db->rows('SELECT flags FROM ps_kx_entity_map')[0]['flags']);
     }
 
+    public function test_the_chunk_locks_its_stock_rows_first_by_id_inside_its_transaction(): void
+    {
+        $this->db->log = [];
+        $this->send([['product_id' => '2', 'variant_id' => '7', 'quantity' => 6], ['product_id' => '1', 'variant_id' => '0', 'quantity' => 6]]);
+
+        self::assertCount(1, $this->db->locks);
+        self::assertStringContainsString('ORDER BY sa.id_stock_available', $this->db->locks[0][0]);
+        $catalog = array_values(array_filter($this->db->log, static function (string $sql): bool {
+            return strpos($sql, 'kx_pending') === false;
+        }));
+        self::assertSame($this->db->locks[0][0], $catalog[0], 'no read of the catalog before the lock starts the snapshot');
+    }
+
+    public function test_a_quantity_another_session_commits_while_the_chunk_waits_is_a_conflict_in_both_modes(): void
+    {
+        foreach (['safe', 'fast'] as $mode) {
+            $this->db->pdo->exec('UPDATE ps_stock_available SET quantity = 5 WHERE id_product = 1');
+            // An order of one, committed after the chunk began and before its lock was granted.
+            $this->db->onLock = static function (CatalogDb $db): void {
+                $db->pdo->exec('UPDATE ps_stock_available SET quantity = quantity - 1 WHERE id_product = 1');
+                $db->onLock = null;
+            };
+            $data = $this->send([['product_id' => '1', 'variant_id' => '0', 'quantity' => 8, 'expected_quantity' => 5]], ['mode' => $mode]);
+            self::assertSame([['conflict', null, 4, []]], self::results($data), $mode);
+            self::assertSame(4, $data['results'][0]['current_quantity']);
+            self::assertSame('4', $this->db->rows('SELECT quantity FROM ps_stock_available WHERE id_product = 1')[0]['quantity'], $mode.': nothing written');
+
+            // Without expected_quantity the write lands after the order: the platform's value wins.
+            $this->db->onLock = static function (CatalogDb $db): void {
+                $db->pdo->exec('UPDATE ps_stock_available SET quantity = quantity - 1 WHERE id_product = 1');
+                $db->onLock = null;
+            };
+            $plain = $this->send([['product_id' => '1', 'variant_id' => '0', 'quantity' => 8]], ['mode' => $mode]);
+            self::assertSame([['ok', 'updated', 3, []]], self::results($plain), $mode);
+            self::assertSame('8', $this->db->rows('SELECT quantity FROM ps_stock_available WHERE id_product = 1')[0]['quantity']);
+        }
+    }
+
     /**
      * @param  list<array<string, mixed>>  $rows
      * @param  array<string, mixed>  $options

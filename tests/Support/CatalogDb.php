@@ -8,6 +8,8 @@ use DateTimeZone;
 use Kronixon\Connect\Catalog\ImageUrls;
 use Kronixon\Connect\Catalog\Scope;
 use Kronixon\Connect\Write\Database;
+use Kronixon\Connect\Write\RowsLocked;
+use LogicException;
 use PDO;
 
 /**
@@ -103,6 +105,15 @@ final class CatalogDb implements Database, ImageUrls
     /** @var list<string>|null when an array, every statement run through rows() is appended */
     public $log;
 
+    /** @var list<array{0: string, 1: int}> the statements and waits of lockRows() */
+    public $locks = [];
+
+    /** @var (callable(self): void)|null runs inside lockRows() before the read: another session's commit */
+    public $onLock;
+
+    /** @var bool lockRows() is not granted the locks */
+    public $lockFails = false;
+
     /** @var bool 1.7.8: no product_shop.unit_price */
     public $legacy = false;
 
@@ -159,6 +170,23 @@ final class CatalogDb implements Database, ImageUrls
     public function setActive(string $class, string $table, string $primary, int $id, bool $active): void
     {
         $this->pdo->exec('UPDATE '.$this->table($table).' SET active = '.(int) $active.' WHERE '.$primary.' = '.$id);
+    }
+
+    public function lockRows(string $sql, int $waitSeconds): array
+    {
+        if (! $this->pdo->inTransaction()) {
+            throw new LogicException('Rows are locked inside a transaction only.');
+        }
+        $this->locks[] = [$sql, $waitSeconds];
+        if ($this->onLock !== null) {
+            // What another session commits while this one waits for the lock.
+            ($this->onLock)($this);
+        }
+        if ($this->lockFails) {
+            throw new RowsLocked('locked');
+        }
+
+        return $this->rows($sql);
     }
 
     public function quote(string $text): string

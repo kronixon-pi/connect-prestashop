@@ -153,6 +153,46 @@ final class PriceBulkTest extends TestCase
         self::assertSame(['30.000000', '5.000000'], array_values($this->db->rows('SELECT price, unit_price_ratio FROM ps_product_shop WHERE id_product = 1')[0]), '1.7.8: only the ratio');
     }
 
+    public function test_the_chunk_reads_its_rows_with_their_locks_inside_its_transaction(): void
+    {
+        $this->send([['product_id' => '1', 'variant_id' => '0', 'price' => '11'], ['product_id' => '2', 'variant_id' => '7', 'price' => '2']]);
+
+        self::assertCount(3, $this->db->locks, 'product, product_shop (the default shop), the combinations');
+        self::assertStringContainsString('FROM `ps_product` WHERE', $this->db->locks[0][0]);
+        self::assertStringContainsString('ORDER BY id_product', $this->db->locks[1][0]);
+        self::assertStringContainsString('ORDER BY pa.id_product_attribute', $this->db->locks[2][0]);
+        self::assertSame(10, $this->db->locks[0][1], 'at most 10 s of a 25 s budget');
+
+        $this->db->locks = [];
+        $this->post(['rows' => [['product_id' => '1', 'variant_id' => '0', 'price' => '12']]], 25, false, false);
+        self::assertCount(1, $this->db->locks, 'another shop: only product_shop');
+    }
+
+    public function test_a_price_another_session_commits_while_the_chunk_waits_is_a_conflict(): void
+    {
+        // Committed after the chunk began and before its locks were granted (see the integration
+        // check bulk-race.php for the same on MySQL with a second connection).
+        $this->db->onLock = static function (CatalogDb $db): void {
+            $db->pdo->exec("UPDATE ps_product_shop SET price = '11.000000' WHERE id_product = 1");
+            $db->onLock = null;
+        };
+        $data = $this->send([['product_id' => '1', 'variant_id' => '0', 'price' => '12', 'expected_price' => '10']]);
+
+        self::assertSame([['conflict', null, '11.000000']], self::statuses($data, 'current_price'));
+        self::assertSame('11.000000', $this->db->rows('SELECT price FROM ps_product_shop WHERE id_product = 1')[0]['price'], 'nothing written');
+    }
+
+    public function test_rows_whose_locks_are_not_granted_are_skipped_with_continue_and_nothing_is_written(): void
+    {
+        $this->db->lockFails = true;
+        $data = $this->send([['product_id' => '1', 'variant_id' => '0', 'price' => '11']]);
+
+        self::assertSame(['skipped', 'rows_locked'], [$data['results'][0]['status'], $data['results'][0]['code']]);
+        self::assertTrue($data['continue']);
+        self::assertSame('10.000000', $this->db->rows('SELECT price FROM ps_product_shop WHERE id_product = 1')[0]['price']);
+        self::assertSame([], ProtocolSchemas::errors('prices-bulk.json', $data));
+    }
+
     public function test_hooks_per_product_and_the_facetedsearch_price_index_on_request(): void
     {
         $data = $this->send([['product_id' => '1', 'variant_id' => '0', 'price' => '11'], ['product_id' => '2', 'variant_id' => '7', 'price' => '2']], ['fire_hooks' => true, 'flush_cache' => false, 'reindex' => 'inline'], 25, true);

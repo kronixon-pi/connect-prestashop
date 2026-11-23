@@ -30,8 +30,10 @@ use Throwable;
 /**
  * A bulk endpoint (`prices/bulk`, `stock/bulk`; README §6.2): up to 1 000 rows without a `key`, a
  * result per row in the order sent, told apart by `product_id` and `variant_id`. The rows are read
- * and written in chunks of 100, each chunk in one transaction; a row is checked before anything is
- * written. A row whose current value the shop already holds is `unchanged`, so a repeat after a lost
+ * and written in chunks of 100, each chunk in one transaction that reads the rows it writes with their
+ * locks; a row is checked before anything is written, and an order or a save that commits meanwhile
+ * waits for the chunk's commit instead of being overwritten. Rows whose locks another session holds
+ * longer than the wait are `skipped` (`rows_locked`) with `continue`. A row whose current value the shop already holds is `unchanged`, so a repeat after a lost
  * answer neither writes nor sees a conflict. `expected_*` names the value the platform believes the
  * shop holds: when the shop holds another one (changed in the shop), the row is `conflict` with the
  * shop's value and is not written. When the time budget runs out the rest is `skipped`.
@@ -41,6 +43,9 @@ abstract class Bulk
     public const MAX_ROWS = 1000;
 
     private const CHUNK = 100;
+
+    /** Seconds a chunk waits at most for the locks of its rows (an order or a back-office save). */
+    private const LOCK_WAIT_S = 10;
 
     /** @var Database */
     protected $db;
@@ -136,7 +141,9 @@ abstract class Bulk
                 }
                 continue;
             }
-            foreach ($this->chunk($chunk) as $i => $result) {
+            // The longest wait for a row lock: what is left of the budget, at most LOCK_WAIT_S.
+            $wait = (int) max(1, min(self::LOCK_WAIT_S, floor($budget->remaining() - Budget::RESERVE_S)));
+            foreach ($this->chunk($chunk, $wait) as $i => $result) {
                 $results[$i] += $result;
             }
         }
@@ -173,11 +180,16 @@ abstract class Bulk
     abstract protected function parse(Item $row): array;
 
     /**
-     * What the shop holds of the rows' products and combinations, read once for the chunk.
+     * What the shop holds of the rows' products and combinations, read once for the chunk inside its
+     * transaction: first the rows the chunk writes, with their locks (Database::lockRows(), in the order
+     * of their primary key), so `expected_*` is compared with what the shop holds until the commit and
+     * a change committed meanwhile is not overwritten.
      *
      * @param  array<int, array<string, mixed>>  $rows
+     *
+     * @throws RowsLocked
      */
-    abstract protected function load(array $rows): void;
+    abstract protected function load(array $rows, int $waitSeconds): void;
 
     /**
      * The row's result without `product_id`/`variant_id`; it writes only when its status is `ok` and
@@ -265,13 +277,13 @@ abstract class Bulk
      * @param  array<int, array<string, mixed>>  $chunk
      * @return array<int, array<string, mixed>>
      */
-    private function chunk(array $chunk): array
+    private function chunk(array $chunk, int $waitSeconds): array
     {
         $results = [];
         $changed = [];
         try {
-            $this->load($chunk);
             $this->db->begin();
+            $this->load($chunk, $waitSeconds);
             foreach ($chunk as $i => $row) {
                 try {
                     $result = $this->row($row);
@@ -293,7 +305,10 @@ abstract class Bulk
             // After the rollback: the log shares the connection.
             $this->log->warning('write', 'A bulk chunk failed', ['exception' => get_class($error)]);
             foreach (array_keys($chunk) as $i) {
-                $results[$i] = ['status' => 'error', 'code' => 'module_error', 'message' => 'Unexpected module error.'];
+                // Rows another session holds are sent again with `continue`, like rows out of time.
+                $results[$i] = $error instanceof RowsLocked
+                    ? ['status' => 'skipped', 'code' => 'rows_locked', 'message' => 'the rows are locked by another session']
+                    : ['status' => 'error', 'code' => 'module_error', 'message' => 'Unexpected module error.'];
             }
 
             return $results;

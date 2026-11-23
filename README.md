@@ -257,7 +257,13 @@ and the hooks of other modules run. Rules of the protocol: [§6](protocol/v1/REA
 in the order sent, told apart by `product_id` and `variant_id` (a row naming the same pair as an earlier one is
 refused). They write as the protocol defines it, without `Product::save()`: rows are read and written in chunks of
 100, each chunk in one transaction, a row checked before anything of it is written; a chunk that fails is
-`module_error` for its rows and the next chunk goes on. Under the write lock and once per `Idempotency-Key`, as every
+`module_error` for its rows and the next chunk goes on. A chunk reads the rows it writes with their row locks
+(`SELECT … FOR UPDATE`, by id) first: an order or a back-office save that committed meanwhile is what the row is
+compared with, and one that comes later waits for the chunk's commit (measured with 1 000 rows: a checkout waited at
+most 0.08 s for prices, 0.2 s / 0.35 s for `safe` stock on 1.7.8 / 9.1 and 0.03 s for `fast`). PrestaShop writes an
+order's stock one statement at a time, without a transaction, so the two never wait for each other. Rows whose locks
+another session holds longer than the chunk's wait (10 s at most, never past the budget) are `skipped` with `code:
+rows_locked` and `continue: true`, nothing of them written. Under the write lock and once per `Idempotency-Key`, as every
 `POST`; what a dead write left half-written is removed first, and a product that is still left so is
 `cleanup_failed`.
 

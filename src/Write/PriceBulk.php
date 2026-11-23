@@ -103,7 +103,7 @@ final class PriceBulk extends Bulk
         return $wanted;
     }
 
-    protected function load(array $rows): void
+    protected function load(array $rows, int $waitSeconds): void
     {
         $products = [];
         $variants = [];
@@ -113,16 +113,21 @@ final class PriceBulk extends Bulk
                 $variants[] = (int) $row['variant'];
             }
         }
+        // Locked in PrestaShop's own order of a save (`product`, then `product_shop`), each by id: a
+        // back-office save in between waits for the commit and cannot leave the two tables apart.
+        if ($this->defaultShop) {
+            $this->db->lockRows('SELECT id_product FROM '.$this->db->table('product').' WHERE id_product IN ('.self::in($products).') ORDER BY id_product', $waitSeconds);
+        }
         $this->products = [];
-        foreach ($this->db->rows('SELECT id_product, price, wholesale_price, id_tax_rules_group, unit_price_ratio'.($this->scope->unitPriceColumn ? ', unit_price' : '')
-            .' FROM '.$this->db->table('product_shop').' WHERE id_shop = '.$this->scope->shopId.' AND id_product IN ('.self::in($products).')') as $product) {
+        foreach ($this->db->lockRows('SELECT id_product, price, wholesale_price, id_tax_rules_group, unit_price_ratio'.($this->scope->unitPriceColumn ? ', unit_price' : '')
+            .' FROM '.$this->db->table('product_shop').' WHERE id_shop = '.$this->scope->shopId.' AND id_product IN ('.self::in($products).') ORDER BY id_product', $waitSeconds) as $product) {
             $this->products[(int) $product['id_product']] = $product;
         }
         $this->variants = [];
         if ($variants !== []) {
-            foreach ($this->db->rows('SELECT pa.id_product_attribute, pa.id_product, pas.price, pas.wholesale_price FROM '.$this->db->table('product_attribute').' pa INNER JOIN '
+            foreach ($this->db->lockRows('SELECT pa.id_product_attribute, pa.id_product, pas.price, pas.wholesale_price FROM '.$this->db->table('product_attribute').' pa INNER JOIN '
                 .$this->db->table('product_attribute_shop').' pas ON pas.id_product_attribute = pa.id_product_attribute AND pas.id_shop = '.$this->scope->shopId
-                .' WHERE pa.id_product_attribute IN ('.self::in($variants).')') as $variant) {
+                .' WHERE pa.id_product_attribute IN ('.self::in($variants).') ORDER BY pa.id_product_attribute', $waitSeconds) as $variant) {
                 $this->variants[(int) $variant['id_product_attribute']] = $variant;
             }
         }
