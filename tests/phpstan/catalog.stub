@@ -21,6 +21,12 @@ class Hook
      * @return mixed
      */
     public static function exec($hook_name, $hook_args = []) {}
+
+    /**
+     * @param string $hook_name
+     * @return int|false
+     */
+    public static function getIdByName($hook_name) {}
 }
 
 class Search

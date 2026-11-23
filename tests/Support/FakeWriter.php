@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Kronixon\Connect\Tests\Support;
 
+use Kronixon\Connect\Api\Budget;
 use Kronixon\Connect\Write\Item;
 use Kronixon\Connect\Write\Warnings;
 use Kronixon\Connect\Write\Writer;
@@ -22,6 +23,9 @@ final class FakeWriter implements Writer
     /** @var Warnings */
     private $warnings;
 
+    /** @var (callable(Item): bool)|null the clean-up of an item */
+    public $undo;
+
     /**
      * @param  callable(Item, Warnings): array<string, mixed>  $write
      */
@@ -29,6 +33,16 @@ final class FakeWriter implements Writer
     {
         $this->write = $write;
         $this->warnings = $warnings;
+    }
+
+    public function start(Budget $budget): void
+    {
+        $this->steps[] = 'start';
+    }
+
+    public function seal(Item $item): void
+    {
+        $this->steps[] = 'seal '.$item->key();
     }
 
     public function prepare(Item $item): void
@@ -48,9 +62,11 @@ final class FakeWriter implements Writer
         $this->steps[] = 'committed '.$item->key();
     }
 
-    public function rolledBack(Item $item): void
+    public function rolledBack(Item $item): bool
     {
         $this->steps[] = 'rolledBack '.$item->key();
+
+        return $this->undo === null || ($this->undo)($item);
     }
 
     public function finish(): void

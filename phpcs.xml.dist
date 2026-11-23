@@ -5,6 +5,7 @@
     <file>controllers</file>
     <file>src</file>
     <file>sql</file>
+    <file>upgrade</file>
     <file>tests</file>
     <exclude-pattern>tests/phpstan/*</exclude-pattern>
     <arg name="extensions" value="php"/>

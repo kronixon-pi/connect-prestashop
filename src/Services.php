@@ -48,6 +48,7 @@ use Kronixon\Connect\Support\SystemClock;
 use Kronixon\Connect\Write\Batch;
 use Kronixon\Connect\Write\Download;
 use Kronixon\Connect\Write\Item;
+use Kronixon\Connect\Write\PendingWrites;
 use Kronixon\Connect\Write\Shop;
 use Kronixon\Connect\Write\ShopDatabase;
 use Kronixon\Connect\Write\Warnings;
@@ -140,7 +141,7 @@ final class Services
                 $context->employee = new Employee();
                 Cache::clean('hook_module_exec_list_*');
 
-                return new Shop($context, PrestaShopScope::of($context, $compat), $compat, $db, new PrestaShopImageUrls($context->link), self::redirects($context), $warnings, $options->bool('strict_languages') === true);
+                return new Shop($context, PrestaShopScope::of($context, $compat), $compat, $db, new PrestaShopImageUrls($context->link), self::redirects($context), new PendingWrites($db, (int) $context->shop->id, self::log()), $warnings, $options->bool('strict_languages') === true);
             },
             WriteEndpoints::writers(
                 new Download(self::settings()->get(Pairing::ALLOW_HTTP) === '1'),

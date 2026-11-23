@@ -58,6 +58,7 @@ final class BrandWriter extends ShopWriter
 
     public function prepare(Item $item): void
     {
+        parent::prepare($item);
         $this->logo = null;
         $logo = $item->object('logo');
         if ($logo === null) {
@@ -68,7 +69,7 @@ final class BrandWriter extends ShopWriter
             throw ItemError::invalid('logo.sha256');
         }
         $id = $this->resolve($item, (string) $item->string('name', 64));
-        if ($id !== null && is_file(self::file($id)) && hash_equals($sha256, (string) hash_file('sha256', self::file($id)))) {
+        if ($id !== null && is_file(self::file($id)) && in_array($sha256, [hash_file('sha256', self::file($id)), ImageNote::read(self::file($id))], true)) {
             return;
         }
         $this->logo = $this->download->fetch((string) $logo->string('url'), $sha256, 'logo');
@@ -117,7 +118,12 @@ final class BrandWriter extends ShopWriter
             return;
         }
         $info = getimagesize($this->logo);
-        $stored = is_array($info) && $info[2] === IMAGETYPE_JPEG ? copy($this->logo, $file) : ImageManager::resize($this->logo, $file);
+        if (is_array($info) && $info[2] === IMAGETYPE_JPEG) {
+            $stored = copy($this->logo, $file);
+        } else {
+            // PrestaShop converts it: the stored file carries the hash of the one it was made of.
+            $stored = ImageManager::resize($this->logo, $file) && ImageNote::write($file, (string) hash_file('sha256', $this->logo));
+        }
         foreach (ImageType::getImagesTypes('manufacturers') as $type) {
             foreach ($this->formats as $format) {
                 $stored = ImageManager::resize($file, _PS_MANU_IMG_DIR_.$this->id.'-'.stripslashes((string) $type['name']).'.'.$format, (int) $type['width'], (int) $type['height'], $format, $format !== 'jpg') && $stored;
@@ -129,10 +135,11 @@ final class BrandWriter extends ShopWriter
         }
     }
 
-    public function rolledBack(Item $item): void
+    public function rolledBack(Item $item): bool
     {
-        parent::rolledBack($item);
         $this->dropLogo();
+
+        return parent::rolledBack($item);
     }
 
     protected function reader(): Reader

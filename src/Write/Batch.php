@@ -31,9 +31,11 @@ use Throwable;
  * A write batch (README §6): the envelope is checked as a whole (422, 413), then the items are written
  * in order, each in its own transaction, so a refused item leaves nothing behind and the others stay.
  * A module hooked to a save may commit that transaction early (ps_facetedsearch truncates a table), so
- * writers check an item before its first write and rolledBack() removes what a rollback could not. When the time budget runs out the rest is `skipped` and the answer says `continue: true`. The
- * `content_hash` of every written entity is read once, after the last item, so it is what the shop
- * holds when the batch ends.
+ * writers check an item before its first write and rolledBack() removes what a rollback could not; when
+ * that fails too the item is `cleanup_failed`, the next ones are written as usual and the next batch
+ * tries again (PendingWrites). When the time budget runs out the rest is `skipped` and the answer says
+ * `continue: true`. The `content_hash` of every written entity is read once, after the last item, so it
+ * is what the shop holds when the batch ends.
  */
 final class Batch
 {
@@ -58,7 +60,12 @@ final class Batch
     {
         [$items, $options] = self::envelope($request);
         $warnings = new Warnings();
-        $writer = $writers($options, $warnings);
+        try {
+            $writer = $writers($options, $warnings);
+        } catch (ItemError $error) {
+            throw ApiError::validationFailed([$error->field() ?? 'options']);
+        }
+        $writer->start($budget);
         $results = [];
         $summary = ['ok' => 0, 'error' => 0, 'skipped' => 0];
         $written = false;
@@ -107,21 +114,36 @@ final class Batch
             $open = true;
             $this->db->begin();
             $result = $writer->write($item);
+            $writer->seal($item);
             $this->db->commit();
             $open = false;
             $writer->committed($item);
 
             return ['status' => 'ok', 'kx_id' => $kxId] + $result + ['warnings' => $warnings->take()];
         } catch (Throwable $error) {
-            if ($open) {
-                $this->db->rollback();
-                $writer->rolledBack($item);
-            }
+            $clean = ! $open || $this->undo($writer, $item, $request);
             if (! $error instanceof ItemError) {
                 $error = $this->unexpected($error, $request);
             }
+            if (! $clean) {
+                $error = ItemError::leftOver();
+            }
 
             return ['status' => 'error'] + $error->result() + ['warnings' => $warnings->take()];
+        }
+    }
+
+    /** Whether nothing of the item is left; whatever the clean-up throws is the item's error, never the batch's. */
+    private function undo(Writer $writer, Item $item, Request $request): bool
+    {
+        try {
+            $this->db->rollback();
+
+            return $writer->rolledBack($item);
+        } catch (Throwable $error) {
+            $this->log->warning('write', 'The clean-up of an item failed', ['path' => $request->path(), 'exception' => get_class($error)]);
+
+            return false;
         }
     }
 

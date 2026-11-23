@@ -57,17 +57,33 @@ final class Texts
         }
         $texts = [];
         foreach ($map as $iso => $text) {
-            $id = $this->languageId((string) $iso);
+            $id = $this->known((string) $iso, $item->at($name));
             if ($id !== null) {
                 $texts[$id] = $text;
-            } elseif ($this->strict) {
-                throw new ItemError('language_unknown', 'The shop has no language '.$iso, $item->at($name).'.'.$iso);
-            } else {
-                $this->warnings->add('language_unknown');
             }
         }
 
         return $texts;
+    }
+
+    /** The language of a member's text; null, with a warning, for one the shop does not have (refused when strict). */
+    public function known(string $iso, string $member): ?int
+    {
+        $id = $this->languageId($iso);
+        if ($id === null && $this->strict) {
+            throw new ItemError('language_unknown', 'The shop has no language '.$iso, $member.'.'.$iso);
+        }
+        if ($id === null) {
+            $this->warnings->add('language_unknown');
+        }
+
+        return $id;
+    }
+
+    /** `.iso` of a language of the shop, '' for another. */
+    public function suffix(int $langId): string
+    {
+        return isset($this->scope->languages[$langId]) ? '.'.$this->scope->languages[$langId] : '';
     }
 
     /**

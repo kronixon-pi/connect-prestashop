@@ -55,7 +55,7 @@ final class BatchTest extends TestCase
             return ['external_id' => '5', 'action' => 'created'];
         });
 
-        self::assertSame(['prepare a', 'write a', 'committed a', 'prepare 2', 'write 2', 'committed 2', 'finish', 'hashes'], $this->steps());
+        self::assertSame(['start', 'prepare a', 'write a', 'seal a', 'committed a', 'prepare 2', 'write 2', 'seal 2', 'committed 2', 'finish', 'hashes'], $this->steps());
         self::assertSame(['a', '2'], array_column($data['results'], 'key'));
         self::assertSame('0192b2e4-2f7a-7c5b-8a1d-3e4f5a6b7c8d', $data['results'][0]['kx_id']);
         self::assertSame([['meta_title_cut'], ['meta_title_cut']], array_column($data['results'], 'warnings'));
@@ -83,6 +83,66 @@ final class BatchTest extends TestCase
         self::assertContains('rolledBack b', $this->steps());
         self::assertNotContains('committed b', $this->steps());
         self::assertSame(['ok' => 2, 'error' => 1, 'skipped' => 0, 'time_ms' => 0], $data['summary']);
+    }
+
+    /**
+     * @return iterable<string, array{callable(): bool, list<string>}>
+     */
+    public function failedCleanUps(): iterable
+    {
+        yield 'something is left' => [static function (): bool {
+            return false;
+        }, ['TypeError']];
+        yield 'the clean-up throws' => [static function (): bool {
+            throw new RuntimeException('hook');
+        }, ['RuntimeException', 'TypeError']];
+    }
+
+    /**
+     * @dataProvider failedCleanUps
+     *
+     * @param  callable(): bool  $undo
+     * @param  list<string>  $logged
+     */
+    public function test_a_clean_up_that_fails_is_the_items_error_and_the_batch_goes_on(callable $undo, array $logged): void
+    {
+        $data = $this->run_batch([['key' => '1'], ['key' => '2'], ['key' => '3'], ['key' => '4'], ['key' => '5']], function (Item $item) use ($undo): array {
+            if ($this->writer !== null) {
+                $this->writer->undo = $undo;
+            }
+            if ($item->key() === '3') {
+                throw new \TypeError('hook');
+            }
+
+            return ['external_id' => '5', 'action' => 'created'];
+        });
+
+        self::assertSame(['ok', 'ok', 'error', 'ok', 'ok'], array_column($data['results'], 'status'));
+        self::assertSame('cleanup_failed', $data['results'][2]['code']);
+        self::assertSame(['ok' => 4, 'error' => 1, 'skipped' => 0, 'time_ms' => 0], $data['summary']);
+        self::assertCount(4, array_column($data['results'], 'content_hash'), 'the written items are reported in full');
+        self::assertSame($logged, array_map(static function (array $row): string {
+            return json_decode((string) $row['context'], true)['exception'];
+        }, $this->logged));
+        self::assertSame([], ProtocolSchemas::errors('products.json', $data));
+    }
+
+    public function test_an_option_of_the_wrong_value_refuses_the_request(): void
+    {
+        foreach (['reindex' => 'later', 'strict_languages' => 'yes'] as $option => $value) {
+            $request = Request::fromServer(['REQUEST_METHOD' => 'POST', 'QUERY_STRING' => 'path=products'], (string) json_encode(['items' => [['key' => 'a']], 'options' => [$option => $value]]));
+            try {
+                (new Batch($this->db, new Log(static function (): void {
+                })))->run($request, new Budget($this->clock, 25), static function (Item $options): Writer {
+                    $options->choice('reindex', ['deferred', 'inline', 'none']);
+                    $options->bool('strict_languages');
+                    self::fail('accepted');
+                });
+                self::fail('the options were accepted');
+            } catch (ApiError $error) {
+                self::assertSame([422, 'validation_failed', ['errors' => ['options.'.$option]]], [$error->status(), $error->errorCode(), $error->details()]);
+            }
+        }
     }
 
     public function test_an_unexpected_error_is_logged_by_class_and_never_quoted(): void
