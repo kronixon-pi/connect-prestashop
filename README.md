@@ -194,7 +194,8 @@ and the hooks of other modules run. Rules of the protocol: [§6](protocol/v1/REA
   the module runs the hooks of an update for it, with the object as stored and active
   (`actionObjectUpdateBefore`/`After`, `actionObject<Class>UpdateBefore`/`After`, and `actionProductSave` +
   `actionProductUpdate` for a product, `actionCategoryUpdate` for a category), in the paired shop. They save
-  nothing; one that throws is logged and the item stays `ok`.
+  nothing; one that throws is logged, the next one still runs (1.7.8 lets a module's exception through) and the item
+  stays `ok`.
 - **Multistore.** Ids of another shop are not found; a created category, feature, group or brand is in the paired
   shop only. Columns PrestaShop shares between shops (a product's reference, a brand's name and logo) change for all.
 - **Categories.** Items are written in order, `parent_key` names an earlier one; without a parent the category is
@@ -235,9 +236,9 @@ and the hooks of other modules run. Rules of the protocol: [§6](protocol/v1/REA
   dispatcher's routes (entities while they are active, the shop's pages, modules), and a file or folder of the
   installation counts too. On the storefront a row is served only where the shop shows no other page, and only to a
   target that is active. `KX_REDIRECTS` goes back to `0` with the write that finds no row left.
-- **Known limits.** Until a half-written product or category is deleted, its storefront URL answers as PrestaShop
-  answers for any inactive object: on 1.7.8 `404`; on 9.1 `403` for a product, `404` for a brand and `500` for a
-  category, whose tree position is not set yet. Some of these pages carry its name (the breadcrumb, JSON-LD,
+- **Known limits.** Until a half-written product, category or brand is deleted, its storefront URL answers as
+  PrestaShop answers for any inactive object: on 1.7.8 `404`; on 9.1 `403` for a product, `404` for a brand and `500`
+  for a category, whose tree position is not set yet. Some of these pages carry its name (the breadcrumb, JSON-LD,
   `<title>`). The next signed request that finds no write running deletes it.
 
 ## What the module adds to the shop
