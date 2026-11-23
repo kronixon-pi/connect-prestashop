@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://connect.kronixon.com/protocol/v1/schemas/module/images.json",
   "title": "POST images",
-  "description": "Images of one product from signed HTTPS URLs (expire ≤ 1 h), checked against sha256; an item whose kx_key and sha256 are already mapped is not downloaded again and keeps its id_image (Spec §6.24). At most 50 items.",
+  "description": "Images of one product from signed HTTPS URLs (expire ≤ 1 h) on a host of the platform the shop is paired with, checked against sha256; an item whose kx_key and sha256 are already mapped is not downloaded again and keeps its id_image, another sha256 replaces the files of the same image (Spec §6.24). At most 50 items. variant_id links every image of the request to that combination. urls of a result: one per image type, and original.",
   "x-kx-endpoint": {
     "method": "POST",
     "path": "/v1/images",

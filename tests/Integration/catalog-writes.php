@@ -41,7 +41,7 @@ $tag = substr(SignedClient::uuid(), 0, 8);
 
 $caps = $kx->get('capabilities')['data'];
 $kx->check('capabilities announce the taxonomy writes', $caps['capabilities']['categories'] === true && $caps['capabilities']['attributes'] === true && $caps['capabilities']['tags'] === true
-    && $caps['capabilities']['images'] === false && $caps['capabilities']['stock'] === true && $caps['limits']['batch'] === 100, (string) json_encode($caps));
+    && $caps['capabilities']['images'] === true && $caps['capabilities']['stock'] === true && $caps['limits']['batch'] === 100, (string) json_encode($caps));
 
 // Categories: the tree by parent_key, positions, hashes.
 $kxA = SignedClient::uuid();
@@ -130,11 +130,11 @@ $v2 = $results($kx->post('attribute-values', ['items' => [
 ]]));
 $kx->check('attribute-values: a repeat is unchanged with the same hash, a value of another parent is not found', ($v2['fv']['action'] ?? '') === 'unchanged' && $v2['fv']['content_hash'] === $v['fv']['content_hash'] && $v2['av']['content_hash'] === $v['av']['content_hash'] && ($v2['wrong']['code'] ?? '') === 'not_found', (string) json_encode($v2));
 
-// Brands and the logo (served by this shop itself).
-$logo = _PS_IMG_DIR_.'kx-logo.jpg';
+// Brands and the logo (served by the platform stub, a host of the platform the shop is paired with).
+@mkdir('/tmp/kx-stub/files', 0777, true);
+$logo = '/tmp/kx-stub/files/kx-logo.jpg';
 $image = imagecreatetruecolor(300, 200);
 imagejpeg($image, $logo);
-$logoUrl = rtrim((string) ($argv[1] ?? ''), '/').'/img/kx-logo.jpg';
 $sha = (string) hash_file('sha256', $logo);
 $brand = ['key' => 'b', 'kx_id' => SignedClient::uuid(), 'name' => "Brand $tag", 'description' => ['en' => '<p>Good</p>'], 'match_by' => ['name']];
 $b = $results($kx->post('brands', ['items' => [$brand, ['key' => 'n', 'name' => ''], ['key' => 'l', 'name' => "Logo $tag", 'logo' => ['url' => 'ftp://x/y', 'sha256' => $sha]]]]));
@@ -142,12 +142,16 @@ $brandId = (int) ($b['b']['external_id'] ?? 0);
 $kx->check('brands: created active, refused names and URLs', ($b['b']['action'] ?? '') === 'created' && $value("SELECT active FROM {$p}manufacturer WHERE id_manufacturer = $brandId") === 1 && ($b['n']['field'] ?? '') === 'name' && ($b['l']['field'] ?? '') === 'logo.url', (string) json_encode($b));
 $b2 = $results($kx->post('brands', ['items' => [['key' => 'm', 'name' => strtoupper("Brand $tag"), 'match_by' => ['name']], ['key' => 'b', 'external_id' => (string) $brandId, 'name' => "Brand $tag", 'active' => false]]]));
 $kx->check('brands: matched by name, renamed back, deactivated', $b2['m']['external_id'] === (string) $brandId && ($b2['b']['action'] ?? '') === 'updated' && $value("SELECT active FROM {$p}manufacturer WHERE id_manufacturer = $brandId") === 0, (string) json_encode($b2));
-// The shop's Apache listens on 80 inside the container; its public port is not reachable from here.
-$inside = 'http://127.0.0.1/img/kx-logo.jpg';
+$inside = (getenv('KX_STUB_URL') ?: 'http://127.0.0.1:8099').'/files/kx-logo.jpg';
 $with = ['key' => 'b', 'external_id' => (string) $brandId, 'name' => "Brand $tag", 'logo' => ['url' => $inside, 'sha256' => $sha]];
-$l = $results($kx->post('brands', ['items' => [$with, ['key' => 'bad', 'external_id' => (string) $brandId, 'name' => "Brand $tag", 'logo' => ['url' => $inside, 'sha256' => str_repeat('0', 64)]]]]));
+copy($logo, _PS_IMG_DIR_.'kx-logo.jpg');
+$l = $results($kx->post('brands', ['items' => [$with, ['key' => 'bad', 'external_id' => (string) $brandId, 'name' => "Brand $tag", 'logo' => ['url' => $inside, 'sha256' => str_repeat('0', 64)]],
+    // The shop's own Apache (port 80 inside the container): not a host of the platform.
+    ['key' => 'own', 'external_id' => (string) $brandId, 'name' => "Brand $tag", 'logo' => ['url' => 'http://127.0.0.1/img/kx-logo.jpg', 'sha256' => str_repeat('1', 64)]], ]]));
+unlink(_PS_IMG_DIR_.'kx-logo.jpg');
 $file = _PS_MANU_IMG_DIR_.$brandId.'.jpg';
-$kx->check('brands: the logo is fetched, checked and resized', ($l['b']['action'] ?? '') === 'updated' && $l['b']['warnings'] === [] && is_file($file) && hash_file('sha256', $file) === $sha && glob(_PS_MANU_IMG_DIR_.$brandId.'-*.jpg') !== [] && ($l['bad']['code'] ?? '') === 'sha256_mismatch', (string) json_encode($l));
+$kx->check('brands: the logo is fetched, checked and resized; another host is refused', ($l['b']['action'] ?? '') === 'updated' && $l['b']['warnings'] === [] && is_file($file) && hash_file('sha256', $file) === $sha && glob(_PS_MANU_IMG_DIR_.$brandId.'-*.jpg') !== [] && ($l['bad']['code'] ?? '') === 'sha256_mismatch'
+    && ($l['own']['code'] ?? '') === 'download_host_refused', (string) json_encode($l));
 unlink($logo);
 $l2 = $results($kx->post('brands', ['items' => [$with]]));
 $kx->check('brands: the logo the shop holds is not fetched again', ($l2['b']['action'] ?? '') === 'unchanged' && $l2['b']['content_hash'] === $l['b']['content_hash'], (string) json_encode($l2));

@@ -40,11 +40,11 @@ final class Endpoints
      * Capabilities whose operations arrive with later module versions, or that PrestaShop does not have
      * (`stock_locations`: one stock per shop): false (README §10).
      */
-    private const NOT_YET = ['images', 'image_alt', 'stock_locations', 'specific_prices', 'webhooks', 'orders.read', 'events.pull'];
+    private const NOT_YET = ['stock_locations', 'specific_prices', 'webhooks', 'orders.read', 'events.pull'];
 
     /** Capabilities of the write endpoints this build has (WriteEndpoints, BulkEndpoints). */
     private const WRITES = ['products.write', 'variants', 'categories', 'attributes', 'attribute_values_custom', 'tags', 'seo', 'redirects',
-        'prices.bulk', 'stock', 'search_reindex', 'cache_flush', ];
+        'prices.bulk', 'stock', 'search_reindex', 'cache_flush', 'images', 'image_alt', ];
 
     /** @var SecretStore */
     private $secrets;

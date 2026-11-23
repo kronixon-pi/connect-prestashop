@@ -112,6 +112,9 @@ final class PendingWrites
     /** @var callable(string, array<string, mixed>): void Hook::exec() */
     private $hook;
 
+    /** @var (callable(ObjectModel): void)|null add()'s $stored, until it ran */
+    private $stored;
+
     /**
      * @param  (callable(string, array<string, mixed>): void)|null  $hook  Hook::exec() unless given
      */
@@ -133,8 +136,14 @@ final class PendingWrites
         $this->reset();
     }
 
-    /** PrestaShop's add(), with the object known whatever add() does; one with a page is added inactive. */
-    public function add(ObjectModel $object): bool
+    /**
+     * PrestaShop's add(), with the object known whatever add() does; one with a page is added inactive.
+     * $stored runs once, right after the mark: in this module's actionObjectAddAfter, before any other
+     * module's hook (one that commits early then commits what $stored did too), else after add().
+     *
+     * @param  (callable(ObjectModel): void)|null  $stored  what belongs to the object's rows (an image's files)
+     */
+    public function add(ObjectModel $object, ?callable $stored = null): bool
     {
         $hide = isset(self::SHOWN[$this->tableOf($object)]) && property_exists($object, 'active') && (bool) $object->active;
         if ($hide) {
@@ -142,13 +151,15 @@ final class PendingWrites
         }
         $this->created[] = $object;
         $this->adding = $object;
+        $this->stored = $stored;
         self::$listening = $this;
         try {
             return (bool) $object->add();
         } finally {
             self::$listening = null;
-            $this->adding = null;
             $this->mark($object);
+            $this->adding = null;
+            $this->stored = null;
             if ($hide) {
                 $this->hidden[] = $object;
             }
@@ -353,6 +364,12 @@ final class PendingWrites
         }
         $this->insert(get_class($object), $table, $id, (string) $this->kxId, 0, date('Y-m-d H:i:s'));
         $this->marked[$table.':'.$id] = [$table, $id];
+        if ($this->stored !== null && $object === $this->adding) {
+            // Once; the caller checks that it ran (PrestaShop 9.x catches what a hook throws).
+            $stored = $this->stored;
+            $this->stored = null;
+            $stored($object);
+        }
     }
 
     /** Whether the object is gone, with its mark. */

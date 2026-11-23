@@ -83,6 +83,7 @@ final class FakePlatform implements Transport
             'server_time' => $this->now,
             'tenant_name' => 'Example Ltd',
             'heartbeat_interval' => 86400,
+            'download_hosts' => ['Files.Example.test', 'not a host'],
         ], JSON_UNESCAPED_SLASHES)];
     }
 

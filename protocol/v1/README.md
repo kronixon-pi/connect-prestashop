@@ -179,7 +179,7 @@ that serves it announces `capabilities.catalog.variants_product_id_in: true`; wi
 client reads one `product_id` at a time.
 
 Writes of entities (`POST products`, `variants`, `categories`, `attributes`, `attribute-values`, `brands`, `tags`,
-`seo/redirects`):
+`seo/redirects`, and `images`: the images of one `product_id`, ≤ 50, `items` may be empty for `strategy: sync`):
 
 - A broken envelope is refused as a whole (`422`: no `items`, an item without a `key` or with a `key` another item
   has); anything wrong with one item is that item's `error` with `code` and `field`.
@@ -198,8 +198,10 @@ Writes of entities (`POST products`, `variants`, `categories`, `attributes`, `at
   `currency_not_found`, `tax_rules_group_not_found`, `feature_not_found`, `feature_value_not_found`,
   `product_not_found`, `product_type_unsupported`, `combination_duplicate`, `target_not_found`, `target_inactive`,
   `redirect_loop`, `redirect_chain`, `slug_taken`, `category_active`, `friendly_urls_off`, `language_unknown`,
-  `download_failed`, `sha256_mismatch`, `image_invalid`, `save_failed`, `cleanup_failed`, `time_budget` (skipped).
-  Clients treat an unknown code as an error of the item.
+  `download_failed`, `sha256_mismatch`, `image_invalid`, `save_failed`, `cleanup_failed`, `time_budget` (skipped);
+  for files (`brands` logos, `images`) also `download_host_refused` (not a host of the platform the shop is paired
+  with: the Connect host and the pair answer's `download_hosts`), `image_too_large`, `image_not_stored`; for `DELETE
+  images` `image_not_kx`. Clients treat an unknown code as an error of the item.
 - A redirect (`seo/redirects`, `seo.redirect` of a product) leads to a page the shop shows: a missing
   (`target_not_found`) or inactive (`target_inactive`) target, one that is redirected itself (`redirect_chain`: name its
   end instead) and one whose redirects lead back (`redirect_loop`, also while the entities are still active) are

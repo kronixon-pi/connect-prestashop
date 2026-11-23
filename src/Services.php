@@ -162,11 +162,31 @@ final class Services
 
                 return new Shop($context, $scope, $compat, $db, new PrestaShopImageUrls($context->link), self::redirects($context), self::pages($scope), new PendingWrites($db, (int) $context->shop->id, self::log()), $warnings, $options->bool('strict_languages') === true, self::facets($db, $scope));
             },
-            WriteEndpoints::writers(
-                new Download(self::settings()->get(Pairing::ALLOW_HTTP) === '1'),
-                (new PrestaShopInfo($context, $compat))->imageFormats()
-            )
+            WriteEndpoints::writers(self::download(), (new PrestaShopInfo($context, $compat))->imageFormats())
         );
+    }
+
+    /**
+     * Files (logos, images) come only from the platform the module is paired with: the host of its
+     * Connect URL, of the pairing's API base and the pairing's `download_hosts`.
+     */
+    public static function download(): Download
+    {
+        $settings = self::settings();
+        $hosts = [];
+        foreach ([$settings->get(Pairing::PLATFORM_URL) ?: Protocol::DEFAULT_PLATFORM_URL, $settings->get(SecretStore::API_BASE)] as $url) {
+            $parts = parse_url((string) $url);
+            if (is_array($parts) && isset($parts['host']) && $parts['host'] !== '') {
+                $hosts[] = $parts['host'].':'.($parts['port'] ?? (($parts['scheme'] ?? '') === 'http' ? 80 : 443));
+            }
+        }
+        foreach (explode(',', (string) $settings->get(SecretStore::DOWNLOAD_HOSTS)) as $host) {
+            if ($host !== '') {
+                $hosts[] = $host;
+            }
+        }
+
+        return new Download($settings->get(Pairing::ALLOW_HTTP) === '1', $hosts);
     }
 
     /**

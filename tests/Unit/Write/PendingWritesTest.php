@@ -122,6 +122,30 @@ final class PendingWritesTest extends TestCase
         self::assertSame(['77'], $this->marks());
     }
 
+    public function test_what_belongs_to_the_rows_is_done_once_with_the_mark_before_the_other_hooks(): void
+    {
+        $steps = [];
+        $product = $this->stored();
+        $product->onAdd = static function (ObjectModel $object) use (&$steps): void {
+            PendingWrites::added($object);       // this module, first in actionObjectAddAfter
+            $steps[] = 'another module';        // may commit here
+            PendingWrites::added($object);
+        };
+        $this->pending->add($product, function (ObjectModel $object) use (&$steps): void {
+            $steps[] = 'files of '.$object->id.', marked: '.implode(',', $this->marks());
+        });
+        self::assertSame(['files of 77, marked: 77', 'another module'], $steps);
+
+        $steps = [];
+        $this->pending->item(new Item(['key' => 'b', 'kx_id' => self::KX]));
+        $quiet = $this->stored();
+        $quiet->id = 78;
+        $this->pending->add($quiet, static function () use (&$steps): void {
+            $steps[] = 'after add()';
+        });
+        self::assertSame(['after add()'], $steps, 'without the hook: after add(), once');
+    }
+
     public function test_one_that_cannot_be_removed_does_not_stop_the_others(): void
     {
         $category = new Category();

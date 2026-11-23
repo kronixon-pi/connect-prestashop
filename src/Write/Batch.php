@@ -52,16 +52,19 @@ final class Batch
     }
 
     /**
-     * @param  callable(Item, Warnings): Writer  $writers  the endpoint's writer for the request's `options`
+     * @param  callable(Item, Warnings, Item): Writer  $writers  the endpoint's writer for the request's
+     *                                                           `options` and its other members (`POST images`: the product)
+     * @param  int  $max  items of one request (`images`: 50)
+     * @param  bool  $empty  whether `items` may be empty (`images` with `strategy: sync` removes every image of ours)
      *
      * @throws ApiError 400, 413 batch_too_large, 422 validation_failed
      */
-    public function run(Request $request, Budget $budget, callable $writers): Response
+    public function run(Request $request, Budget $budget, callable $writers, int $max = Protocol::MAX_BATCH, bool $empty = false): Response
     {
-        [$items, $options] = self::envelope($request);
+        [$items, $options, $body] = self::envelope($request, $max, $empty);
         $warnings = new Warnings();
         try {
-            $writer = $writers($options, $warnings);
+            $writer = $writers($options, $warnings, $body);
         } catch (ItemError $error) {
             throw ApiError::validationFailed([$error->field() ?? 'options']);
         }
@@ -79,7 +82,7 @@ final class Batch
             $summary[$result['status']]++;
             $results[] = ['key' => $item->key()] + $result;
         }
-        if ($written) {
+        if ($written || $items === []) {
             $writer->finish();
             $ok = array_values(array_filter($results, static function (array $result): bool {
                 return $result['status'] === 'ok';
@@ -162,11 +165,11 @@ final class Batch
     }
 
     /**
-     * @return array{0: list<Item>, 1: Item} items and options
+     * @return array{0: list<Item>, 1: Item, 2: Item} items, options and the other members of the body
      *
      * @throws ApiError
      */
-    private static function envelope(Request $request): array
+    private static function envelope(Request $request, int $max, bool $empty): array
     {
         $body = json_decode($request->body(), true);
         if (! is_array($body)) {
@@ -174,11 +177,11 @@ final class Batch
         }
         $items = $body['items'] ?? null;
         $options = $body['options'] ?? [];
-        if (! is_array($items) || $items === [] || $items !== array_values($items)) {
+        if (! is_array($items) || ($items === [] && ! $empty) || $items !== array_values($items)) {
             throw ApiError::validationFailed(['items']);
         }
-        if (count($items) > Protocol::MAX_BATCH) {
-            throw ApiError::batchTooLarge(Protocol::MAX_BATCH);
+        if (count($items) > $max) {
+            throw ApiError::batchTooLarge($max);
         }
         $errors = is_array($options) ? [] : ['options'];
         $parsed = [];
@@ -195,6 +198,8 @@ final class Batch
             throw ApiError::validationFailed($errors);
         }
 
-        return [array_values($parsed), new Item($options, 'options')];
+        unset($body['items'], $body['options']);
+
+        return [array_values($parsed), new Item($options, 'options'), new Item($body)];
     }
 }

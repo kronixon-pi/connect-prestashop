@@ -53,6 +53,19 @@ $save = static function (array $state) use ($stateFile): void {
     file_put_contents($stateFile, json_encode($state, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
 };
 
+// Files the tests put next to the state (`files/<name>`), as the platform's storage serves logos and images.
+if ($method === 'GET' && preg_match('#\A/files/([A-Za-z0-9._-]{1,100})\z#', $path, $m) === 1) {
+    $file = dirname($stateFile).'/files/'.$m[1];
+    if (! is_file($file)) {
+        http_response_code(404);
+
+        return true;
+    }
+    header('Content-Type: application/octet-stream');
+    readfile($file);
+
+    return true;
+}
 if (($_SERVER['HTTP_X_KX_PROTOCOL'] ?? '') !== 'v1') {
     $error(400, 'protocol_version_unsupported');
 

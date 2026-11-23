@@ -186,6 +186,7 @@ final class Pairing
             if (! $this->secrets->paired($storeId, $secret, $apiBase, $platformKey, is_string($tenant) ? $tenant : '', $now)) {
                 throw new RuntimeException('The pairing could not be stored.');
             }
+            $this->settings->set(SecretStore::DOWNLOAD_HOSTS, implode(',', self::hosts($answer['download_hosts'] ?? [])));
         } catch (PlatformError $error) {
             $this->log->warning('pairing', 'Pairing refused', ['error_code' => $error->errorCode(), 'status' => $error->status()]);
 
@@ -270,6 +271,24 @@ final class Pairing
         }
 
         return $request;
+    }
+
+    /**
+     * The host names of `download_hosts` (platform/pair.json): at most 8, anything else is left out.
+     *
+     * @param  mixed  $hosts
+     * @return list<string>
+     */
+    private static function hosts($hosts): array
+    {
+        $valid = [];
+        foreach (is_array($hosts) ? array_slice($hosts, 0, 8) : [] as $host) {
+            if (is_string($host) && strlen($host) <= 253 && preg_match('/\A[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+\z/', strtolower($host)) === 1) {
+                $valid[] = strtolower($host);
+            }
+        }
+
+        return array_values(array_unique($valid));
     }
 
     /**

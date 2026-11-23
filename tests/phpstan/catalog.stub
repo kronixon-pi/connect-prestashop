@@ -175,6 +175,45 @@ class Combination extends ObjectModel
     public function setImages($idsImage) {}
 }
 
+class Image extends ObjectModel
+{
+    /** @var int */
+    public $id_product;
+
+    /** @var int */
+    public $position;
+
+    /** @var bool|int|null */
+    public $cover;
+
+    /** @var array<int, string>|string */
+    public $legend;
+
+    /**
+     * @param int|null $id
+     * @param int|null $id_lang
+     */
+    public function __construct($id = null, $id_lang = null) {}
+
+    /** @return string */
+    public function getImgFolder() {}
+
+    /** @return bool */
+    public function createImgFolder() {}
+
+    /**
+     * @param int $idProduct
+     * @return int
+     */
+    public static function getHighestPosition($idProduct) {}
+
+    /**
+     * @param int $idProduct
+     * @return bool
+     */
+    public static function deleteCover($idProduct) {}
+}
+
 class Validate
 {
     /**

@@ -87,7 +87,13 @@
         "events_url": { "$ref": "../common.json#/$defs/https_url" },
         "server_time": { "$ref": "../common.json#/$defs/unix_time" },
         "tenant_name": { "type": "string", "maxLength": 255 },
-        "heartbeat_interval": { "type": "integer", "minimum": 3600 }
+        "heartbeat_interval": { "type": "integer", "minimum": 3600 },
+        "download_hosts": {
+          "description": "Module 0.5.0: further host names (port 443) the platform serves files from (the storage of signed image URLs). The module fetches logos and images only from these and the Connect host; up to 8, an invalid one is left out.",
+          "type": "array",
+          "maxItems": 8,
+          "items": { "type": "string", "maxLength": 253, "pattern": "^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+$" }
+        }
       },
       "examples": [
         {
