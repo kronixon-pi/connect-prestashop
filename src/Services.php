@@ -38,6 +38,8 @@ use Kronixon\Connect\Crypto\ShopCipher;
 use Kronixon\Connect\Platform\CurlTransport;
 use Kronixon\Connect\Platform\Pairing;
 use Kronixon\Connect\Platform\PlatformClient;
+use Kronixon\Connect\Redirect\Front;
+use Kronixon\Connect\Redirect\RedirectStore;
 use Kronixon\Connect\Shop\PrestaShopInfo;
 use Kronixon\Connect\Support\Log;
 use Kronixon\Connect\Support\Settings;
@@ -138,13 +140,23 @@ final class Services
                 $context->employee = new Employee();
                 Cache::clean('hook_module_exec_list_*');
 
-                return new Shop($context, PrestaShopScope::of($context, $compat), $compat, $db, new PrestaShopImageUrls($context->link), $warnings, $options->bool('strict_languages') === true);
+                return new Shop($context, PrestaShopScope::of($context, $compat), $compat, $db, new PrestaShopImageUrls($context->link), self::redirects($context), $warnings, $options->bool('strict_languages') === true);
             },
             WriteEndpoints::writers(
                 new Download(self::settings()->get(Pairing::ALLOW_HTTP) === '1'),
                 (new PrestaShopInfo($context, $compat))->imageFormats()
             )
         );
+    }
+
+    public static function redirects(Context $context): RedirectStore
+    {
+        return new RedirectStore(new ShopDatabase(Db::getInstance(), _DB_PREFIX_), self::settings(), (int) $context->shop->id);
+    }
+
+    public static function front(Context $context): Front
+    {
+        return new Front(self::redirects($context), $context, PrestaShopScope::of($context, Version::select(_PS_VERSION_)));
     }
 
     public static function kernel(Context $context): Kernel

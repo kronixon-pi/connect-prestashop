@@ -53,6 +53,7 @@ final class Installer
         'KX_CRON_TOKEN',
         'KX_OUTBOX_LAST_FLUSH',
         'KX_PROFILE_CACHE',
+        'KX_REDIRECTS',
         'KX_IP_ALLOWLIST',
         'KX_BLOG_ENABLED',
         'KX_BLOG_PREFIX',

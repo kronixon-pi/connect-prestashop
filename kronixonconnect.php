@@ -30,13 +30,14 @@ use Kronixon\Connect\Install\ServiceAccount;
 use Kronixon\Connect\Install\TabRoles;
 use Kronixon\Connect\Platform\Pairing;
 use Kronixon\Connect\Protocol;
+use Kronixon\Connect\Redirect\Front;
 use Kronixon\Connect\Services;
 
 /**
  * Kronixon Connect: the only link between this store and Kronixon PI (protocol v1).
- * 0.2.0 pairs with the platform from the settings page, verifies and signs every API request and
- * answer, and serves capabilities, profile, health, rotate and unpair. The hooks record nothing
- * until the outbox arrives.
+ * It pairs with the platform from the settings page, verifies and signs every API request and answer,
+ * reads and writes the catalog, and serves the redirects of `kx_redirect`. The other hooks record
+ * nothing until the outbox arrives.
  */
 class KronixonConnect extends Module
 {
@@ -300,9 +301,21 @@ class KronixonConnect extends Module
     {
     }
 
-    /** @param array<string, mixed> $params */
+    /**
+     * A category that is active again answers with its own page (RedirectWriter).
+     *
+     * @param  array<string, mixed>  $params
+     */
     public function hookActionObjectCategoryUpdateAfter(array $params): void
     {
+        try {
+            $category = $params['object'] ?? null;
+            if ($category instanceof Category && (bool) $category->active && Services::redirects($this->context)->any()) {
+                Services::front($this->context)->releaseCategory((int) $category->id);
+            }
+        } catch (Throwable $e) {
+            // saving a category never fails because of a redirect
+        }
     }
 
     /** @param array<string, mixed> $params */
@@ -367,13 +380,22 @@ class KronixonConnect extends Module
     }
 
     /**
-     * Runs on every request that builds the router: must stay O(1) — M5.
+     * Runs on every request that builds the router: one cached setting, and one indexed lookup on the
+     * storefront of a shop that has redirects (`kx_redirect`). It adds no routes.
      *
      * @param  array<string, mixed>  $params
      * @return array<string, mixed>
      */
     public function hookModuleRoutes(array $params): array
     {
+        try {
+            if (Front::concerns($_SERVER) && Services::redirects($this->context)->any()) {
+                Services::front($this->context)->serve((string) $_SERVER['REQUEST_URI']);
+            }
+        } catch (Throwable $e) {
+            // the storefront works without redirects
+        }
+
         return [];
     }
 }
