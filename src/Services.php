@@ -18,12 +18,15 @@ declare(strict_types=1);
 
 namespace Kronixon\Connect;
 
+use Cache;
 use Context;
 use Db;
+use Employee;
 use Kronixon\Connect\Api\Endpoints;
 use Kronixon\Connect\Api\Kernel;
 use Kronixon\Connect\Api\Router;
 use Kronixon\Connect\Auth\DbGuards;
+use Kronixon\Connect\Auth\DbIdempotency;
 use Kronixon\Connect\Auth\SecretStore;
 use Kronixon\Connect\Catalog\CatalogEndpoints;
 use Kronixon\Connect\Catalog\PrestaShopImageUrls;
@@ -40,6 +43,13 @@ use Kronixon\Connect\Support\Log;
 use Kronixon\Connect\Support\Settings;
 use Kronixon\Connect\Support\ShopSettings;
 use Kronixon\Connect\Support\SystemClock;
+use Kronixon\Connect\Write\Batch;
+use Kronixon\Connect\Write\Download;
+use Kronixon\Connect\Write\Item;
+use Kronixon\Connect\Write\Shop;
+use Kronixon\Connect\Write\ShopDatabase;
+use Kronixon\Connect\Write\Warnings;
+use Kronixon\Connect\Write\WriteEndpoints;
 
 /**
  * Wires the module's services with their PrestaShop implementations (the front controller, the
@@ -108,6 +118,35 @@ final class Services
         );
     }
 
+    /**
+     * The `POST` endpoints that write the catalog. Everything is read and written on the master connection.
+     *
+     * Hooks run as in the back office, for every active module of the shop: an Employee that is not
+     * loaded. With the service account (no rights) PrestaShop before 9.1 would run no module's hook,
+     * because it asks whether the employee may view the module; without any employee it would leave out
+     * modules by the visitor's device and customer group. The list it made for the request's first hook
+     * is dropped.
+     */
+    public static function writes(Context $context): WriteEndpoints
+    {
+        $compat = Version::select(_PS_VERSION_);
+        $db = new ShopDatabase(Db::getInstance(), _DB_PREFIX_);
+
+        return new WriteEndpoints(
+            new Batch($db, self::log()),
+            static function (Warnings $warnings, Item $options) use ($context, $compat, $db): Shop {
+                $context->employee = new Employee();
+                Cache::clean('hook_module_exec_list_*');
+
+                return new Shop($context, PrestaShopScope::of($context, $compat), $compat, $db, new PrestaShopImageUrls($context->link), $warnings, $options->bool('strict_languages') === true);
+            },
+            WriteEndpoints::writers(
+                new Download(self::settings()->get(Pairing::ALLOW_HTTP) === '1'),
+                (new PrestaShopInfo($context, $compat))->imageFormats()
+            )
+        );
+    }
+
     public static function kernel(Context $context): Kernel
     {
         $settings = self::settings();
@@ -115,7 +154,7 @@ final class Services
         $rate = (int) $settings->get('KX_RATE_LIMIT');
 
         return new Kernel(
-            self::catalog($context)->register(self::endpoints($context)->register(new Router())),
+            self::writes($context)->register(self::catalog($context)->register(self::endpoints($context)->register(new Router()))),
             self::secrets(),
             new SystemClock(),
             $guards,
@@ -128,7 +167,8 @@ final class Services
                 if ($now - (int) $settings->get(Endpoints::LAST_REQUEST_AT) >= 60) {
                     $settings->set(Endpoints::LAST_REQUEST_AT, (string) $now);
                 }
-            }
+            },
+            new DbIdempotency(Db::getInstance(), _DB_PREFIX_)
         );
     }
 }

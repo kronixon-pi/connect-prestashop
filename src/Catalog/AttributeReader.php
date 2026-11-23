@@ -80,7 +80,7 @@ final class AttributeReader implements Reader
             foreach ($this->sql->rows('SELECT t.'.$id.' AS id, t.position'.($kind === 1 ? ', t.group_type, t.is_color_group' : '').' FROM '
                 .$this->sql->table($table).' t INNER JOIN '.$this->sql->table($shopTable).' s ON s.'.$id.' = t.'.$id.' AND s.id_shop = '.$this->scope->shopId
                 .' WHERE t.'.$id.' '.($inclusive ? '>=' : '>').' '.$query->afterId.' AND t.'.$id.' <= '.$query->untilId
-                .' ORDER BY t.'.$id.' LIMIT '.($query->limit + 1)) as $row) {
+                .$query->idCondition('t.'.$id).' ORDER BY t.'.$id.' LIMIT '.($query->limit + 1)) as $row) {
                 $rows[] = ['kind' => $kind] + $row;
             }
         }

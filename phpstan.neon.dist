@@ -14,6 +14,7 @@ parameters:
     # the stub source is evaluated when the endpoint surface grows (M1+).
     scanFiles:
         - tests/phpstan/prestashop.stub
+        - tests/phpstan/catalog.stub
     bootstrapFiles:
         - tests/phpstan/constants.php
     treatPhpDocTypesAsCertain: false

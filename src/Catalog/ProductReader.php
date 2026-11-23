@@ -87,7 +87,7 @@ final class ProductReader implements Reader
             return Page::none();
         }
 
-        $where = 'p.id_product > '.$query->afterId.' AND p.id_product <= '.$query->untilId;
+        $where = 'p.id_product > '.$query->afterId.' AND p.id_product <= '.$query->untilId.$query->idCondition('p.id_product');
         if ($active !== 'all') {
             $where .= ' AND ps.active = '.(int) $active;
         }

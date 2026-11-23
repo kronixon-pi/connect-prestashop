@@ -52,7 +52,7 @@ final class Rows
             return [[], false];
         }
         $rows = $sql->rows('SELECT '.$select.' FROM '.$from.' WHERE '.$id.' > '.$query->afterId.' AND '.$id.' <= '.$query->untilId
-            .($where === '' ? '' : ' AND '.$where).' ORDER BY '.$id.' LIMIT '.($query->limit + 1));
+            .$query->idCondition($id).($where === '' ? '' : ' AND '.$where).' ORDER BY '.$id.' LIMIT '.($query->limit + 1));
 
         return [array_slice($rows, 0, $query->limit), count($rows) > $query->limit];
     }

@@ -7,15 +7,15 @@ namespace Kronixon\Connect\Tests\Support;
 use DateTimeZone;
 use Kronixon\Connect\Catalog\ImageUrls;
 use Kronixon\Connect\Catalog\Scope;
-use Kronixon\Connect\Catalog\Sql;
+use Kronixon\Connect\Write\Database;
 use PDO;
 
 /**
  * The PrestaShop tables the catalog readers read, in SQLite (columns of 1.7.8–9.x the readers use;
- * decimals as TEXT, as MySQL returns them), behind the module's Sql interface. Counts the statements,
- * so a test can prove a page costs a fixed number of queries.
+ * decimals as TEXT, as MySQL returns them), behind the module's Sql and Database interfaces. Counts the
+ * statements, so a test can prove a page costs a fixed number of queries.
  */
-final class CatalogDb implements Sql, ImageUrls
+final class CatalogDb implements Database, ImageUrls
 {
     private const TABLES = [
         'product' => 'id_product INTEGER PRIMARY KEY, id_supplier INT DEFAULT 0, id_manufacturer INT DEFAULT 0, id_category_default INT DEFAULT 2,
@@ -75,7 +75,9 @@ final class CatalogDb implements Sql, ImageUrls
             id_customer INT DEFAULT 0, id_product_attribute INT DEFAULT 0, price TEXT DEFAULT \'-1.000000\', from_quantity INT DEFAULT 1,
             reduction TEXT DEFAULT \'0.000000\', reduction_tax INT DEFAULT 1, reduction_type TEXT DEFAULT \'amount\',
             `from` TEXT DEFAULT \'0000-00-00 00:00:00\', `to` TEXT DEFAULT \'0000-00-00 00:00:00\'',
-        'kx_entity_map' => 'id_kx_entity_map INTEGER PRIMARY KEY, entity_type TEXT, external_id TEXT, kx_id TEXT',
+        'kx_entity_map' => 'id_kx_entity_map INTEGER PRIMARY KEY, entity_type TEXT, external_id TEXT, kx_id TEXT UNIQUE, flags INT DEFAULT 0, date_add TEXT, date_upd TEXT,
+            UNIQUE (entity_type, external_id)',
+        'kx_redirect' => 'id_kx_redirect INTEGER PRIMARY KEY, id_shop INT, path_from TEXT, target_type TEXT, target_id INT, code INT, date_add TEXT, UNIQUE (id_shop, path_from)',
         'kx_image_map' => 'id_image INTEGER PRIMARY KEY, id_product INT, kx_key TEXT, sha256 TEXT',
     ];
 
@@ -129,6 +131,31 @@ final class CatalogDb implements Sql, ImageUrls
     public function table(string $name): string
     {
         return '`ps_'.$name.'`';
+    }
+
+    public function execute(string $sql): void
+    {
+        $this->pdo->exec($sql);
+    }
+
+    public function quote(string $text): string
+    {
+        return (string) $this->pdo->quote($text);
+    }
+
+    public function begin(): void
+    {
+        $this->pdo->beginTransaction();
+    }
+
+    public function commit(): void
+    {
+        $this->pdo->commit();
+    }
+
+    public function rollback(): void
+    {
+        $this->pdo->rollBack();
     }
 
     public function url(int $imageId, string $slug, ?string $type): string

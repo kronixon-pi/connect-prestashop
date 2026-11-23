@@ -19,6 +19,9 @@ class Context
     /** @var Language */
     public $language;
 
+    /** @var Employee|null */
+    public $employee;
+
     /** @return Context */
     public static function getContext() {}
 }
@@ -153,8 +156,40 @@ abstract class ObjectModel
      */
     public function add($auto_date = true, $null_values = false) {}
 
+    /**
+     * @param bool $null_values
+     * @return bool
+     */
+    public function update($null_values = false) {}
+
     /** @return bool */
     public function delete() {}
+
+    /**
+     * @param array<string, bool|array<int, bool>>|null $fields
+     * @return void
+     */
+    public function setFieldsToUpdate($fields) {}
+
+    /**
+     * @param bool $die
+     * @param bool $error_return
+     * @return bool|string
+     */
+    public function validateFields($die = true, $error_return = false) {}
+
+    /**
+     * @param bool $die
+     * @param bool $error_return
+     * @return bool|string
+     */
+    public function validateFieldsLang($die = true, $error_return = false) {}
+
+    /**
+     * @param string|ObjectModel $class
+     * @return array<string, mixed>
+     */
+    public static function getDefinition($class) {}
 }
 
 class Profile extends ObjectModel
@@ -207,6 +242,33 @@ class Tools
      * @return void
      */
     public static function redirectAdmin($url) {}
+
+    /**
+     * @param string $url
+     * @param string $base_uri
+     * @param Link|null $link
+     * @param list<string>|null $headers
+     * @return void
+     */
+    public static function redirect($url, $base_uri = '/', $link = null, $headers = null) {}
+
+    /**
+     * @param int|false $id_product
+     * @return void
+     */
+    public static function clearColorListCache($id_product = false) {}
+
+    /**
+     * @param string $html
+     * @return string
+     */
+    public static function purifyHTML($html) {}
+
+    /**
+     * @param string $str
+     * @return string|false
+     */
+    public static function str2url($str) {}
 }
 
 class Cookie
@@ -228,6 +290,27 @@ class Smarty
 
 class Link
 {
+    /**
+     * @param int $product
+     * @param string|null $alias
+     * @param string|null $category
+     * @param string|null $ean13
+     * @param int|null $idLang
+     * @param int|null $idShop
+     * @return string
+     */
+    public function getProductLink($product, $alias = null, $category = null, $ean13 = null, $idLang = null, $idShop = null) {}
+
+    /**
+     * @param int $category
+     * @param string|null $alias
+     * @param int|null $idLang
+     * @param string|null $selectedFilters
+     * @param int|null $idShop
+     * @return string
+     */
+    public function getCategoryLink($category, $alias = null, $idLang = null, $selectedFilters = null, $idShop = null) {}
+
     /**
      * @param string $module
      * @param string $controller

@@ -26,9 +26,9 @@ use Throwable;
 
 /**
  * The identity the module acts as in the shop (Spec §3.3): its own Profile without any access
- * right and an inactive Employee in it, created at install and removed at uninstall. Later
- * endpoints put this Employee into the PrestaShop Context for catalog reads and writes, so shop
- * logs and hooks show "Kronixon Connect" instead of a real administrator. It cannot log in: it is
+ * right and an inactive Employee in it, created at install and removed at uninstall. It is not the
+ * Context's employee during catalog writes: without rights it would silence other modules' hooks
+ * (Services::writes()). It cannot log in: it is
  * inactive and its password is a hash of random bytes nobody knows.
  */
 final class ServiceAccount

@@ -143,6 +143,21 @@ else
 fi
 expect_eq "kx_log holds rows but no secret" "1 0" "$(sql "SELECT COUNT(*) > 0, SUM(message LIKE '%kxs\\_%' OR context LIKE '%kxs\\_%') FROM ps_kx_log" | tr '\t' ' ')"
 psphp modules/kronixonconnect/scripts/ps/pair.php "$stub" K7PM-3XQ9 >/dev/null
+# The write endpoints on the paired shop, signed (tests/Integration/*-writes.php): create, update, no-op
+# with the hashes of the reads, refusals that leave nothing, idempotency and the write lock.
+writes() { # name script
+    if psphp "modules/kronixonconnect/tests/Integration/$2.php" "$base" 127.0.0.1:80 >"$tmp/$2"; then
+        echo "  ok   $1"
+    else
+        echo "  FAIL $1"; failures=$((failures + 1)); grep FAIL "$tmp/$2" || tail -n 20 "$tmp/$2"
+    fi
+    if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+        { echo "$1 on PrestaShop $version:"; echo '```'; tail -n 2 "$tmp/$2"; echo '```'; } >>"$GITHUB_STEP_SUMMARY"
+    fi
+}
+w0=$(date +%s)
+writes "taxonomy writes" catalog-writes
+step "writes checked in $(( $(date +%s) - w0 ))s"
 console prestashop:module uninstall kronixonconnect
 expect_eq "uninstall told the platform (reason)" "uninstall" "$(dc exec -T ps cat /tmp/kx-stub/state.json </dev/null | jq -r '.unpaired')"
 expect_eq "service account after uninstall of a paired shop" "0	0	0	0" "$(account)"
@@ -193,7 +208,8 @@ if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
 fi
 step "catalog reads checked in $(( $(date +%s) - w0 ))s"
 
-front="$(curl -s -o /dev/null -w '%{http_code}' "$base/")"
+# The writes added a second language: before 9.x the home page then redirects to /en/.
+front="$(curl -sL --max-redirs 3 -o /dev/null -w '%{http_code}' "$base/")"
 expect_eq "storefront home with the module installed" "200" "$front"
 
 # Multistore last (it adds a second shop for good): tests/Integration/multistore.php shares a product
@@ -205,6 +221,9 @@ else
     echo "  FAIL multistore"; failures=$((failures + 1))
 fi
 cat "$tmp/multistore"
+# The writes again: shop 1 is written, shop 2's links and entities stay out of reach.
+psphp modules/kronixonconnect/scripts/ps/pair.php "$stub" K7PM-3XQ9 >/dev/null
+writes "taxonomy writes with two shops" catalog-writes
 total_s=$(elapsed)
 summary="SMOKE ps=$ps image=$(dc config --images 2>/dev/null | grep prestashop | head -n 1) prestashop=$version php=$php_version install_s=$install_s module_install_s=$module_s total_s=$total_s failures=$failures"
 echo "$summary"
