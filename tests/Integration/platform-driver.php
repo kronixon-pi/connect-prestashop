@@ -54,7 +54,7 @@ $call = static function (string $method, string $endpoint, ?string $secret, stri
     $headers = ['X-KX-Protocol' => 'v1', 'X-KX-Store' => $state['store_id'], 'X-KX-Request-Id' => $nonce, 'Accept' => 'application/json', 'User-Agent' => 'KronixonPlatform/smoke'];
     if ($body !== '') {
         $headers['Content-Type'] = 'application/json; charset=utf-8';
-        $headers['Idempotency-Key'] = hash('sha256', $method.' /v1/'.$endpoint.' '.$body);
+        $headers['Idempotency-Key'] = $uuid();
     }
     if ($secret !== null) {
         $canonical = implode("\n", [$method, $path, (string) $timestamp, $nonce, hash('sha256', $options['signed_body'] ?? $body)]);

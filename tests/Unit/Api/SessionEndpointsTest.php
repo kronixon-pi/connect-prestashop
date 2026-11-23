@@ -30,7 +30,12 @@ final class SessionEndpointsTest extends TestCase
         self::assertTrue(TestModule::signedWith($response, $nonce, (string) $module->platform->secret));
         $data = self::json($response);
         self::assertSame('v1', $data['protocol']);
-        self::assertFalse($data['capabilities']['products.write'], 'operations of later versions are false');
+        $announced = array_keys(array_filter($data['capabilities'], static function ($flag): bool {
+            return $flag === true;
+        }));
+        // products.write, images, stock, prices.bulk, webhooks … come with later versions.
+        self::assertSame(['attributes', 'categories', 'multilang', 'suppliers', 'tags'], $announced);
+        self::assertSame(100, $data['limits']['batch']);
         self::assertTrue($data['capabilities']['suppliers'], 'GET catalog/suppliers is served');
         self::assertSame(['variants_product_id_in' => true], $data['capabilities']['catalog'], 'GET catalog/variants?product_id_in= is served');
         self::assertSame(['jpg', 'webp'], $data['capabilities']['image_formats']);

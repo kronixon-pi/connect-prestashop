@@ -27,8 +27,7 @@ use Kronixon\Connect\Support\Clock;
 use Kronixon\Connect\Support\Log;
 
 /**
- * The endpoints of module 0.2.0 (README §6.1): capabilities, profile, health, rotate, unpair.
- * They run only behind the Kernel's verification; rotate and unpair under the write lock.
+ * The session endpoints (README §6.1): capabilities, profile, health, rotate, unpair. They run only behind the Kernel's verification; rotate and unpair under the write lock.
  */
 final class Endpoints
 {
@@ -38,9 +37,12 @@ final class Endpoints
     private const UNPAIR_REASONS = ['user', 'store_deleted', 'revoked', 'tenant_deleted', 'other'];
 
     /** Capabilities whose operations arrive with later module versions: false until then (README §10). */
-    private const NOT_YET = ['products.write', 'variants', 'images', 'image_alt', 'categories', 'attributes',
-        'attribute_values_custom', 'stock', 'stock_locations', 'prices.bulk', 'specific_prices', 'tags', 'seo',
-        'redirects', 'webhooks', 'search_reindex', 'cache_flush', 'orders.read', 'facets', 'events.pull', ];
+    private const NOT_YET = ['products.write', 'variants', 'images', 'image_alt', 'attribute_values_custom', 'stock',
+        'stock_locations', 'prices.bulk', 'specific_prices', 'seo', 'redirects', 'webhooks', 'search_reindex', 'cache_flush',
+        'orders.read', 'facets', 'events.pull', ];
+
+    /** Capabilities of the write endpoints this build has (WriteEndpoints). */
+    private const WRITES = ['categories', 'attributes', 'tags'];
 
     /** @var SecretStore */
     private $secrets;
@@ -97,7 +99,7 @@ final class Endpoints
      */
     public function capabilities(): array
     {
-        $flags = array_fill_keys(self::NOT_YET, false);
+        $flags = array_fill_keys(self::NOT_YET, false) + array_fill_keys(self::WRITES, true);
         $flags['multilang'] = $this->shop->multilang();
         $flags['multistore'] = $this->shop->multistore();
         $flags['blog'] = ['enabled' => false, 'adapters' => [], 'import_sources' => []];
@@ -114,7 +116,7 @@ final class Endpoints
             'min_platform_protocol' => Protocol::VERSION,
             'capabilities' => $flags,
             'limits' => [
-                'batch' => 100,
+                'batch' => Protocol::MAX_BATCH,
                 'bulk_rows' => 1000,
                 'images_per_request' => 50,
                 'time_budget_s' => max(1, min(Protocol::MAX_TIME_BUDGET_S, $this->budgetSeconds)),

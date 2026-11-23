@@ -48,6 +48,12 @@ final class Protocol
     /** Seconds a `409 busy` asks the caller to wait for the write lock. */
     public const BUSY_RETRY_S = 5;
 
+    /** How long the answer of a write with an Idempotency-Key is replayed, seconds. */
+    public const IDEMPOTENCY_TTL_S = 86400;
+
+    /** Entities of one write request (README §6), announced in `capabilities.limits.batch`. */
+    public const MAX_BATCH = 100;
+
     /** Clock window of a signed message, seconds either side of the receiver's clock. */
     public const CLOCK_WINDOW_S = 300;
 
@@ -78,6 +84,10 @@ final class Protocol
     public const HEADER_TIME_USED = 'X-KX-Time-Used';
 
     public const HEADER_METHOD_OVERRIDE = 'X-HTTP-Method-Override';
+
+    public const HEADER_IDEMPOTENCY_KEY = 'Idempotency-Key';
+
+    public const HEADER_REPLAY = 'X-KX-Idempotent-Replay';
 
     private function __construct()
     {

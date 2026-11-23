@@ -188,6 +188,15 @@
         "warnings": {
           "type": "array",
           "items": { "type": "string", "maxLength": 64 }
+        },
+        "content_hash": {
+          "$ref": "#/$defs/sha256",
+          "description": "On an ok item: the hash of the entity as the shop holds it when the batch ends (README §6); absent from a module that does not answer it."
+        },
+        "candidates": {
+          "description": "With code match_ambiguous: the entities match_by found.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/external_id" }
         }
       },
       "allOf": [
@@ -237,7 +246,8 @@
               "kx_id": "0192b2e4-2f7a-7c5b-8a1d-3e4f5a6b7c8d",
               "status": "ok",
               "action": "created",
-              "warnings": []
+              "warnings": [],
+              "content_hash": "6a8d1ab4cdaf0b1f5d2c0a52bf2a3f8e0b7a2f9c8d4e6b1a3c5f7e9d1b3a5c7e"
             },
             {
               "key": "p-2",

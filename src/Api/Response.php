@@ -18,6 +18,8 @@ declare(strict_types=1);
 
 namespace Kronixon\Connect\Api;
 
+use Kronixon\Connect\Protocol;
+
 /**
  * A JSON response. The body is final before send(): a signature covers exactly these bytes, and
  * compression (when the client accepts gzip) happens after signing.
@@ -59,6 +61,12 @@ final class Response
         }
 
         return new self($status, $body, $headers);
+    }
+
+    /** The stored answer of an idempotent write, byte for byte (README §3). */
+    public static function replay(int $status, string $body): self
+    {
+        return new self($status, $body, [Protocol::HEADER_REPLAY => 'true']);
     }
 
     /**

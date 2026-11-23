@@ -56,10 +56,7 @@ final class AttributeReader implements Reader
 
     public function maxId(): string
     {
-        $row = $this->sql->rows('SELECT (SELECT MAX(id_feature) FROM '.$this->sql->table('feature').') AS f, (SELECT MAX(id_attribute_group) FROM '
-            .$this->sql->table('attribute_group').') AS g')[0] ?? [];
-
-        return (string) max((int) ($row['f'] ?? 0), (int) ($row['g'] ?? 0));
+        return (string) max((int) Rows::maxId($this->sql, $this->scope, 'feature', 'id_feature'), (int) Rows::maxId($this->sql, $this->scope, 'attribute_group', 'id_attribute_group'));
     }
 
     /** Features and attribute groups share ids: `v` is the kind (0 a feature, 1 an attribute group). */
@@ -80,7 +77,7 @@ final class AttributeReader implements Reader
             foreach ($this->sql->rows('SELECT t.'.$id.' AS id, t.position'.($kind === 1 ? ', t.group_type, t.is_color_group' : '').' FROM '
                 .$this->sql->table($table).' t INNER JOIN '.$this->sql->table($shopTable).' s ON s.'.$id.' = t.'.$id.' AND s.id_shop = '.$this->scope->shopId
                 .' WHERE t.'.$id.' '.($inclusive ? '>=' : '>').' '.$query->afterId.' AND t.'.$id.' <= '.$query->untilId
-                .' ORDER BY t.'.$id.' LIMIT '.($query->limit + 1)) as $row) {
+                .$query->idCondition('t.'.$id).Rows::notPending($this->sql, $this->scope, $table, 't.'.$id).' ORDER BY t.'.$id.' LIMIT '.($query->limit + 1)) as $row) {
                 $rows[] = ['kind' => $kind] + $row;
             }
         }
@@ -102,8 +99,15 @@ final class AttributeReader implements Reader
                 'counts' => $kind === 1
                     // The shop's values of a group; a feature's values have no shop table (they follow the feature's).
                     ? Rows::counts($this->sql, $this->sql->table('attribute').' a INNER JOIN '.$this->sql->table('attribute_shop').' s ON s.id_attribute = a.id_attribute AND s.id_shop = '
-                        .$this->scope->shopId, 'a.id_attribute_group', $ids)
-                    : Rows::counts($this->sql, $this->sql->table('feature_value'), 'id_feature', $ids, 'SUM(CASE WHEN custom = 0 THEN 1 ELSE 0 END)'),
+                        .$this->scope->shopId, 'a.id_attribute_group', $ids, 'COUNT(*)', Rows::notPending($this->sql, $this->scope, 'attribute', 'a.id_attribute'))
+                    : Rows::counts(
+                        $this->sql,
+                        $this->sql->table('feature_value').' fv',
+                        'fv.id_feature',
+                        $ids,
+                        'SUM(CASE WHEN fv.custom = 0 THEN 1 ELSE 0 END)',
+                        Rows::notPending($this->sql, $this->scope, 'feature_value', 'fv.id_feature_value')
+                    ),
                 'kx' => Rows::kxIds($this->sql, $entity, $ids),
             ];
         }

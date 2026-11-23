@@ -7,22 +7,23 @@ namespace Kronixon\Connect\Tests\Support;
 use DateTimeZone;
 use Kronixon\Connect\Catalog\ImageUrls;
 use Kronixon\Connect\Catalog\Scope;
-use Kronixon\Connect\Catalog\Sql;
+use Kronixon\Connect\Write\Database;
 use PDO;
 
 /**
  * The PrestaShop tables the catalog readers read, in SQLite (columns of 1.7.8–9.x the readers use;
- * decimals as TEXT, as MySQL returns them), behind the module's Sql interface. Counts the statements,
- * so a test can prove a page costs a fixed number of queries.
+ * decimals as TEXT, as MySQL returns them), behind the module's Sql and Database interfaces. Counts the
+ * statements, so a test can prove a page costs a fixed number of queries.
  */
-final class CatalogDb implements Sql, ImageUrls
+final class CatalogDb implements Database, ImageUrls
 {
     private const TABLES = [
         'product' => 'id_product INTEGER PRIMARY KEY, id_supplier INT DEFAULT 0, id_manufacturer INT DEFAULT 0, id_category_default INT DEFAULT 2,
             id_tax_rules_group INT DEFAULT 1, reference TEXT DEFAULT \'\', supplier_reference TEXT DEFAULT \'\', ean13 TEXT DEFAULT \'\',
             upc TEXT DEFAULT \'\', mpn TEXT DEFAULT \'\', isbn TEXT DEFAULT \'\', price TEXT DEFAULT \'0.000000\', wholesale_price TEXT DEFAULT \'0.000000\',
             weight TEXT DEFAULT \'0.000000\', width TEXT DEFAULT \'0.000000\', height TEXT DEFAULT \'0.000000\', depth TEXT DEFAULT \'0.000000\',
-            is_virtual INT DEFAULT 0, cache_is_pack INT DEFAULT 0, product_type TEXT DEFAULT \'standard\', active INT DEFAULT 1',
+            is_virtual INT DEFAULT 0, cache_is_pack INT DEFAULT 0, product_type TEXT DEFAULT \'standard\', active INT DEFAULT 1,
+            date_add TEXT DEFAULT \'2026-09-01 10:00:00\'',
         'product_shop' => 'id_product INT, id_shop INT, id_category_default INT DEFAULT 2, id_tax_rules_group INT DEFAULT 1, price TEXT DEFAULT \'0.000000\',
             wholesale_price TEXT DEFAULT \'0.000000\', unity TEXT DEFAULT \'\', unit_price_ratio TEXT DEFAULT \'0.000000\', unit_price TEXT DEFAULT \'0.000000\',
             active INT DEFAULT 1, visibility TEXT DEFAULT \'both\', available_for_order INT DEFAULT 1, show_price INT DEFAULT 1, `condition` TEXT DEFAULT \'new\',
@@ -45,7 +46,7 @@ final class CatalogDb implements Sql, ImageUrls
         'attribute_group_shop' => 'id_attribute_group INT, id_shop INT, PRIMARY KEY (id_attribute_group, id_shop)',
         'attribute_lang' => 'id_attribute INT, id_lang INT, name TEXT, PRIMARY KEY (id_attribute, id_lang)',
         'attribute_shop' => 'id_attribute INT, id_shop INT, PRIMARY KEY (id_attribute, id_shop)',
-        'category' => 'id_category INTEGER PRIMARY KEY, id_parent INT, level_depth INT DEFAULT 0, active INT DEFAULT 1, date_upd TEXT DEFAULT \'2026-09-01 10:00:00\'',
+        'category' => 'id_category INTEGER PRIMARY KEY, id_parent INT, level_depth INT DEFAULT 0, active INT DEFAULT 1, date_add TEXT, date_upd TEXT DEFAULT \'2026-09-01 10:00:00\'',
         'category_lang' => 'id_category INT, id_shop INT, id_lang INT, name TEXT DEFAULT \'\', link_rewrite TEXT DEFAULT \'\', description TEXT DEFAULT \'\',
             meta_title TEXT DEFAULT \'\', meta_description TEXT DEFAULT \'\', PRIMARY KEY (id_category, id_shop, id_lang)',
         'category_shop' => 'id_category INT, id_shop INT, position INT DEFAULT 0, PRIMARY KEY (id_category, id_shop)',
@@ -75,7 +76,11 @@ final class CatalogDb implements Sql, ImageUrls
             id_customer INT DEFAULT 0, id_product_attribute INT DEFAULT 0, price TEXT DEFAULT \'-1.000000\', from_quantity INT DEFAULT 1,
             reduction TEXT DEFAULT \'0.000000\', reduction_tax INT DEFAULT 1, reduction_type TEXT DEFAULT \'amount\',
             `from` TEXT DEFAULT \'0000-00-00 00:00:00\', `to` TEXT DEFAULT \'0000-00-00 00:00:00\'',
-        'kx_entity_map' => 'id_kx_entity_map INTEGER PRIMARY KEY, entity_type TEXT, external_id TEXT, kx_id TEXT',
+        'kx_entity_map' => 'id_kx_entity_map INTEGER PRIMARY KEY, entity_type TEXT, external_id TEXT, kx_id TEXT UNIQUE, flags INT DEFAULT 0, date_add TEXT, date_upd TEXT,
+            UNIQUE (entity_type, external_id)',
+        'kx_pending' => 'id_kx_pending INTEGER PRIMARY KEY, id_shop INT, class TEXT, entity TEXT, id_object INT, kx_id TEXT DEFAULT \'\', item_key TEXT DEFAULT \'\',
+            removing INT DEFAULT 0, created_at TEXT',
+        'kx_redirect' => 'id_kx_redirect INTEGER PRIMARY KEY, id_shop INT, path_from TEXT, target_type TEXT, target_id INT, code INT, date_add TEXT, UNIQUE (id_shop, path_from)',
         'kx_image_map' => 'id_image INTEGER PRIMARY KEY, id_product INT, kx_key TEXT, sha256 TEXT',
     ];
 
@@ -129,6 +134,36 @@ final class CatalogDb implements Sql, ImageUrls
     public function table(string $name): string
     {
         return '`ps_'.$name.'`';
+    }
+
+    public function execute(string $sql): void
+    {
+        $this->pdo->exec($sql);
+    }
+
+    public function setActive(string $class, string $table, string $primary, int $id, bool $active): void
+    {
+        $this->pdo->exec('UPDATE '.$this->table($table).' SET active = '.(int) $active.' WHERE '.$primary.' = '.$id);
+    }
+
+    public function quote(string $text): string
+    {
+        return (string) $this->pdo->quote($text);
+    }
+
+    public function begin(): void
+    {
+        $this->pdo->beginTransaction();
+    }
+
+    public function commit(): void
+    {
+        $this->pdo->commit();
+    }
+
+    public function rollback(): void
+    {
+        $this->pdo->rollBack();
     }
 
     public function url(int $imageId, string $slug, ?string $type): string

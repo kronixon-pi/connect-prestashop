@@ -1,0 +1,300 @@
+<?php
+
+// PrestaShop catalog classes the write endpoints touch, with the signatures shared by 1.7.8–9.x (PHPStan only).
+
+class PrestaShopException extends Exception {}
+
+class Cache
+{
+    /**
+     * @param string $key
+     * @return void
+     */
+    public static function clean($key) {}
+}
+
+class Hook
+{
+    /**
+     * @param string $hook_name
+     * @param array<string, mixed> $hook_args
+     * @return mixed
+     */
+    public static function exec($hook_name, $hook_args = []) {}
+
+    /**
+     * @param string $hook_name
+     * @return int|false
+     */
+    public static function getIdByName($hook_name) {}
+}
+
+class Search
+{
+    /**
+     * @param bool $full
+     * @param int|false $id_product
+     * @return bool
+     */
+    public static function indexation($full = false, $id_product = false) {}
+}
+
+class StockAvailable
+{
+    /**
+     * @param int $id_product
+     * @param int $id_product_attribute
+     * @param int $quantity
+     * @param int|null $id_shop
+     * @param bool $add_movement
+     * @return bool|void
+     */
+    public static function setQuantity($id_product, $id_product_attribute, $quantity, $id_shop = null, $add_movement = true) {}
+
+    /**
+     * @param int $id_product
+     * @param int $out_of_stock
+     * @param int|null $id_shop
+     * @return bool|void
+     */
+    public static function setProductOutOfStock($id_product, $out_of_stock, $id_shop = null) {}
+}
+
+class Product extends ObjectModel
+{
+    /** @var float|string */
+    public $price;
+
+    /** @var bool|int */
+    public $active;
+
+    /** @var string */
+    public $product_type;
+
+    /** @var int */
+    public $id_tax_rules_group;
+
+    /** @var int */
+    public $id_category_default;
+
+    /** @var array<int, string>|string|null */
+    public $link_rewrite;
+
+    /**
+     * @param int|null $id_product
+     * @param bool $full
+     * @param int|null $id_lang
+     * @param int|null $id_shop
+     */
+    public function __construct($id_product = null, $full = false, $id_lang = null, $id_shop = null) {}
+
+    /** @return int */
+    public static function getIdTaxRulesGroupMostUsed() {}
+
+    /** @return void */
+    public static function flushPriceCache() {}
+
+    /**
+     * @param list<int> $categories
+     * @return bool
+     */
+    public function addToCategories($categories = []) {}
+
+    /**
+     * @param list<int> $categories
+     * @return bool
+     */
+    public function updateCategories($categories) {}
+
+    /** @return bool */
+    public function deleteFeatures() {}
+
+    /**
+     * @param int $id_feature
+     * @param int $id_value
+     * @return int|void
+     */
+    public function addFeaturesToDB($id_feature, $id_value) {}
+
+    /** @return bool */
+    public function deleteDefaultAttributes() {}
+
+    /**
+     * @param int $id_product_attribute
+     * @return bool
+     */
+    public function setDefaultAttribute($id_product_attribute) {}
+}
+
+class ProductSupplier extends ObjectModel
+{
+    /**
+     * @param int $idProduct
+     * @param int $idProductAttribute
+     * @param int $idSupplier
+     * @return int|string|false
+     */
+    public static function getIdByProductAndSupplier($idProduct, $idProductAttribute, $idSupplier) {}
+}
+
+class Combination extends ObjectModel
+{
+    /** @var int */
+    public $minimal_quantity;
+
+    /**
+     * @param int|null $id
+     * @param int|null $id_lang
+     * @param int|null $id_shop
+     */
+    public function __construct($id = null, $id_lang = null, $id_shop = null) {}
+
+    /**
+     * @param list<int> $idsAttribute
+     * @return bool
+     */
+    public function setAttributes($idsAttribute) {}
+
+    /**
+     * @param list<int> $idsImage
+     * @return bool
+     */
+    public function setImages($idsImage) {}
+}
+
+class Validate
+{
+    /**
+     * @param string $link
+     * @return bool|int
+     */
+    public static function isLinkRewrite($link) {}
+
+    /**
+     * @param string $name
+     * @return bool|int
+     */
+    public static function isGenericName($name) {}
+
+    /**
+     * @param string $reference
+     * @return bool|int
+     */
+    public static function isReference($reference) {}
+}
+
+class Category extends ObjectModel
+{
+    /** @var int */
+    public $id_parent;
+
+    /** @var int */
+    public $position;
+
+    /** @var bool */
+    public $active;
+
+    /** @var bool|int */
+    public $is_root_category;
+
+    /** @var bool */
+    public $doNotRegenerateNTree;
+
+    /**
+     * @param int|null $idCategory
+     * @param int|null $idLang
+     * @param int|null $idShop
+     */
+    public function __construct($idCategory = null, $idLang = null, $idShop = null) {}
+
+    /**
+     * @param int $position
+     * @param int|null $idShop
+     * @return bool|int
+     */
+    public function addPosition($position, $idShop = null) {}
+
+    /**
+     * @param int $idCategoryParent
+     * @param int $idShop
+     * @return int
+     */
+    public static function getLastPosition($idCategoryParent, $idShop) {}
+
+    /** @return void */
+    public static function regenerateEntireNtree() {}
+}
+
+class Feature extends ObjectModel {}
+
+class FeatureValue extends ObjectModel
+{
+    /** @var int */
+    public $id_feature;
+
+    /** @var bool|int */
+    public $custom;
+
+    /** @var array<int, string>|string */
+    public $value;
+}
+
+class AttributeGroup extends ObjectModel {}
+
+class ProductAttribute extends ObjectModel {}
+
+class Manufacturer extends ObjectModel
+{
+    /**
+     * @param bool $force_delete
+     * @return bool
+     */
+    public function deleteImage($force_delete = false) {}
+}
+
+class ImageManager
+{
+    /**
+     * @param string $filename
+     * @return bool
+     */
+    public static function isRealImage($filename) {}
+
+    /**
+     * @param string $sourceFile
+     * @param string $destinationFile
+     * @param int|null $destinationWidth
+     * @param int|null $destinationHeight
+     * @param string $fileType
+     * @param bool $forceType
+     * @return bool
+     */
+    public static function resize($sourceFile, $destinationFile, $destinationWidth = null, $destinationHeight = null, $fileType = 'jpg', $forceType = false) {}
+}
+
+class Tag extends ObjectModel
+{
+    /** @var int */
+    public $id_lang;
+
+    /** @var string */
+    public $name;
+
+    /**
+     * @param int|null $id
+     * @param string|null $name
+     * @param int|null $idLang
+     */
+    public function __construct($id = null, $name = null, $idLang = null) {}
+
+    /**
+     * @param int $idLang
+     * @param int $idProduct
+     * @param list<string> $tagList
+     * @return bool
+     */
+    public static function addTags($idLang, $idProduct, $tagList) {}
+
+    /** @return bool */
+    public static function deleteProductTagsInLang(int $productId, int $langId) {}
+}

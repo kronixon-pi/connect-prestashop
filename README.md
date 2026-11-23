@@ -141,17 +141,86 @@ schema: `products`, `variants`, `images`, `prices`, `stock`, `categories`, `bran
   to 2× apart between runs) and 105–110 ms on a slower development machine. The matrix prints the
   figures of every run in its job summary.
 
+## Catalog writes
+
+The signed `POST` endpoints write the paired shop through PrestaShop's own object model, so its validation
+and the hooks of other modules run. Rules of the protocol: [§6](protocol/v1/README.md#6-endpoints-phase-0).
+
+- **What is written.** `categories` (`Category`), `attributes` (`Feature`, `AttributeGroup`),
+  `attribute-values` (`FeatureValue`, `Attribute` on 1.7.8, `ProductAttribute` from 8.0), `brands`
+  (`Manufacturer`) and `tags` (`Tag`). Nothing writes a catalog table by SQL; the module's own tables
+  (`kx_entity_map`, `kx_idempotency`) are.
+- **Only what differs.** An item is compared with the shop: an update saves only the fields, in the languages,
+  that changed (`setFieldsToUpdate`), so a field or a language that was not sent keeps what the shop holds; an
+  item equal to the shop is `unchanged` and saves nothing (no hook, no new `date_upd`). A create needs the name in
+  the shop's default language and fills the other languages from it. A language the shop does not have is left
+  out with the warning `language_unknown`, or refused with `options.strict_languages`.
+- **One transaction per item.** A refused item leaves nothing behind and the rest of the batch goes on. A module
+  hooked to a save can commit that transaction early (`ps_facetedsearch` truncates its filter cache, and MySQL
+  commits before that), and another may fail after it; so an item is checked as a whole before its first write, and an
+  object that a failed item still left is deleted. `kx_pending` names what an item has created until the item is
+  complete: it is written with the object, in the same transaction, before any module's hook of that object (this
+  module stands first in `actionObjectAddAfter`, in every shop). When the deletion fails too the item is
+  `cleanup_failed` and the rest of the batch goes on; when the request died, or the deletion failed, the next request
+  deletes what is left: a write before its first item, a read (any `GET`, also `health` and `profile`) at most three
+  objects before it answers, when no write is running. Until then nothing finds it (`match_by`), links to it or
+  creates it again, and no `GET catalog/*` lists it: not in a page, a count, `max_id` or the `profile` counts. A
+  product, category or brand to be active is created inactive and switched on when its item is complete, so the
+  storefront neither lists what a dead request left nor shows its page (see Known limits). The switch is the last
+  step before the item's `kx_pending` row goes; after a hook has committed early these steps no longer share one
+  transaction, and a `kx_pending` row that cannot be deleted switches the object off again, so a row that is left
+  always names an inactive object. An object somebody has worked with since (a category with children, a brand
+  with products) is kept and no longer counted as left over.
+  Only a module that commits before the object's own rows are complete, followed by the death of the server process
+  itself, can leave an object the module does not know of.
+- **Idempotency.** With an `Idempotency-Key` (a UUID, else `400`) the answer of a `200` is kept for 24 hours in
+  `kx_idempotency`: the same request gets the same bytes with `X-KX-Idempotent-Replay: true`, signed anew; another
+  body or endpoint with the key is `409 idempotency_conflict`. A refused request is not kept. Without a key, or when
+  an answer could not be kept, a repeat finds the same entities again (`external_id`, `kx_id`, `match_by`).
+- **One write at a time.** Every `POST`/`DELETE` runs under a lock of the shop (`GET_LOCK`, released with the
+  connection); a second one gets `409 busy` with `retry_after: 5`. The stored answers are read and written under it.
+  A `GET` takes the lock only when `kx_pending` names something to delete, and only while it deletes it; a write
+  that comes meanwhile gets `409 busy` too. On a shop with nothing left over a read never holds the lock.
+- **Limits.** 100 items (`413 batch_too_large`), 4 MB, 25 s: an item starts only with 1.5 s left, the rest is
+  `skipped` with `continue: true`.
+- **`content_hash`** of an `ok` item is read back from the shop once, after the last item, with the code of
+  `GET catalog/*`.
+- **Hooks** run for every active module of the shop. The module's service account is not the employee of the
+  request: PrestaShop before 9.1 runs a module's hook only for an employee who may view that module, and the
+  account has no rights. The hooks of a create see a product, category or brand inactive; once its item is committed
+  the module runs the hooks of an update for it, with the object as stored and active
+  (`actionObjectUpdateBefore`/`After`, `actionObject<Class>UpdateBefore`/`After`, and `actionProductSave` +
+  `actionProductUpdate` for a product, `actionCategoryUpdate` for a category), in the paired shop. They save
+  nothing; one that throws is logged and the item stays `ok`.
+- **Multistore.** Ids of another shop are not found; a created category, feature, group or brand is in the paired
+  shop only. Columns PrestaShop shares between shops (a product's reference, a brand's name and logo) change for all.
+- **Categories.** Items are written in order, `parent_key` names an earlier one; without a parent the category is
+  under Home (one directly under the Root stays there). The nested tree is rebuilt once, after the last item
+  (`options.regenerate_tree: none` leaves it to a later batch). Root and Home are refused (`root_category`). Nothing is
+  deleted: deactivate. A position is set on the category alone, its siblings keep theirs.
+- **Attributes.** `public_name` is cut at PrestaShop's 64 characters (warning `public_name_cut`); `facets` are left
+  out (`facets_unsupported`) until the `facets` capability exists.
+- **Brands.** The logo is fetched before the item's transaction, over HTTPS, without redirects, up to 20 MB in 20 s,
+  and dropped unless its sha256 is the announced one; a logo the shop already holds is not fetched. A logo PrestaShop
+  converts (anything but a JPEG) carries the sha256 of its source in the stored file.
+- **Tags.** PrestaShop deletes a tag no product has as soon as any product's tags change.
+- **Known limits.** Until a half-written product or category is deleted, its storefront URL answers as PrestaShop
+  answers for any inactive object: on 1.7.8 `404`; on 9.1 `403` for a product, `404` for a brand and `500` for a
+  category, whose tree position is not set yet. Some of these pages carry its name (the breadcrumb, JSON-LD,
+  `<title>`). The next signed request that finds no write running deletes it.
+
 ## What the module adds to the shop
 
-- Tables `kx_nonce`, `kx_idempotency`, `kx_log`, `kx_entity_map`, `kx_image_map`, `kx_redirect`,
-  `kx_outbox` ([sql/install.sql](sql/install.sql) says which version uses each; 0.2.0 writes `kx_nonce`
-  and `kx_log`, kept 14 days, never with a secret).
+- Tables `kx_nonce`, `kx_idempotency`, `kx_log`, `kx_entity_map`, `kx_pending`, `kx_image_map`, `kx_redirect`,
+  `kx_outbox` ([sql/install.sql](sql/install.sql) says which version uses each; `kx_log` is kept 14 days and
+  never holds a secret).
 - Configuration keys `KX_*`; uninstalling removes the tables and the keys.
 - A Back Office menu entry *Advanced Parameters → Kronixon Connect* (the settings page).
-- A Profile "Kronixon Connect" without any access right and an inactive Employee in it, the identity the
-  module will act as in later versions; uninstalling removes both.
-- Hooks on product, stock, category, image, brand, feature and combination changes. In 0.2.0 they do
-  nothing; later they only queue an event in `kx_outbox` (no HTTP call inside a hook).
+- A Profile "Kronixon Connect" without any access right and an inactive Employee in it; uninstalling removes
+  both.
+- Hooks on product, stock, category, image, brand, feature and combination changes. They record nothing yet;
+  later they only queue an event in `kx_outbox` (no HTTP call inside a hook). `actionObjectAddAfter` marks what the
+  module's own writes create and does nothing for any other object.
 - No core files are changed, no overrides are installed. Translations: English, Bulgarian, German.
 
 ## Development
@@ -173,12 +242,16 @@ then pairs the shop with [tests/Integration/platform-stub.php](tests/Integration
 minimal Connect service run by the shop's own PHP) and plays the platform's side with
 [tests/Integration/platform-driver.php](tests/Integration/platform-driver.php): the signed `GET
 capabilities` check, profile, health, replay/tamper/clock refusals, signed catalog reads, a rotation and an
-unpair. Then [tests/Integration/catalog-walk.php](tests/Integration/catalog-walk.php) walks every catalog
+unpair. [tests/Integration/catalog-writes.php](tests/Integration/catalog-writes.php) then writes the shop through
+the signed endpoints and compares with the reads, and
+[failed-writes.php](tests/Integration/failed-writes.php) does so with a module whose hooks commit and then fail
+([kxprobe](tests/Integration/kxprobe)). Then [tests/Integration/catalog-walk.php](tests/Integration/catalog-walk.php) walks every catalog
 reader in K = 1, 3 and 8 id ranges on `KX_WALK_PRODUCTS` products (generated by SQL; default 0 = the shop's
 own) and [validate-answers.php](tests/Integration/validate-answers.php) checks every answer against its
 schema (needs `make install`): `KX_WALK_PRODUCTS=100000 make smoke PS=91`. Last,
 [tests/Integration/multistore.php](tests/Integration/multistore.php) adds a second shop in a second group,
-shares a product with it and checks that each shop reads only its own relations of that product.
+shares a product with it and checks that each shop reads only its own relations of that product; the writes
+run once more with the two shops.
 `scripts/ps/pair.php <platform url> <code>` pairs a local shop from the command line.
 
 `PS` is one of `178`, `81`, `82`, `90`, `91`, `92` ([docker/](docker/)); `PS_TAG` overrides the image tag.
@@ -187,8 +260,8 @@ only place to change them; `scripts/compose.sh` (used by `make` and the CI scrip
 The shops use PrestaShop's documented default admin login and `admin-dev` as the admin folder.
 
 Layout: `kronixonconnect.php` (module class), `controllers/front/api.php` (the only API entry),
-`src/` (`Kronixon\Connect\` — `Api`, `Auth`, `Catalog`, `Compat`, `Crypto`, `Install`, `Platform`, `Shop`, `Support`, loaded by the module's
-own autoloader; no composer at runtime), `sql/`, `views/`, `protocol/v1/` (protocol document, JSON
+`src/` (`Kronixon\Connect\` — `Api`, `Auth`, `Catalog`, `Compat`, `Crypto`, `Install`, `Platform`, `Shop`, `Support`, `Write`, loaded by the module's
+own autoloader; no composer at runtime), `sql/`, `upgrade/`, `views/`, `protocol/v1/` (protocol document, JSON
 Schemas, signature vectors), `tests/` (PHPUnit, the fixture generator), `docker/`, `scripts/`.
 Development tools live in `tools/vendor`, because PrestaShop loads a module's `vendor/autoload.php`
 at runtime.

@@ -32,7 +32,8 @@ use Throwable;
 
 /**
  * ShopInfo read from PrestaShop core classes whose API is the same on 1.7.8–9.x. The counts are
- * plain COUNT(*) on primary keys (GET profile only; GET health never counts).
+ * plain COUNT(*) on primary keys less the objects a write has not completed (GET profile only; GET
+ * health never counts).
  */
 final class PrestaShopInfo implements ShopInfo
 {
@@ -145,7 +146,9 @@ final class PrestaShopInfo implements ShopInfo
         }
         $counts = [];
         foreach (self::COUNTS as $name => $table) {
-            $counts[$name] = (int) $db->getValue('SELECT COUNT(*) FROM `'._DB_PREFIX_.$table.'`', false);
+            // Less the objects a write has not completed (kx_pending), as the catalog reads leave them out.
+            $counts[$name] = (int) $db->getValue('SELECT (SELECT COUNT(*) FROM `'._DB_PREFIX_.$table.'`) - (SELECT COUNT(DISTINCT k.id_object) FROM `'
+                ._DB_PREFIX_.'kx_pending` k INNER JOIN `'._DB_PREFIX_.$table.'` x ON x.`id_'.$table.'` = k.id_object WHERE k.entity = \''.$table.'\')', false);
         }
         $modules = ['ps_facetedsearch' => null, 'smartblog' => null];
         foreach ($db->executeS('SELECT `name`, `version` FROM `'._DB_PREFIX_.'module` WHERE `name` IN (\'ps_facetedsearch\', \'smartblog\')') ?: [] as $row) {

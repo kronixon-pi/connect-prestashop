@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Kronixon\Connect\Tests\Unit\Api;
 
+use Kronixon\Connect\Api\Budget;
 use Kronixon\Connect\Api\Kernel;
 use Kronixon\Connect\Api\Response;
 use Kronixon\Connect\Api\Router;
@@ -16,6 +17,7 @@ use Kronixon\Connect\Tests\Support\TestCipher;
 use Kronixon\Connect\Tests\Support\TestModule;
 use Kronixon\Connect\Tests\Support\Vectors;
 use PHPUnit\Framework\TestCase;
+use RuntimeException;
 
 /**
  * The README §4.4 pipeline of the real Kernel, fed with the protocol's signature vectors and with
@@ -325,6 +327,70 @@ final class SignedKernelTest extends TestCase
         self::assertSame([], $module->guards->lockLog, 'reads take no lock');
         $module->kernel()->handle($module->signedServer($secret, 'POST', 'unpair', [], '{"reason":"user"}'), '{"reason":"user"}');
         self::assertSame(['acquire', 'release'], $module->guards->lockLog);
+    }
+
+    public function test_a_read_of_a_clean_shop_takes_no_lock_so_a_write_never_waits_for_it(): void
+    {
+        $module = $this->pairedModule();
+        $secret = (string) $module->secrets->current();
+        $runs = [];
+        $asked = [];
+        $module->beforeRead = static function () use (&$runs): void {
+            $runs[] = 'run';
+        };
+        $module->cleanupNeeded = static function () use ($module, &$asked): bool {
+            $asked[] = $module->guards->lockLog;
+
+            return false;
+        };
+        $module->guards->lockLog = [];
+
+        self::assertSame(200, $module->kernel()->handle($module->signedServer($secret, 'GET', 'health'), '')->status());
+        self::assertSame([[]], $asked, 'asked without the lock');
+        self::assertSame([[], []], [$runs, $module->guards->lockLog], 'no mark: no clean-up and no lock');
+
+        $module->cleanupNeeded = static function (): bool {
+            throw new RuntimeException('the database');
+        };
+        self::assertSame(200, $module->kernel()->handle($module->signedServer($secret, 'GET', 'health'), '')->status(), 'a failed lookup does not fail the read');
+        self::assertSame([[], []], [$runs, $module->guards->lockLog]);
+    }
+
+    public function test_a_read_cleans_up_first_when_no_write_holds_the_lock_and_never_waits(): void
+    {
+        $module = $this->pairedModule();
+        $secret = (string) $module->secrets->current();
+        $runs = [];
+        $module->beforeRead = static function (Budget $budget) use ($module, &$runs): void {
+            $runs[] = $module->guards->lockLog;
+        };
+
+        self::assertSame(200, $module->kernel()->handle($module->signedServer($secret, 'GET', 'health'), '')->status());
+        self::assertSame([['acquire']], $runs, 'under the lock');
+        self::assertSame(['acquire', 'release'], $module->guards->lockLog);
+
+        $module->guards->heldElsewhere = true;
+        self::assertSame(200, $module->kernel()->handle($module->signedServer($secret, 'GET', 'profile'), '')->status(), 'a running write: the read goes on');
+        self::assertCount(1, $runs, 'without the clean-up, which the write does itself');
+        $module->guards->heldElsewhere = false;
+
+        $module->beforeRead = static function (): void {
+            throw new RuntimeException('a hook of another module');
+        };
+        $module->guards->lockLog = [];
+        self::assertSame(200, $module->kernel()->handle($module->signedServer($secret, 'GET', 'health'), '')->status(), 'a failed clean-up does not fail the read');
+        self::assertSame(['acquire', 'release'], $module->guards->lockLog, 'and the lock is released');
+        self::assertSame(['The clean-up before a read failed'], array_column(array_filter($module->logRows, static function (array $row): bool {
+            return strpos((string) $row['message'], 'clean-up') !== false;
+        }), 'message'));
+
+        $runs = [];
+        $module->beforeRead = static function () use (&$runs): void {
+            $runs[] = 'run';
+        };
+        $module->kernel()->handle($module->signedServer($secret, 'GET', 'nope'), '');
+        $module->kernel()->handle($module->signedServer($secret, 'POST', 'unpair', [], '{"reason":"user"}'), '{"reason":"user"}');
+        self::assertSame([], $runs, 'not for an unknown endpoint nor a write (its batch recovers)');
     }
 
     public function test_unknown_endpoints_are_revealed_only_after_the_signature(): void

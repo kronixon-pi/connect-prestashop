@@ -4,10 +4,13 @@ declare(strict_types=1);
 
 namespace Kronixon\Connect\Tests\Support;
 
+use Kronixon\Connect\Api\Budget;
 use Kronixon\Connect\Api\Endpoints;
 use Kronixon\Connect\Api\Kernel;
+use Kronixon\Connect\Api\ReadCleanup;
 use Kronixon\Connect\Api\Response;
 use Kronixon\Connect\Api\Router;
+use Kronixon\Connect\Auth\IdempotencyStore;
 use Kronixon\Connect\Auth\SecretStore;
 use Kronixon\Connect\Auth\Signer;
 use Kronixon\Connect\Compat\Ps9;
@@ -46,6 +49,12 @@ final class TestModule
     /** @var int */
     public $rateLimit = 120;
 
+    /** @var (callable(\Kronixon\Connect\Api\Budget): void)|null the Kernel's clean-up before a read */
+    public $beforeRead;
+
+    /** @var bool|(callable(): bool) the answer of ReadCleanup::needed() */
+    public $cleanupNeeded = true;
+
     public function __construct(float $now = 1790772000.0)
     {
         $this->settings = new MemorySettings();
@@ -69,9 +78,41 @@ final class TestModule
         return new Endpoints($this->secrets, new FakeShop(), new Ps9(), $this->clock, $this->log());
     }
 
-    public function kernel(): Kernel
+    public function kernel(?IdempotencyStore $idempotency = null): Kernel
     {
-        return new Kernel($this->router, $this->secrets, $this->clock, $this->guards, $this->guards, $this->log(), 25, $this->rateLimit);
+        return new Kernel($this->router, $this->secrets, $this->clock, $this->guards, $this->guards, $this->log(), 25, $this->rateLimit, null, $idempotency, $this->readCleanup());
+    }
+
+    private function readCleanup(): ?ReadCleanup
+    {
+        if ($this->beforeRead === null) {
+            return null;
+        }
+        $module = $this;
+
+        return new class ($module) implements ReadCleanup {
+            /** @var TestModule */
+            private $module;
+
+            public function __construct(TestModule $module)
+            {
+                $this->module = $module;
+            }
+
+            public function needed(): bool
+            {
+                $needed = $this->module->cleanupNeeded;
+
+                return is_callable($needed) ? (bool) $needed() : $needed;
+            }
+
+            public function run(Budget $budget): void
+            {
+                if ($this->module->beforeRead !== null) {
+                    ($this->module->beforeRead)($budget);
+                }
+            }
+        };
     }
 
     public function pairing(string $pinnedKey = ''): Pairing

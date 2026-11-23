@@ -19,7 +19,7 @@ final class InstallTest extends TestCase
 {
     private const ROOT = __DIR__.'/../../..';
 
-    public function test_install_sql_creates_the_seven_module_tables(): void
+    public function test_install_sql_creates_the_module_tables(): void
     {
         $statements = SqlFile::statements((string) file_get_contents(self::ROOT.'/sql/install.sql'), 'ps_', 'InnoDB');
 
@@ -28,7 +28,7 @@ final class InstallTest extends TestCase
 
             return $m[1];
         }, $statements);
-        self::assertSame(['ps_kx_nonce', 'ps_kx_idempotency', 'ps_kx_log', 'ps_kx_entity_map', 'ps_kx_image_map', 'ps_kx_redirect', 'ps_kx_outbox'], $tables);
+        self::assertSame(['ps_kx_nonce', 'ps_kx_idempotency', 'ps_kx_log', 'ps_kx_entity_map', 'ps_kx_pending', 'ps_kx_image_map', 'ps_kx_redirect', 'ps_kx_outbox'], $tables);
         foreach ($statements as $sql) {
             self::assertStringNotContainsString('PREFIX_', $sql);
             self::assertStringContainsString('ENGINE=InnoDB DEFAULT CHARSET=utf8mb4', $sql);
@@ -80,6 +80,7 @@ final class InstallTest extends TestCase
         self::assertNotContains('actionObjectProductAttributeAddAfter', $ps178);
         self::assertContains('actionObjectProductAttributeAddAfter', $ps9);
         self::assertSame(count(array_unique($ps9)), count($ps9));
+        self::assertContains(Hooks::ADDED, $ps178, 'what a write creates is marked on every version');
         self::assertNotContains('actionValidateOrder', $ps9, 'order events are Phase 2');
     }
 

@@ -42,19 +42,45 @@ final class Rows
 
     /**
      * One page of base rows by id: `$id` above the cursor and at most `until_id`, plus `$where`, in id
-     * order, at most `limit` rows and whether more follow.
+     * order, at most `limit` rows and whether more follow. With $entity, an object of that table a write
+     * has not completed is left out (notPending()).
      *
      * @return array{0: list<array<string, string|null>>, 1: bool}
      */
-    public static function byId(Sql $sql, PageQuery $query, string $select, string $from, string $id, string $where = ''): array
+    public static function byId(Sql $sql, PageQuery $query, string $select, string $from, string $id, string $where = '', ?Scope $scope = null, ?string $entity = null): array
     {
         if ($query->afterId >= $query->untilId) {
             return [[], false];
         }
+        $pending = $scope === null || $entity === null ? '' : self::notPending($sql, $scope, $entity, $id);
         $rows = $sql->rows('SELECT '.$select.' FROM '.$from.' WHERE '.$id.' > '.$query->afterId.' AND '.$id.' <= '.$query->untilId
-            .($where === '' ? '' : ' AND '.$where).' ORDER BY '.$id.' LIMIT '.($query->limit + 1));
+            .$query->idCondition($id).($where === '' ? '' : ' AND '.$where).$pending.' ORDER BY '.$id.' LIMIT '.($query->limit + 1));
 
         return [array_slice($rows, 0, $query->limit), count($rows) > $query->limit];
+    }
+
+    /**
+     * ` AND NOT EXISTS (…)`: leaves out an object a write created and has not completed (`kx_pending`,
+     * PendingWrites), one index lookup per row. Its mark is committed with the object and goes in the
+     * transaction that completes the item, so no statement sees the object without the mark before then.
+     *
+     * @param  string  $entity  the object's table without prefix (`product`, `product_attribute`, …)
+     * @param  string  $column  the id it is joined on (`p.id_product`)
+     */
+    public static function notPending(Sql $sql, Scope $scope, string $entity, string $column): string
+    {
+        return ' AND NOT EXISTS (SELECT 1 FROM '.$sql->table('kx_pending').' kxp WHERE kxp.id_shop = '.$scope->shopId
+            ." AND kxp.entity = '".preg_replace('/[^a-z_]/', '', $entity)."' AND kxp.id_object = ".$column.')';
+    }
+
+    /**
+     * `meta.max_id` of a table: its highest id that is not a pending object (notPending()), read from the
+     * top of the primary key down; `"0"` when there is none.
+     */
+    public static function maxId(Sql $sql, Scope $scope, string $table, string $id): string
+    {
+        return self::id($sql->rows('SELECT x.'.$id.' AS m FROM '.$sql->table($table).' x WHERE x.'.$id.' > 0'
+            .self::notPending($sql, $scope, $table, 'x.'.$id).' ORDER BY x.'.$id.' DESC LIMIT 1')[0]['m'] ?? null);
     }
 
     /**
@@ -74,12 +100,13 @@ final class Rows
      * `COUNT(*)` per id of a page: `SELECT $id, COUNT(…) FROM … GROUP BY $id` as id => count.
      *
      * @param  list<int>  $ids
+     * @param  string  $also  more conditions, each with its ` AND ` (notPending())
      * @return array<int, int>
      */
-    public static function counts(Sql $sql, string $from, string $id, array $ids, string $count = 'COUNT(*)'): array
+    public static function counts(Sql $sql, string $from, string $id, array $ids, string $count = 'COUNT(*)', string $also = ''): array
     {
         $counts = [];
-        foreach ($sql->rows('SELECT '.$id.' AS id, '.$count.' AS n FROM '.$from.' WHERE '.$id.' IN ('.self::in($ids).') GROUP BY '.$id) as $row) {
+        foreach ($sql->rows('SELECT '.$id.' AS id, '.$count.' AS n FROM '.$from.' WHERE '.$id.' IN ('.self::in($ids).')'.$also.' GROUP BY '.$id) as $row) {
             $counts[(int) $row['id']] = (int) $row['n'];
         }
 

@@ -18,6 +18,7 @@ declare(strict_types=1);
 
 namespace Kronixon\Connect\Api;
 
+use Kronixon\Connect\Auth\IdempotencyStore;
 use Kronixon\Connect\Auth\NonceStore;
 use Kronixon\Connect\Auth\PairingState;
 use Kronixon\Connect\Auth\Signer;
@@ -38,7 +39,8 @@ use Throwable;
  * 4–6. `X-KX-Store` names this pairing, header formats, the ±300 s clock window, the HMAC against
  *    `cur`, then a valid `prev` (`401 signature_invalid` / `timestamp_out_of_window`);
  * 7. the nonce, stored only now (`401 nonce_reused`), then the rate limit (`429 rate_limited`);
- * 8. the route (`404` / `405`), POST/DELETE under the write lock (`409 busy`).
+ * 8. the route (`404` / `405`), POST/DELETE under the write lock (`409 busy`) and once per
+ *    `Idempotency-Key` (`409 idempotency_conflict`).
  *
  * Every answer after step 6 is signed with the key that verified the request (README §4.3) and
  * carries the module version and the time used; every earlier answer is unsigned and carries
@@ -76,6 +78,9 @@ final class Kernel
     /** @var (callable(int): void)|null */
     private $onVerified;
 
+    /** @var IdempotencyStore|null */
+    private $idempotency;
+
     /** @var string */
     private $requestId = '';
 
@@ -91,8 +96,12 @@ final class Kernel
     /** @var int */
     private $suppressedErrors = 0;
 
+    /** @var ReadCleanup|null */
+    private $beforeRead;
+
     /**
      * @param  (callable(int): void)|null  $onVerified  called with the time of each verified request
+     * @param  ReadCleanup|null  $beforeRead  the clean-up of half-written objects (PendingWrites), before a GET under the free write lock
      */
     public function __construct(
         Router $router,
@@ -103,8 +112,12 @@ final class Kernel
         ?Log $log = null,
         int $budgetSeconds = Protocol::TIME_BUDGET_S,
         int $rateLimit = Protocol::RATE_LIMIT_PER_MINUTE,
-        ?callable $onVerified = null
+        ?callable $onVerified = null,
+        ?IdempotencyStore $idempotency = null,
+        ?ReadCleanup $beforeRead = null
     ) {
+        $this->beforeRead = $beforeRead;
+        $this->idempotency = $idempotency;
         $this->router = $router;
         $this->pairing = $pairing;
         $this->clock = $clock;
@@ -248,16 +261,94 @@ final class Kernel
 
         $handler = $this->router->resolve($request);
         if ($request->method() === 'GET') {
+            $this->beforeRead($budget);
+
             return $handler($request, $budget);
         }
         if (! $this->lock->acquire()) {
             throw ApiError::busy(Protocol::BUSY_RETRY_S);
         }
         try {
-            return $handler($request, $budget);
+            return $this->once($request, $handler, $budget, $now);
         } finally {
             $this->lock->release();
         }
+    }
+
+    /**
+     * What a dead write left half-written also goes on a store that only gets reads: before a GET, when
+     * there is any and no write holds the lock (one that does cleans up itself). Only then the read takes
+     * the lock, so a write that comes meanwhile may get `409 busy`. The reads leave such objects out
+     * anyway; a failure here is logged and the read goes on.
+     */
+    private function beforeRead(Budget $budget): void
+    {
+        if ($this->beforeRead === null) {
+            return;
+        }
+        try {
+            if (! $this->beforeRead->needed() || ! $this->lock->acquire()) {
+                return;
+            }
+        } catch (Throwable $error) {
+            if ($this->log !== null) {
+                $this->log->warning('api', 'The clean-up before a read failed', ['exception' => get_class($error)], $this->requestId);
+            }
+
+            return;
+        }
+        try {
+            $this->beforeRead->run($budget);
+        } catch (Throwable $error) {
+            if ($this->log !== null) {
+                $this->log->warning('api', 'The clean-up before a read failed', ['exception' => get_class($error)], $this->requestId);
+            }
+        } finally {
+            $this->lock->release();
+        }
+    }
+
+    /**
+     * A write with an Idempotency-Key is processed once (README §3): the same request again gets the
+     * stored answer, another request with the same key a 409. Only a 200 is stored, whatever its items'
+     * results: a refused request wrote nothing and is simply checked again.
+     *
+     * @param  callable(Request, Budget): Response  $handler
+     *
+     * @throws ApiError
+     */
+    private function once(Request $request, callable $handler, Budget $budget, int $now): Response
+    {
+        $key = $request->header(Protocol::HEADER_IDEMPOTENCY_KEY);
+        if ($key === null || $key === '' || $this->idempotency === null) {
+            return $handler($request, $budget);
+        }
+        if (! Uuid::isValid($key)) {
+            throw ApiError::badRequest('Idempotency-Key must be a UUID.');
+        }
+        $key = strtolower($key);
+        $sha256 = hash('sha256', $request->method().' '.$request->path()."\n".$request->body());
+        $stored = $this->idempotency->find($key, $now);
+        if ($stored !== null) {
+            if (! hash_equals($stored['sha256'], $sha256)) {
+                throw ApiError::idempotencyConflict();
+            }
+
+            return Response::replay($stored['status'], $stored['body']);
+        }
+        $response = $handler($request, $budget);
+        if ($response->status() === 200) {
+            try {
+                $this->idempotency->save($key, $sha256, 200, $response->body(), $now);
+            } catch (Throwable $error) {
+                // The write is done and its answer is true; a repeat is an upsert of the same items.
+                if ($this->log !== null) {
+                    $this->log->warning('api', 'An answer could not be kept for replay', ['exception' => get_class($error)], $this->requestId);
+                }
+            }
+        }
+
+        return $response;
     }
 
     /**

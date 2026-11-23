@@ -7,6 +7,7 @@ parameters:
         - kronixonconnect.php
         - controllers
         - src
+        - upgrade
     # The fixture generator (tests/fixtures/generate.php) is test tooling that runs inside a PrestaShop
     # container against the full core; it is linted (php -l, PHPCompatibility) but not analysed here.
     # PrestaShop is not a composer dependency of the module: the classes the module touches are declared in
@@ -14,6 +15,7 @@ parameters:
     # the stub source is evaluated when the endpoint surface grows (M1+).
     scanFiles:
         - tests/phpstan/prestashop.stub
+        - tests/phpstan/catalog.stub
     bootstrapFiles:
         - tests/phpstan/constants.php
     treatPhpDocTypesAsCertain: false

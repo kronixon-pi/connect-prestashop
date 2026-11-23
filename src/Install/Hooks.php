@@ -18,16 +18,24 @@ declare(strict_types=1);
 
 namespace Kronixon\Connect\Install;
 
+use Hook;
 use Kronixon\Connect\Compat\CompatInterface;
+use Module;
+use Shop;
 
 /**
  * Hooks registered at install (Spec §7.2 Phase-0 events, §7.3 flush on visit, §6.26 routes).
- * Their handlers are empty until M5 (outbox) and M3 (moduleRoutes for kx_redirect). Order events,
- * specific prices and the blog's displayHeader are Phase 2 and are not registered.
+ * Their handlers are empty until M5 (outbox) and M3 (moduleRoutes for kx_redirect), except ADDED, which
+ * marks what a write creates (PendingWrites). Order events, specific prices and the blog's displayHeader
+ * are Phase 2 and are not registered.
  */
 final class Hooks
 {
+    /** The first hook PrestaShop runs once an object's rows are stored. */
+    public const ADDED = 'actionObjectAddAfter';
+
     public const COMMON = [
+        self::ADDED,
         'actionProductAdd',
         'actionProductUpdate',
         'actionProductDelete',
@@ -58,5 +66,32 @@ final class Hooks
     public static function forCompat(CompatInterface $compat): array
     {
         return array_values(array_unique(array_merge(self::COMMON, $compat->versionHooks())));
+    }
+
+    /**
+     * Moves the module before the others of ADDED in every shop, active or not: the paired shop may be
+     * any of them. updatePosition() works on the shops of the context and stops at the first where the
+     * module is already first, so it runs once per shop, and the context is put back afterwards.
+     */
+    public static function stayFirst(Module $module): void
+    {
+        $hook = (int) Hook::getIdByName(self::ADDED);
+        $context = Shop::getContext();
+        $shopId = Shop::getContextShopID(true);
+        $groupId = Shop::getContextShopGroupID(true);
+        try {
+            foreach (Shop::getShops(false, null, true) as $id) {
+                Shop::setContext(Shop::CONTEXT_SHOP, (int) $id);
+                $module->updatePosition($hook, false, 1);
+            }
+        } finally {
+            if ($context === Shop::CONTEXT_SHOP && $shopId !== null) {
+                Shop::setContext(Shop::CONTEXT_SHOP, (int) $shopId);
+            } elseif ($context === Shop::CONTEXT_GROUP && $groupId !== null) {
+                Shop::setContext(Shop::CONTEXT_GROUP, (int) $groupId);
+            } else {
+                Shop::setContext(Shop::CONTEXT_ALL);
+            }
+        }
     }
 }

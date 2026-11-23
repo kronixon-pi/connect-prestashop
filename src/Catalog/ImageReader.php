@@ -65,7 +65,7 @@ final class ImageReader implements Reader
         if ($query->afterId >= $query->untilId) {
             return Page::none();
         }
-        $where = 'i.id_image > '.$query->afterId.' AND i.id_image <= '.$query->untilId;
+        $where = 'i.id_image > '.$query->afterId.' AND i.id_image <= '.$query->untilId.Rows::notPending($this->sql, $this->scope, 'product', 'i.id_product');
         if ($productId !== null) {
             $where .= ' AND i.id_product = '.$productId;
         }

@@ -54,7 +54,7 @@ final class BrandReader implements Reader
 
     public function maxId(): string
     {
-        return Rows::id($this->sql->rows('SELECT MAX(id_manufacturer) AS m FROM '.$this->sql->table('manufacturer'))[0]['m'] ?? null);
+        return Rows::maxId($this->sql, $this->scope, 'manufacturer', 'id_manufacturer');
     }
 
     public function maxCursorVariant(Request $request): ?int
@@ -70,12 +70,21 @@ final class BrandReader implements Reader
             'm.id_manufacturer, m.name, m.active, m.date_upd',
             $this->sql->table('manufacturer').' m INNER JOIN '.$this->sql->table('manufacturer_shop').' ms ON ms.id_manufacturer = m.id_manufacturer AND ms.id_shop = '.$this->scope->shopId,
             'm.id_manufacturer',
-            $query->since === null ? '' : "m.date_upd >= '".$query->since."'"
+            $query->since === null ? '' : "m.date_upd >= '".$query->since."'",
+            $this->scope,
+            'manufacturer'
         );
         $ids = Rows::ints($rows, 'id_manufacturer');
         $texts = Rows::multilang($this->scope, $this->sql->rows('SELECT id_manufacturer, id_lang, '.implode(', ', self::TEXTS).' FROM '
             .$this->sql->table('manufacturer_lang').' WHERE id_manufacturer IN ('.Rows::in($ids).')'), 'id_manufacturer', self::TEXTS);
-        $counts = Rows::counts($this->sql, $this->sql->table('product').' p'.Rows::inShop($this->sql, $this->scope, 'p'), 'p.id_manufacturer', $ids);
+        $counts = Rows::counts(
+            $this->sql,
+            $this->sql->table('product').' p'.Rows::inShop($this->sql, $this->scope, 'p'),
+            'p.id_manufacturer',
+            $ids,
+            'COUNT(*)',
+            Rows::notPending($this->sql, $this->scope, 'product', 'p.id_product')
+        );
         $kx = Rows::kxIds($this->sql, self::ENTITY, $ids);
 
         $items = [];

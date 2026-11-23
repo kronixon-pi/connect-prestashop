@@ -48,12 +48,40 @@ final class PageQuery
     /** @var string|null `since` in the shop's time zone, `Y-m-d H:i:s` */
     public $since;
 
+    /** @var list<int>|null the only ids of the page (ofIds()); null: every id of the range */
+    public $onlyIds;
+
     /** @var Request|null */
     private $request;
+
+    /** @var array<string, string> parameters of a query made without a request */
+    private $params = [];
 
     public function __construct(int $limit = self::DEFAULT_LIMIT)
     {
         $this->limit = $limit;
+    }
+
+    /**
+     * The items of $ids whatever their range: what the write endpoints read back.
+     *
+     * @param  list<int>  $ids
+     * @param  array<string, string>  $params  the endpoint's own parameters
+     */
+    public static function ofIds(array $ids, array $params = []): self
+    {
+        // Attributes: a feature and an attribute group may share an id.
+        $query = new self(2 * count($ids) + 1);
+        $query->onlyIds = $ids;
+        $query->params = $params;
+
+        return $query;
+    }
+
+    /** ` AND <column> IN (…)` of ofIds(), nothing otherwise. */
+    public function idCondition(string $column): string
+    {
+        return $this->onlyIds === null ? '' : ' AND '.$column.' IN ('.Rows::in($this->onlyIds).')';
     }
 
     /**
@@ -122,7 +150,7 @@ final class PageQuery
      */
     public function param(string $name): ?string
     {
-        return $this->request === null ? null : $this->request->query($name);
+        return $this->params[$name] ?? ($this->request === null ? null : $this->request->query($name));
     }
 
     /**

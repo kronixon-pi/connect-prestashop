@@ -57,7 +57,7 @@ final class VariantReader implements Reader
 
     public function maxId(): string
     {
-        return Rows::id($this->sql->rows('SELECT MAX(id_product_attribute) AS m FROM '.$this->sql->table('product_attribute'))[0]['m'] ?? null);
+        return Rows::maxId($this->sql, $this->scope, 'product_attribute', 'id_product_attribute');
     }
 
     /**
@@ -146,6 +146,8 @@ final class VariantReader implements Reader
             $join = ' INNER JOIN '.$this->sql->table('product_shop').' ps ON ps.id_product = pa.id_product AND ps.id_shop = '.$this->scope->shopId;
             $where .= " AND ps.date_upd >= '".$query->since."'";
         }
+        $where .= Rows::notPending($this->sql, $this->scope, 'product_attribute', 'pa.id_product_attribute')
+            .Rows::notPending($this->sql, $this->scope, 'product', 'pa.id_product');
 
         return $this->sql->rows('SELECT pa.id_product_attribute, pa.id_product, pa.reference, pa.ean13, pa.mpn, pas.price, pas.wholesale_price,'
             .' pas.weight, pas.default_on, pas.minimal_quantity, pas.available_date FROM '.$this->sql->table('product_attribute').' pa INNER JOIN '
@@ -174,8 +176,8 @@ final class VariantReader implements Reader
 
         // Two queries, not a join: MySQL drives a join from the small `attribute` table and reads every
         // combination row of the shop through the (id_attribute, id_product_attribute) primary key.
-        $pairs = $this->sql->rows('SELECT id_product_attribute, id_attribute FROM '.$this->sql->table('product_attribute_combination')
-            .' WHERE id_product_attribute IN ('.$in.')');
+        $pairs = $this->sql->rows('SELECT pac.id_product_attribute, pac.id_attribute FROM '.$this->sql->table('product_attribute_combination')
+            .' pac WHERE pac.id_product_attribute IN ('.$in.')'.Rows::notPending($this->sql, $this->scope, 'attribute', 'pac.id_attribute'));
         $attributes = array_values(array_unique(array_map(static function (array $row): int {
             return (int) $row['id_attribute'];
         }, $pairs)));

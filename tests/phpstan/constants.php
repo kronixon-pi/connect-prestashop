@@ -8,4 +8,5 @@ define('_DB_PREFIX_', 'ps_');
 define('_MYSQL_ENGINE_', 'InnoDB');
 define('_DB_NAME_', 'prestashop');
 define('_PS_USE_SQL_SLAVE_', false);
+define('__PS_BASE_URI__', '/');
 define('_PS_MANU_IMG_DIR_', '/var/www/html/img/m/');

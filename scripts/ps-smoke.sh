@@ -75,8 +75,8 @@ account() { # employees + profiles + access rows of the service account, tab row
     sql "SELECT (SELECT COUNT(*) FROM ps_employee WHERE email LIKE 'connect-%@kronixon.invalid'), (SELECT COUNT(*) FROM ps_profile_lang WHERE name = 'Kronixon Connect' AND id_lang = (SELECT MIN(id_lang) FROM ps_lang)), (SELECT COUNT(*) FROM ps_access a JOIN ps_profile_lang pl ON pl.id_profile = a.id_profile WHERE pl.name = 'Kronixon Connect'), (SELECT COUNT(*) FROM ps_tab WHERE class_name = 'AdminKronixonConnect')"
 }
 expect_eq "module row (name active version)" "kronixonconnect	1	$module_version" "$(sql "SELECT name, active, version FROM ps_module WHERE name = 'kronixonconnect'")"
-expect_eq "kx_ tables" "7" "$(sql "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'prestashop' AND table_name LIKE 'ps\_kx\_%'")"
-expect_eq "registered hooks" "19" "$(sql "SELECT COUNT(*) FROM ps_hook_module hm JOIN ps_module m ON m.id_module = hm.id_module WHERE m.name = 'kronixonconnect'")"
+expect_eq "kx_ tables" "8" "$(sql "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'prestashop' AND table_name LIKE 'ps\_kx\_%'")"
+expect_eq "registered hooks" "20" "$(sql "SELECT COUNT(*) FROM ps_hook_module hm JOIN ps_module m ON m.id_module = hm.id_module WHERE m.name = 'kronixonconnect'")"
 expect_eq "KX_INSTANCE_ID is a UUID" "1" "$(cfg KX_INSTANCE_ID "value REGEXP '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'")"
 expect_eq "X25519 public key (base64 of 32 bytes)" "1" "$(cfg KX_PUBLIC_KEY "value REGEXP '^[A-Za-z0-9+/]{43}=$'")"
 expect_eq "key pair stored encrypted (PhpEncryption, not base64 of 64 bytes)" "1" "$(cfg KX_PRIVATE_KEY "LENGTH(value) > 200 AND value NOT REGEXP '^[A-Za-z0-9+/]{86}==$'")"
@@ -89,9 +89,14 @@ expect_eq "KX_ keys after uninstall" "0" "$(sql "SELECT COUNT(*) FROM ps_configu
 expect_eq "service account and tab after uninstall" "0	0	0	0" "$(account)"
 expect_eq "access rows of deleted roles after uninstall (stock shop: $orphans_before)" "$orphans_before" "$(orphans)"
 console prestashop:module install kronixonconnect
-expect_eq "kx_ tables after reinstall" "7" "$(sql "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'prestashop' AND table_name LIKE 'ps\_kx\_%'")"
+expect_eq "kx_ tables after reinstall" "8" "$(sql "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'prestashop' AND table_name LIKE 'ps\_kx\_%'")"
 expect_eq "service account after reinstall" "1	1	0	1" "$(account)"
 step "uninstall + reinstall checked"
+
+# The hook that marks what a write creates: registered, before every other module of it, in every shop
+# (shops with a row, whether it is first in each of them).
+added() { sql "SELECT COUNT(DISTINCT hm.id_shop), COALESCE(MIN(hm.position <= (SELECT MIN(o.position) FROM ps_hook_module o WHERE o.id_hook = hm.id_hook AND o.id_shop = hm.id_shop)), 0) FROM ps_hook_module hm JOIN ps_hook h ON h.id_hook = hm.id_hook JOIN ps_module m ON m.id_module = hm.id_module WHERE m.name = 'kronixonconnect' AND h.name = 'actionObjectAddAfter'"; }
+expect_eq "actionObjectAddAfter registered, first" "1	1" "$(added)"
 
 check() { # name expected-status expected-error-code curl-args...
     local name="$1" want_status="$2" want_code="$3"
@@ -143,6 +148,28 @@ else
 fi
 expect_eq "kx_log holds rows but no secret" "1 0" "$(sql "SELECT COUNT(*) > 0, SUM(message LIKE '%kxs\\_%' OR context LIKE '%kxs\\_%') FROM ps_kx_log" | tr '\t' ' ')"
 psphp modules/kronixonconnect/scripts/ps/pair.php "$stub" K7PM-3XQ9 >/dev/null
+# The write endpoints on the paired shop, signed (tests/Integration/*-writes.php): create, update, no-op
+# with the hashes of the reads, refusals that leave nothing, idempotency and the write lock.
+writes() { # name script
+    if psphp "modules/kronixonconnect/tests/Integration/$2.php" "$base" 127.0.0.1:80 >"$tmp/$2"; then
+        echo "  ok   $1"
+    else
+        echo "  FAIL $1"; failures=$((failures + 1)); grep FAIL "$tmp/$2" || tail -n 20 "$tmp/$2"
+    fi
+    if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+        { echo "$1 on PrestaShop $version:"; echo '```'; tail -n 2 "$tmp/$2"; echo '```'; } >>"$GITHUB_STEP_SUMMARY"
+    fi
+}
+w0=$(date +%s)
+writes "taxonomy writes" catalog-writes
+# Failed items, with a third-party module whose hooks commit and then fail (tests/Integration/kxprobe).
+dc cp "$root/tests/Integration/kxprobe" ps:/var/www/html/modules/kxprobe
+dc exec -T ps chown -R www-data:www-data /var/www/html/modules/kxprobe </dev/null
+console prestashop:module install kxprobe
+writes "failed writes leave nothing half-written" failed-writes
+console prestashop:module uninstall kxprobe
+dc exec -T ps rm -rf /var/www/html/modules/kxprobe /tmp/kxprobe.json </dev/null
+step "writes checked in $(( $(date +%s) - w0 ))s"
 console prestashop:module uninstall kronixonconnect
 expect_eq "uninstall told the platform (reason)" "uninstall" "$(dc exec -T ps cat /tmp/kx-stub/state.json </dev/null | jq -r '.unpaired')"
 expect_eq "service account after uninstall of a paired shop" "0	0	0	0" "$(account)"
@@ -193,7 +220,8 @@ if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
 fi
 step "catalog reads checked in $(( $(date +%s) - w0 ))s"
 
-front="$(curl -s -o /dev/null -w '%{http_code}' "$base/")"
+# The writes added a second language: before 9.x the home page then redirects to /en/.
+front="$(curl -sL --max-redirs 3 -o /dev/null -w '%{http_code}' "$base/")"
 expect_eq "storefront home with the module installed" "200" "$front"
 
 # Multistore last (it adds a second shop for good): tests/Integration/multistore.php shares a product
@@ -205,6 +233,19 @@ else
     echo "  FAIL multistore"; failures=$((failures + 1))
 fi
 cat "$tmp/multistore"
+# With two shops and another module installed before it on actionObjectAddAfter (kxprobe), an install
+# puts the module first in both.
+dc cp "$root/tests/Integration/kxprobe" ps:/var/www/html/modules/kxprobe
+dc exec -T ps chown -R www-data:www-data /var/www/html/modules/kxprobe </dev/null
+console prestashop:module uninstall kronixonconnect
+console prestashop:module install kxprobe
+console prestashop:module install kronixonconnect
+expect_eq "actionObjectAddAfter first in both shops, after another module" "2	1" "$(added)"
+console prestashop:module uninstall kxprobe
+dc exec -T ps rm -rf /var/www/html/modules/kxprobe /tmp/kxprobe.json </dev/null
+# The writes again: shop 1 is written, shop 2's links and entities stay out of reach.
+psphp modules/kronixonconnect/scripts/ps/pair.php "$stub" K7PM-3XQ9 >/dev/null
+writes "taxonomy writes with two shops" catalog-writes
 total_s=$(elapsed)
 summary="SMOKE ps=$ps image=$(dc config --images 2>/dev/null | grep prestashop | head -n 1) prestashop=$version php=$php_version install_s=$install_s module_install_s=$module_s total_s=$total_s failures=$failures"
 echo "$summary"

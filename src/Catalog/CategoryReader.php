@@ -55,7 +55,7 @@ final class CategoryReader implements Reader
 
     public function maxId(): string
     {
-        return Rows::id($this->sql->rows('SELECT MAX(id_category) AS m FROM '.$this->sql->table('category'))[0]['m'] ?? null);
+        return Rows::maxId($this->sql, $this->scope, 'category', 'id_category');
     }
 
     public function maxCursorVariant(Request $request): ?int
@@ -71,12 +71,21 @@ final class CategoryReader implements Reader
             'c.id_category, c.id_parent, c.level_depth, c.active, c.date_upd, cs.position',
             $this->sql->table('category').' c INNER JOIN '.$this->sql->table('category_shop').' cs ON cs.id_category = c.id_category AND cs.id_shop = '.$this->scope->shopId,
             'c.id_category',
-            $query->since === null ? '' : "c.date_upd >= '".$query->since."'"
+            $query->since === null ? '' : "c.date_upd >= '".$query->since."'",
+            $this->scope,
+            'category'
         );
         $ids = Rows::ints($rows, 'id_category');
         $texts = Rows::multilang($this->scope, $this->sql->rows('SELECT id_category, id_lang, '.implode(', ', self::TEXTS).' FROM '.$this->sql->table('category_lang')
             .' WHERE id_shop = '.$this->scope->shopId.' AND id_category IN ('.Rows::in($ids).')'), 'id_category', self::TEXTS);
-        $counts = Rows::counts($this->sql, $this->sql->table('category_product').' cp'.Rows::inShop($this->sql, $this->scope, 'cp'), 'cp.id_category', $ids);
+        $counts = Rows::counts(
+            $this->sql,
+            $this->sql->table('category_product').' cp'.Rows::inShop($this->sql, $this->scope, 'cp'),
+            'cp.id_category',
+            $ids,
+            'COUNT(*)',
+            Rows::notPending($this->sql, $this->scope, 'product', 'cp.id_product')
+        );
         $kx = Rows::kxIds($this->sql, self::ENTITY, $ids);
 
         $items = [];
