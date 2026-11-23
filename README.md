@@ -262,6 +262,10 @@ refused). They write as the protocol defines it, without `Product::save()`: rows
 before the chunk's transaction; a stock row created in between is not locked, as one that does not exist yet): an
 order or a back-office save that committed meanwhile is what the row is compared with, and one that comes later
 waits for the chunk's commit. Another product's rows stay free.
+Every later write of a stock row goes by primary key too (`fast` quantities, `out_of_stock`, the product's total; `safe`
+through `StockAvailable::setQuantity()`, which does the same): PrestaShop's order statement reaches a stock row through
+the `id_product` index, entry first, so a chunk that held the row and then wrote it through that index could deadlock
+with an order of one of its own products.
 PrestaShop 1.7.8's end-of-order stock statements (`StockManager::updatePhysicalProductQuantity()`, two of them) scan
 and lock every stock row of the shop, by its design, so on 1.7.8 each of them waits for the chunk that holds stock
 rows at that moment, whether the order's products are in the request or not (a 300-row `safe` request on a shop of
