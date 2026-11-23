@@ -115,6 +115,32 @@ if ($faceted) {
     echo "  --   ps_facetedsearch is not active: no price index\n";
 }
 
+// A unit price stays when the price changes, as with PrestaShop's own save: price 10, unit price 5
+// (ratio 2), then price 20 by prices/bulk and by Product::update() → unit price 5, ratio 4 on both.
+$units = $send('products', ['items' => [
+    ['key' => 'u1', 'kx_id' => SignedClient::uuid(), 'groups' => ['content', 'visibility', 'pricing'], 'content' => ['name' => ['en' => "Unit bulk $tag"]], 'visibility' => ['active' => true], 'pricing' => ['price' => '10']],
+    ['key' => 'u2', 'kx_id' => SignedClient::uuid(), 'groups' => ['content', 'visibility', 'pricing'], 'content' => ['name' => ['en' => "Unit core $tag"]], 'visibility' => ['active' => true], 'pricing' => ['price' => '10']],
+]]);
+[$u1, $u2] = [(int) ($units['results'][0]['external_id'] ?? 0), (int) ($units['results'][1]['external_id'] ?? 0)];
+$send('prices/bulk', ['rows' => [['product_id' => (string) $u1, 'variant_id' => '0', 'unit_price' => '5'], ['product_id' => (string) $u2, 'variant_id' => '0', 'unit_price' => '5']]]);
+$send('prices/bulk', ['rows' => [['product_id' => (string) $u1, 'variant_id' => '0', 'price' => '20']]]);
+$core = new Product($u2);
+$core->price = 20.0;
+$core->update();
+$unitOf = static function (int $id) use ($kx): array {
+    $read = $kx->get('catalog/prices', ['until_id' => (string) $id, 'cursor' => rtrim(strtr(base64_encode((string) json_encode(['id' => $id - 1])), '+/', '-_'), '=')])['data']['data'][0] ?? [];
+
+    return [$read['price'] ?? null, $read['unit_price'] ?? null];
+};
+$ratio = static function (int $id) use ($text, $p, $shop): string {
+    return $text("SELECT unit_price_ratio FROM {$p}product_shop WHERE id_product = $id AND id_shop = $shop");
+};
+$kx->check(
+    'prices: a new price keeps the unit price (5, ratio 4) as Product::update() does',
+    $unitOf($u1) === ['20.000000', '5.000000'] && $unitOf($u2) === ['20.000000', '5.000000'] && $ratio($u1) === '4.000000' && $ratio($u2) === '4.000000',
+    (string) json_encode([$unitOf($u1), $ratio($u1), $unitOf($u2), $ratio($u2)])
+);
+
 // Stock.
 $movements = $value("SELECT COUNT(*) FROM {$p}stock_mvt");
 $s = $rows($send('stock/bulk', ['rows' => [

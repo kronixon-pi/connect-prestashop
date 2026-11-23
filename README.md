@@ -257,9 +257,15 @@ and the hooks of other modules run. Rules of the protocol: [§6](protocol/v1/REA
 in the order sent, told apart by `product_id` and `variant_id` (a row naming the same pair as an earlier one is
 refused). They write as the protocol defines it, without `Product::save()`: rows are read and written in chunks of
 100, each chunk in one transaction, a row checked before anything of it is written; a chunk that fails is
-`module_error` for its rows and the next chunk goes on. Under the write lock and once per `Idempotency-Key`, as every
-`POST`; what a dead write left half-written is removed first, and a product that is still left so is
-`cleanup_failed`.
+`module_error` for its rows and the next chunk goes on. A chunk reads the rows it writes with their row locks
+(`SELECT … FOR UPDATE`, by id) first: an order or a back-office save that committed meanwhile is what the row is
+compared with, and one that comes later waits for the chunk's commit (measured with 1 000 rows: a checkout waited at
+most 0.08 s for prices, 0.2 s / 0.35 s for `safe` stock on 1.7.8 / 9.1 and 0.03 s for `fast`). PrestaShop writes an
+order's stock one statement at a time, without a transaction, so the two never wait for each other. Rows whose locks
+another session holds longer than the chunk's wait (10 s at most, never past the budget) are `skipped` with
+`code: rows_locked` and `continue: true`, nothing of them written. Under the write lock and once per
+`Idempotency-Key`, as every `POST`; what a dead write left half-written is removed first, and a product that is still
+left so is `cleanup_failed`.
 
 - **`expected_price` / `expected_quantity`** is the value the platform believes the shop holds. When the shop holds
   another one (changed in the back office), the row is `status: conflict` with `code` `price_changed` /
@@ -271,8 +277,9 @@ refused). They write as the protocol defines it, without `Product::save()`: rows
   reads as `price_impact`) and `wholesale_price` (`tax_rules_group_id`/`unit_price` there: `product_fields_ignored`).
   `product_shop`/`product_attribute_shop` of the paired shop are written, and the main table when the paired shop is
   the default one, as PrestaShop's save does; `date_upd` of the product too unless `touch_date_upd: false`. A unit
-  price follows the version: 8.0+ keeps it and derives the ratio, 1.7.8 keeps only the ratio, so a new price changes
-  its unit price as in the back office. After the last chunk the price caches go (`flush_cache: false` keeps them)
+  price stays when only the price changes, as with PrestaShop's own save: 8.0+ stores it and derives the ratio;
+  1.7.8 stores only the ratio, which is written as the new price over the unit price the old price and ratio give
+  (a ratio of 0, no unit price, stays 0). After the last chunk the price caches go (`flush_cache: false` keeps them)
   and `actionKxBulkPricesUpdated` runs once with the changed product ids; `fire_hooks: true` adds
   `actionProductUpdate` per changed product. ps_facetedsearch's price filter: `reindex: inline` indexes the changed
   products after each chunk; `deferred` (the default) lists them in `facets_pending` for `POST maintenance/facets`;
@@ -282,15 +289,22 @@ refused). They write as the protocol defines it, without `Product::save()`: rows
   combinations takes their quantities (its own row is their total). `mode: safe` (the default) calls
   `StockAvailable::setQuantity()` as the back office does (`actionUpdateQuantity`, packs, the total; PrestaShop
   records a stock movement only where its Symfony container runs, which a module's front controller does not have on
-  1.7.8–9.1, so none is recorded); `mode: fast` updates `stock_available` (quantity, and physical quantity = reserved + quantity) and the
-  total per chunk, with `actionUpdateQuantity` per row only for `fire_hooks: true`; a row the shop has no stock row
-  for goes the safe way. `out_of_stock` through `StockAvailable::setProductOutOfStock()`. `shop_id` of another shop is
-  `shop_mismatch`. `available_now`/`available_later` are texts of the product: `available_texts_ignored` (send them
-  with `POST products`, `content`). `visibility_policy: restore_if_hidden` shows a product hidden from everywhere
+  1.7.8–9.1, so none is recorded); `mode: fast` updates `stock_available` (quantity, and physical quantity =
+  reserved + quantity) and the total per chunk, with `actionUpdateQuantity` per row only for `fire_hooks: true`; a
+  row the shop has no stock row for goes the safe way. What `fast` skips: without `fire_hooks`, modules listening to
+  `actionUpdateQuantity` (such as ps_emailalerts' back-in-stock mails, feed and marketplace modules) miss the change,
+  and the quantities of packs holding the product are not recalculated; `actionKxBulkStockUpdated` reaches only
+  modules that know it.
+  `out_of_stock` through `StockAvailable::setProductOutOfStock()`. `shop_id` of another shop is `shop_mismatch`.
+  `available_now`/`available_later` are texts of the product: `available_texts_ignored` (send them with
+  `POST products`, `content`). `visibility_policy: restore_if_hidden` shows a product hidden from everywhere
   (`visibility: none`) once its total is above 0 (`visibility_restored`); `hide_when_zero` hides a product the
   platform has linked (a `kx_id`) when its total is 0 (`visibility_hidden`; an unlinked one is
-  `not_hidden_unlinked`) and shows again only those it hid (`kx_entity_map.flags` bit 1). A visibility change marks
-  the product for search indexing. `actionKxBulkStockUpdated` runs once with the changed product ids.
+  `not_hidden_unlinked`) and shows again only those it hid (`kx_entity_map.flags` bit 1), with the visibility they
+  had (`both`, `catalog` or `search`, bits 2–3). A visibility change marks the product for search indexing. The
+  totals of `fast` and the visibility run after the chunk's commit; when that step fails, the rows of its products
+  carry the warning `totals_not_updated` and sending them again sets both. `actionKxBulkStockUpdated` runs once with
+  the changed product ids.
 - **`POST maintenance/reindex`** (`search_reindex`): PrestaShop's `Search::indexation()` per product, by id, within
   `budget_s` (at most the request's). `pending` indexes the products PrestaShop marked (`indexed = 0`), `products`
   marks and indexes the listed ones (up to 1 000), `full` marks every product of the paired shop first. While

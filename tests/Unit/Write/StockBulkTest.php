@@ -120,6 +120,73 @@ final class StockBulkTest extends TestCase
         self::assertSame('0', $this->db->rows('SELECT flags FROM ps_kx_entity_map')[0]['flags']);
     }
 
+    public function test_hide_when_zero_restores_the_visibility_the_product_had(): void
+    {
+        $this->db->insert('kx_entity_map', ['entity_type' => 'product', 'external_id' => '1', 'kx_id' => '0192b2e4-2f7a-7c5b-8a1d-3e4f5a6b7c8d', 'flags' => 0]);
+        foreach (['catalog' => '3', 'search' => '5', 'both' => '1'] as $visibility => $flags) {
+            $this->db->pdo->exec("UPDATE ps_product_shop SET visibility = '".$visibility."' WHERE id_product = 1");
+            $this->send([['product_id' => '1', 'variant_id' => '0', 'quantity' => 0]], ['visibility_policy' => 'hide_when_zero']);
+            self::assertSame(['none', $flags], [$this->db->rows('SELECT visibility FROM ps_product_shop WHERE id_product = 1')[0]['visibility'], $this->db->rows('SELECT flags FROM ps_kx_entity_map')[0]['flags']]);
+
+            $this->send([['product_id' => '1', 'variant_id' => '0', 'quantity' => 2]], ['visibility_policy' => 'hide_when_zero']);
+            self::assertSame([$visibility, '0'], [$this->db->rows('SELECT visibility FROM ps_product_shop WHERE id_product = 1')[0]['visibility'], $this->db->rows('SELECT flags FROM ps_kx_entity_map')[0]['flags']]);
+        }
+    }
+
+    public function test_a_failed_totals_or_visibility_step_is_a_row_warning_and_a_repeat_sets_them(): void
+    {
+        $this->db->insert('kx_entity_map', ['entity_type' => 'product', 'external_id' => '1', 'kx_id' => '0192b2e4-2f7a-7c5b-8a1d-3e4f5a6b7c8d', 'flags' => 0]);
+        $this->db->pdo->exec("CREATE TRIGGER kx_refuse BEFORE UPDATE OF quantity ON ps_stock_available WHEN NEW.id_product_attribute = 0 AND NEW.id_product = 2 BEGIN SELECT RAISE(ABORT, 'refused'); END");
+        $data = $this->send([['product_id' => '2', 'variant_id' => '7', 'quantity' => 10], ['product_id' => '1', 'variant_id' => '0', 'quantity' => 0]], ['mode' => 'fast', 'visibility_policy' => 'hide_when_zero']);
+
+        self::assertSame([['ok', 'updated', 1, ['totals_not_updated']], ['ok', 'updated', 5, ['totals_not_updated']]], self::results($data), 'the step is one transaction: the visibility of product 1 too');
+        self::assertSame(['10', '3'], array_column($this->db->rows('SELECT quantity FROM ps_stock_available WHERE id_product = 2 AND id_product_attribute IN (7, 0) ORDER BY id_product_attribute DESC'), 'quantity'));
+        self::assertSame([], ProtocolSchemas::errors('stock-bulk.json', $data));
+
+        $this->db->pdo->exec('DROP TRIGGER kx_refuse');
+        $again = $this->send([['product_id' => '2', 'variant_id' => '7', 'quantity' => 10], ['product_id' => '1', 'variant_id' => '0', 'quantity' => 0]], ['mode' => 'fast', 'visibility_policy' => 'hide_when_zero']);
+        self::assertSame([['ok', 'unchanged', 10, []], ['ok', 'unchanged', 0, ['visibility_hidden']]], self::results($again));
+        self::assertSame('12', $this->db->rows('SELECT quantity FROM ps_stock_available WHERE id_product = 2 AND id_product_attribute = 0')[0]['quantity']);
+    }
+
+    public function test_the_chunk_locks_its_stock_rows_first_by_id_inside_its_transaction(): void
+    {
+        $this->db->log = [];
+        $this->send([['product_id' => '2', 'variant_id' => '7', 'quantity' => 6], ['product_id' => '1', 'variant_id' => '0', 'quantity' => 6]]);
+
+        self::assertCount(1, $this->db->locks);
+        self::assertStringContainsString('ORDER BY sa.id_stock_available', $this->db->locks[0][0]);
+        $catalog = array_values(array_filter($this->db->log, static function (string $sql): bool {
+            return strpos($sql, 'kx_pending') === false;
+        }));
+        self::assertSame($this->db->locks[0][0], $catalog[0], 'no read of the catalog before the lock starts the snapshot');
+    }
+
+    public function test_a_quantity_another_session_commits_while_the_chunk_waits_is_a_conflict_in_both_modes(): void
+    {
+        foreach (['safe', 'fast'] as $mode) {
+            $this->db->pdo->exec('UPDATE ps_stock_available SET quantity = 5 WHERE id_product = 1');
+            // An order of one, committed after the chunk began and before its lock was granted.
+            $this->db->onLock = static function (CatalogDb $db): void {
+                $db->pdo->exec('UPDATE ps_stock_available SET quantity = quantity - 1 WHERE id_product = 1');
+                $db->onLock = null;
+            };
+            $data = $this->send([['product_id' => '1', 'variant_id' => '0', 'quantity' => 8, 'expected_quantity' => 5]], ['mode' => $mode]);
+            self::assertSame([['conflict', null, 4, []]], self::results($data), $mode);
+            self::assertSame(4, $data['results'][0]['current_quantity']);
+            self::assertSame('4', $this->db->rows('SELECT quantity FROM ps_stock_available WHERE id_product = 1')[0]['quantity'], $mode.': nothing written');
+
+            // Without expected_quantity the write lands after the order: the platform's value wins.
+            $this->db->onLock = static function (CatalogDb $db): void {
+                $db->pdo->exec('UPDATE ps_stock_available SET quantity = quantity - 1 WHERE id_product = 1');
+                $db->onLock = null;
+            };
+            $plain = $this->send([['product_id' => '1', 'variant_id' => '0', 'quantity' => 8]], ['mode' => $mode]);
+            self::assertSame([['ok', 'updated', 3, []]], self::results($plain), $mode);
+            self::assertSame('8', $this->db->rows('SELECT quantity FROM ps_stock_available WHERE id_product = 1')[0]['quantity']);
+        }
+    }
+
     /**
      * @param  list<array<string, mixed>>  $rows
      * @param  array<string, mixed>  $options

@@ -430,6 +430,9 @@ class Db
     /** @return int */
     public function Affected_Rows() {}
 
+    /** @return int */
+    public function getNumberError() {}
+
     /**
      * @param string $string
      * @param bool $html_ok

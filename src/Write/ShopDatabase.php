@@ -22,6 +22,7 @@ use Cache;
 use Db;
 use Kronixon\Connect\Catalog\PrestaShopSql;
 use RuntimeException;
+use Throwable;
 
 /**
  * Database on the shop's master connection, the one PrestaShop's object model writes through, so the
@@ -71,6 +72,22 @@ final class ShopDatabase implements Database
             throw new RuntimeException('The active flag of an object could not be set.');
         }
         Cache::clean('objectmodel_'.$class.'_'.$id.'_*');
+    }
+
+    public function lockRows(string $sql, int $waitSeconds): array
+    {
+        // The session's wait for a row lock (InnoDB's default is 50 s, longer than a request's budget);
+        // it also bounds the waits of the chunk's later statements.
+        $this->db->execute('SET SESSION innodb_lock_wait_timeout = '.max(1, $waitSeconds), false);
+        try {
+            return $this->rows($sql.' FOR UPDATE');
+        } catch (Throwable $error) {
+            // 1205 lock wait timeout, 1213 deadlock (_PS_DEBUG_SQL_ throws, otherwise executeS() is false).
+            if (in_array((int) $this->db->getNumberError(), [1205, 1213], true)) {
+                throw new RowsLocked('The rows of a bulk chunk are locked by another session.', 0, $error);
+            }
+            throw $error;
+        }
     }
 
     public function quote(string $text): string

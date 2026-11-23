@@ -222,10 +222,13 @@ Bulk writes (`POST prices/bulk`, `stock/bulk`):
   another one, the row is `status: conflict` (`price_changed` / `quantity_changed`) with the shop's value in
   `current_price` / `current_quantity`, and nothing of it is written; the platform records the conflict (ours: what it
   sent, theirs: `current_*`). A row whose value the shop already holds is `ok`/`unchanged`, never a conflict, so a
-  repeat after a lost answer converges. `summary.conflict` counts the conflicts.
-- Item codes, besides those above: `price_changed`, `quantity_changed` (conflict), `shop_mismatch`; warnings
+  repeat after a lost answer converges. `summary.conflict` counts the conflicts. The comparison and the write hold
+  the rows' locks, so a change the shop commits during the request is either seen (a conflict) or waits for the write.
+- Item codes, besides those above: `price_changed`, `quantity_changed` (conflict), `shop_mismatch`, `rows_locked`
+  (`skipped`: another session held the rows longer than the module waits; sent again with `continue`); warnings
   `location_ignored`, `available_texts_ignored`, `product_fields_ignored`, `visibility_restored`, `visibility_hidden`,
-  `not_hidden_unlinked`.
+  `not_hidden_unlinked`, `totals_not_updated` (the quantities are written, the product's total or visibility is not;
+  send the rows again).
 
 Maintenance (`POST maintenance/reindex`, `facets`) walks products by id within `budget_s`: while `continue` is true
 the client sends the same body again with the answer's `cursor`; a call with a cursor starts no new walk, so each

@@ -36,7 +36,10 @@ use Kronixon\Connect\Support\Log;
  *
  * `visibility_policy`: `restore_if_hidden` shows a product hidden from everywhere (`visibility: none`)
  * once it has stock again; `hide_when_zero` hides a product linked to the platform (a `kx_id`) when
- * its total quantity is 0 and shows again only those it hid (`kx_entity_map.flags` bit 1).
+ * its total quantity is 0 and shows again only those it hid (`kx_entity_map.flags` bit 1), with the
+ * visibility they had (`both`, `catalog` or `search`, bits 2–3). When the totals or the visibility
+ * step after a chunk's commit fails, the rows of its products carry `totals_not_updated`; sending
+ * them again sets both.
  * `available_now`/`available_later` are texts of the product (POST products, `content`): ignored here
  * with a warning.
  */
@@ -44,6 +47,11 @@ final class StockBulk extends Bulk
 {
     /** `kx_entity_map.flags`: the product was hidden by `hide_when_zero`. */
     private const HIDDEN_BY_KX = 1;
+
+    /** `kx_entity_map.flags` bits 2–3: the visibility the product had before, an index of VISIBILITIES. */
+    private const VISIBILITY_BITS = 6;
+
+    private const VISIBILITIES = ['both', 'catalog', 'search'];
 
     /** @var callable(int, int, int, int): void StockAvailable::setQuantity() */
     private $setQuantity;
@@ -124,7 +132,7 @@ final class StockBulk extends Bulk
         ];
     }
 
-    protected function load(array $rows): void
+    protected function load(array $rows, int $waitSeconds): void
     {
         $products = [];
         $variants = [];
@@ -135,6 +143,16 @@ final class StockBulk extends Bulk
             }
         }
         $ids = self::in($products);
+        // First, before any plain read starts the transaction's snapshot: every stock row of the chunk's
+        // products, their totals included, locked by id. An order that commits while this waits is in
+        // what is read (and in what StockAvailable::setQuantity() reads after it); one that comes later
+        // waits for the commit. An order's statements run without a transaction, one row each, so it
+        // never holds a row this waits for while waiting for one this holds.
+        $this->stock = [];
+        foreach ($this->db->lockRows('SELECT sa.id_product, sa.id_product_attribute, sa.quantity, sa.out_of_stock FROM '.$this->db->table('stock_available').' sa WHERE '
+            .$this->scope->stockWhere('sa').' AND sa.id_product IN ('.$ids.') ORDER BY sa.id_stock_available', $waitSeconds) as $stock) {
+            $this->stock[(int) $stock['id_product'].':'.(int) $stock['id_product_attribute']] = ['quantity' => (int) $stock['quantity'], 'out_of_stock' => (int) $stock['out_of_stock']];
+        }
         $this->products = [];
         foreach ($this->db->rows('SELECT ps.id_product, ps.visibility, (SELECT COUNT(*) FROM '.$this->db->table('product_attribute').' pa WHERE pa.id_product = ps.id_product) AS variants, m.flags FROM '
             .$this->db->table('product_shop').' ps LEFT JOIN '.$this->db->table('kx_entity_map')." m ON m.entity_type = 'product' AND m.external_id = CAST(ps.id_product AS CHAR)"
@@ -147,11 +165,6 @@ final class StockBulk extends Bulk
                 .' pas ON pas.id_product_attribute = pa.id_product_attribute AND pas.id_shop = '.$this->scope->shopId.' WHERE pa.id_product_attribute IN ('.self::in($variants).')') as $variant) {
                 $this->variants[(int) $variant['id_product_attribute']] = (int) $variant['id_product'];
             }
-        }
-        $this->stock = [];
-        foreach ($this->db->rows('SELECT sa.id_product, sa.id_product_attribute, sa.quantity, sa.out_of_stock FROM '.$this->db->table('stock_available').' sa WHERE '
-            .$this->scope->stockWhere('sa').' AND sa.id_product IN ('.$ids.')') as $stock) {
-            $this->stock[(int) $stock['id_product'].':'.(int) $stock['id_product_attribute']] = ['quantity' => (int) $stock['quantity'], 'out_of_stock' => (int) $stock['out_of_stock']];
         }
         $this->rowsOf = [];
         $this->totals = [];
@@ -185,6 +198,11 @@ final class StockBulk extends Bulk
         if ($quantity !== $current && $row['expected'] !== null && $row['expected'] !== $current) {
             return ['status' => 'conflict', 'code' => 'quantity_changed', 'current_quantity' => $current] + $result;
         }
+        if ($this->mode === 'fast' && $variantId !== 0) {
+            // The product's total of its combinations, also for an unchanged row: a repeat after
+            // `totals_not_updated` sets it.
+            $this->totals[$productId] = true;
+        }
         $changed = false;
         if ($quantity !== $current || $stock === null) {
             $this->quantity($productId, $variantId, $quantity, $stock !== null);
@@ -216,6 +234,11 @@ final class StockBulk extends Bulk
             } catch (\Throwable $error) {
                 $this->db->rollback();
                 $this->log->warning('write', 'Totals or visibility after a stock chunk failed', ['exception' => get_class($error)]);
+                // The quantities are committed; the platform sends the rows again (`unchanged`, then
+                // the totals and the visibility follow).
+                foreach (array_unique(array_merge(array_keys($this->totals), $this->visibility !== 'none' ? $touched : [])) as $id) {
+                    $this->warn((int) $id, 'totals_not_updated');
+                }
             }
         }
     }
@@ -240,9 +263,6 @@ final class StockBulk extends Bulk
         }
         $this->db->bulk('UPDATE '.$this->db->table('stock_available').' SET quantity = '.$quantity.', physical_quantity = reserved_quantity + '.$quantity
             .' WHERE '.str_replace('sa.', '', $this->scope->stockWhere('sa')).' AND id_product = '.$productId.' AND id_product_attribute = '.$variantId);
-        if ($variantId !== 0) {
-            $this->totals[$productId] = true;
-        }
         if ($this->fireHooks) {
             $this->announce('actionUpdateQuantity', ['id_product' => $productId, 'id_product_attribute' => $variantId, 'quantity' => $quantity, 'id_shop' => $this->scope->shopId]);
         }
@@ -264,12 +284,15 @@ final class StockBulk extends Bulk
             $hidden = $product['visibility'] === 'none';
             $ours = $product['flags'] !== null && ($product['flags'] & self::HIDDEN_BY_KX) !== 0;
             if ($total > 0 && $hidden && ($this->visibility === 'restore_if_hidden' || $ours)) {
-                $this->show($id, 'both', $ours ? (int) $product['flags'] & ~self::HIDDEN_BY_KX : null, 'visibility_restored');
+                // What the product had before `hide_when_zero` hid it; `both` for one hidden in the shop.
+                $before = $ours ? self::VISIBILITIES[((int) $product['flags'] & self::VISIBILITY_BITS) >> 1] : 'both';
+                $this->show($id, $before, $ours ? (int) $product['flags'] & ~(self::HIDDEN_BY_KX | self::VISIBILITY_BITS) : null, 'visibility_restored');
             } elseif ($total <= 0 && ! $hidden && $this->visibility === 'hide_when_zero') {
                 if ($product['flags'] === null) {
                     $this->warn($id, 'not_hidden_unlinked');
                 } else {
-                    $this->show($id, 'none', $product['flags'] | self::HIDDEN_BY_KX, 'visibility_hidden');
+                    $code = (int) array_search($product['visibility'], self::VISIBILITIES, true);
+                    $this->show($id, 'none', ($product['flags'] & ~self::VISIBILITY_BITS) | self::HIDDEN_BY_KX | ($code << 1), 'visibility_hidden');
                 }
             }
         }
