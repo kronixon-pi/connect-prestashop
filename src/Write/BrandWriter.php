@@ -73,6 +73,10 @@ final class BrandWriter extends ShopWriter
             return;
         }
         $this->logo = $this->download->fetch((string) $logo->string('url'), $sha256, 'logo');
+        if (ImageFiles::tooLarge($this->logo)) {
+            $this->dropLogo();
+            throw new ItemError('image_too_large', 'The logo has more than 50 megapixels', 'logo');
+        }
         if (! ImageManager::isRealImage($this->logo)) {
             $this->dropLogo();
             throw new ItemError('image_invalid', 'The logo is not an image', 'logo');

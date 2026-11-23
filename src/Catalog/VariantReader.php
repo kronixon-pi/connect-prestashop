@@ -197,7 +197,7 @@ final class VariantReader implements Reader
         // from the page's ids, as ProductReader does.
         foreach ($this->sql->rows('SELECT pai.id_product_attribute, pai.id_image, ish.id_shop FROM '.$this->sql->table('product_attribute_image').' pai LEFT JOIN '
             .$this->sql->table('image_shop').' ish ON ish.id_image = pai.id_image AND ish.id_shop = '.$this->scope->shopId
-            .' WHERE pai.id_product_attribute IN ('.$in.')') as $row) {
+            .' WHERE pai.id_product_attribute IN ('.$in.')'.Rows::notPending($this->sql, $this->scope, 'image', 'pai.id_image')) as $row) {
             if ($row['id_shop'] !== null) {
                 $images[(int) $row['id_product_attribute']][] = (int) $row['id_image'];
             }

@@ -214,8 +214,8 @@ and the hooks of other modules run. Rules of the protocol: [§6](protocol/v1/REA
   from the templates that cover none of them. An unknown category is `category_not_found`. The storefront's cached
   filter blocks are cleared after the last item; the index itself is `POST maintenance/facets`. `GET
   catalog/attributes` lists them (`facets`), outside the `content_hash`.
-- **Brands.** The logo is fetched before the item's transaction, over HTTPS, without redirects, up to 20 MB in 20 s,
-  and dropped unless its sha256 is the announced one; a logo the shop already holds is not fetched. A logo PrestaShop
+- **Brands.** The logo is fetched before the item's transaction (see [Files from the platform](#product-images)), and
+  dropped unless its sha256 is the announced one; a logo the shop already holds is not fetched. A logo PrestaShop
   converts (anything but a JPEG) carries the sha256 of its source in the stored file.
 - **Tags.** PrestaShop deletes a tag no product has as soon as any product's tags change.
 - **Products.** Only the groups in `groups`. A create is inactive, under Home and in the tax rules group most products
@@ -356,6 +356,67 @@ left so is `cleanup_failed`.
   `indexFeatures`/`indexAttributeGroup` so new features and groups are indexable), `categories` and `all` both. The
   products are those of `product_ids`, else those directly in `category_ids`, else every product of the shop. The
   storefront's cached filter blocks are cleared when the walk ends.
+
+## Product images
+
+`POST images` writes the images of one product (`product_id`), up to 50 items, each in its own transaction;
+`DELETE images` removes them. Capabilities `images` and `image_alt`.
+
+- **Files from the platform.** An image (and a brand logo) is fetched only from a host of the platform the shop is
+  paired with: the host and port of its Connect URL and of the pairing's API base, and the `download_hosts` the pair
+  answer names (port 443). Anything else is `download_host_refused`.
+  A shop paired before 0.5.0 has no `download_hosts`: a host other than its Connect and API hosts is
+  `download_hosts_unknown` ("pair it again") until it pairs again.
+  Over HTTPS with TLS verified (plain HTTP only with the development setting `KX_PLATFORM_ALLOW_HTTP`), no
+  redirects, at most 20 MB per file in 20 s and 100 MB per request; outside development the host must resolve to
+  public addresses only, and the connection goes to the address that was checked.
+  A fetch also ends a second before the request's time budget; one the budget cuts is `skipped` (`time_budget`).
+  "Public" is an explicit table (`src/Write/PublicAddress.php`, IANA's special-purpose registries), not PHP's filter
+  flags: refused are 0/8, 10/8, 100.64/10, 127/8, 169.254/16, 172.16/12, 192.0.0/24, 192.0.2/24, 192.88.99/24,
+  192.168/16, 198.18/15, 198.51.100/24, 203.0.113/24, 224/4 and 240/4 (with 255.255.255.255); for IPv6 everything
+  outside 2000::/3 and, inside it, 2001::/23, 2001:db8::/32, 2002::/16, 3fff::/20, 5f00::/16, besides ::/96,
+  64:ff9b::/96, 64:ff9b:1::/48, 100::/64, fc00::/7, fe80::/10, fec0::/10 and ff00::/8; an IPv4-mapped address
+  (::ffff:a.b.c.d) is judged by its IPv4 address, the same on PHP 7.4 and 8.x.
+  A file whose sha256 is not the one sent is `sha256_mismatch`; one PrestaShop does not take (`getimagesize`: jpg,
+  png, gif or webp, at least 1×1, and `ImageManager::isRealImage`) is `image_invalid`; one above
+  `PS_PRODUCT_PICTURE_MAX_SIZE` is `image_too_large`.
+  So is one whose header announces more than 50 megapixels, checked before anything decodes it, whatever
+  `memory_limit` is; one GD cannot convert is `image_not_stored`.
+- **Ids are kept.** `kx_image_map` remembers the `kx_key` and the sha256 of each image the platform sent. An item
+  whose `kx_key` (or `external_id`, which must be an image of the product) names an image with the same sha256 is not
+  fetched at all: only its alt texts change (`unchanged` when they do not). Another sha256 replaces the files of the
+  same image, so its id and URLs stay (`updated`). Two items with one `kx_key` are refused.
+- **Files.** The original (`<id>.jpg`) and one file per product image type and format the shop has (`PS_IMAGE_FORMAT`
+  from 8.1; `2x` with high-DPI images) are made by PrestaShop's `ImageManager` in a work folder under `img/tmp`, before
+  the item's transaction, and renamed into place: each file is complete the moment it appears. `actionWatermark` runs
+  after the commit, as the back office does.
+- **No half image.** The image's rows are written by `Image::add()`; its files are put in place from this module's
+  `actionObjectAddAfter`, right after the rows and before any other module's hook. A module that commits early there
+  commits a complete image, and `kx_pending` keeps it out of every read until its item is complete; a request that dies
+  then leaves a complete image that the next request removes before it writes (the retry makes exactly one). A request
+  that dies before any commit leaves no rows; files it had put in place belong to no image and are never shown. A
+  replacement that dies half-way leaves complete files of either picture and the old sha256, so the retry replaces
+  them again.
+- **Alt texts** (`alt`) per language sent; the others keep theirs, a create fills them from the default language.
+  PrestaShop's rules apply (128 characters, no `<>={}`).
+- **`strategy`.** After the last item: `sync` (the default) removes the images of the product the platform sent before
+  and not in this request, and keeps the images the shop uploaded itself (no `kx_key`) after ours; `replace_all` keeps
+  only the images of the request; `append` removes nothing and adds the new ones at the end. Then the images are
+  numbered: the request's by `position`, else in the order sent. Exactly one cover: the last item with `cover: true`,
+  else the cover there was, else the first image. `items: []` with `sync` removes every image of ours. When the time
+  budget skips items (`continue: true`), the request removes nothing: the skipped items' images count as sent and
+  keep their place. The platform then sends the **whole list again** (items already written are `unchanged` without
+  a fetch, so the repeat is cheap), and that request removes what the list no longer has.
+- **Combinations.** `variant_id` links every image of the request to that combination of the product (its other images
+  stay). `POST variants` finds the images of `image_keys` by `kx_key` once they are sent: send images before variants,
+  or name the combination here (a variant sent before its images is `image_key_unknown`).
+- **`DELETE images`** (also as `POST` with `X-HTTP-Method-Override: DELETE`): by `external_ids`, `kx_keys` or `all`,
+  through `Image::delete()` (rows, files, combination links; on multistore PrestaShop keeps an image another shop has).
+  `only_kx` (the default) spares the images the shop uploaded itself: named by id they are `image_not_kx`, with `all`
+  they stay. When the cover goes, the first image left is the new one. On 9.0 `Image::delete()` stops half-way outside
+  the back office (it asks the Symfony container for a setting); the module then removes the thumbnails and renumbers
+  the product's images as `Image::delete()` would have.
+- Each `ok` result carries `urls`: the image's URL per image type, and `original`.
 
 ## What the module adds to the shop
 

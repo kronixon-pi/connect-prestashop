@@ -19,6 +19,7 @@ declare(strict_types=1);
 namespace Kronixon\Connect\Write;
 
 use Hook;
+use Image;
 use Kronixon\Connect\Api\Budget;
 use Kronixon\Connect\Support\Log;
 use ObjectModel;
@@ -112,6 +113,9 @@ final class PendingWrites
     /** @var callable(string, array<string, mixed>): void Hook::exec() */
     private $hook;
 
+    /** @var (callable(ObjectModel): void)|null add()'s $stored, until it ran */
+    private $stored;
+
     /**
      * @param  (callable(string, array<string, mixed>): void)|null  $hook  Hook::exec() unless given
      */
@@ -133,8 +137,14 @@ final class PendingWrites
         $this->reset();
     }
 
-    /** PrestaShop's add(), with the object known whatever add() does; one with a page is added inactive. */
-    public function add(ObjectModel $object): bool
+    /**
+     * PrestaShop's add(), with the object known whatever add() does; one with a page is added inactive.
+     * $stored runs once, right after the mark: in this module's actionObjectAddAfter, before any other
+     * module's hook (one that commits early then commits what $stored did too), else after add().
+     *
+     * @param  (callable(ObjectModel): void)|null  $stored  what belongs to the object's rows (an image's files)
+     */
+    public function add(ObjectModel $object, ?callable $stored = null): bool
     {
         $hide = isset(self::SHOWN[$this->tableOf($object)]) && property_exists($object, 'active') && (bool) $object->active;
         if ($hide) {
@@ -142,13 +152,15 @@ final class PendingWrites
         }
         $this->created[] = $object;
         $this->adding = $object;
+        $this->stored = $stored;
         self::$listening = $this;
         try {
             return (bool) $object->add();
         } finally {
             self::$listening = null;
-            $this->adding = null;
             $this->mark($object);
+            $this->adding = null;
+            $this->stored = null;
             if ($hide) {
                 $this->hidden[] = $object;
             }
@@ -353,6 +365,12 @@ final class PendingWrites
         }
         $this->insert(get_class($object), $table, $id, (string) $this->kxId, 0, date('Y-m-d H:i:s'));
         $this->marked[$table.':'.$id] = [$table, $id];
+        if ($this->stored !== null && $object === $this->adding) {
+            // Once; the caller checks that it ran (PrestaShop 9.x catches what a hook throws).
+            $stored = $this->stored;
+            $this->stored = null;
+            $stored($object);
+        }
     }
 
     /** Whether the object is gone, with its mark. */
@@ -367,7 +385,7 @@ final class PendingWrites
         // The mark may have been rolled back with the item; from here on it also says that a removal began.
         $this->forget($table, $id, false);
         $this->insert(get_class($object), $table, $id, (string) $this->kxId, 1, date('Y-m-d H:i:s'));
-        $object->delete();
+        self::delete($object);
         if ($this->there($object, $id)) {
             $this->failed($object, null);
 
@@ -393,7 +411,7 @@ final class PendingWrites
                 // The removal was cut short after the object's own row: once more, for what hangs on it.
                 $object->id = $id;
                 try {
-                    $object->delete();
+                    self::delete($object);
                 } catch (Throwable $error) {
                     $this->failed($object, $error);
                     unset($this->left[$table.':'.$id]);
@@ -467,6 +485,17 @@ final class PendingWrites
     private function object(string $table, int $id): string
     {
         return 'entity = '.$this->db->quote($table).' AND id_object = '.$id;
+    }
+
+    /** PrestaShop's delete(); an image's through ImageRemoval (PrestaShop 9.0 needs its help). */
+    private static function delete(ObjectModel $object): void
+    {
+        if ($object instanceof Image) {
+            ImageRemoval::delete($object);
+
+            return;
+        }
+        $object->delete();
     }
 
     private function there(ObjectModel $object, int $id): bool

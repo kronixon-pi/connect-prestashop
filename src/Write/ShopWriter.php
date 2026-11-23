@@ -59,6 +59,10 @@ abstract class ShopWriter implements Writer
         return $this->shop->undo();
     }
 
+    public function skipped(Item $item): void
+    {
+    }
+
     public function finish(): void
     {
         $this->shop->redirects->sync();

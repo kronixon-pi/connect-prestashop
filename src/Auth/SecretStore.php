@@ -61,6 +61,12 @@ final class SecretStore implements PairingState
     /** The time of the last verified platform request (Endpoints::LAST_REQUEST_AT). */
     public const LAST_REQUEST_AT = 'KX_LAST_REQUEST_AT';
 
+    /** Further hosts the platform serves files from (`download_hosts` of the pair answer), comma-separated. */
+    public const DOWNLOAD_HOSTS = 'KX_DOWNLOAD_HOSTS';
+
+    /** "1" once a pairing of 0.5.0+ stored DOWNLOAD_HOSTS (possibly none); a pairing before 0.5.0 has neither. */
+    public const DOWNLOAD_HOSTS_PAIRED = 'KX_DOWNLOAD_HOSTS_PAIRED';
+
     /** `kxs_` + 32 base62 characters (README §4.1). */
     public const SECRET_PATTERN = '/\Akxs_[0-9A-Za-z]{32}\z/';
 
@@ -70,7 +76,8 @@ final class SecretStore implements PairingState
      * installation, not to a pairing: the key pair (KEY_PAIR, PUBLIC_KEY), the platform URL and its
      * HTTP switch, the instance id, the service account, the limits and the later-version settings.
      */
-    public const PAIRING_KEYS = [self::SECRET, self::SECRET_PREV, self::SECRET_PREV_UNTIL, self::API_BASE, self::PAIRED_AT, self::PLATFORM_KEY, self::TENANT_NAME, self::PAIR_STATE, self::LAST_REQUEST_AT];
+    public const PAIRING_KEYS = [self::SECRET, self::SECRET_PREV, self::SECRET_PREV_UNTIL, self::API_BASE, self::PAIRED_AT, self::PLATFORM_KEY, self::TENANT_NAME, self::PAIR_STATE, self::LAST_REQUEST_AT,
+        self::DOWNLOAD_HOSTS, self::DOWNLOAD_HOSTS_PAIRED, ];
 
     /** @var Settings */
     private $settings;

@@ -82,6 +82,17 @@ final class ItemError extends RuntimeException
         return new self('save_failed', 'PrestaShop could not store the '.$what);
     }
 
+    /** The time budget ran out before the item was written: Batch answers it `skipped` (`continue`). */
+    public static function outOfTime(): self
+    {
+        return new self('time_budget', 'not processed');
+    }
+
+    public function isOutOfTime(): bool
+    {
+        return $this->itemCode === 'time_budget';
+    }
+
     public function itemCode(): string
     {
         return $this->itemCode;

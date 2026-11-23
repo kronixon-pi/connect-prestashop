@@ -177,6 +177,7 @@ dc cp "$root/tests/Integration/kxprobe" ps:/var/www/html/modules/kxprobe
 dc exec -T ps chown -R www-data:www-data /var/www/html/modules/kxprobe </dev/null
 console prestashop:module install kxprobe
 writes "failed writes leave nothing half-written" failed-writes
+writes "images: create, keep, replace, strategies, links; a request that dies leaves no half image" image-writes
 console prestashop:module uninstall kxprobe
 dc exec -T ps rm -rf /var/www/html/modules/kxprobe /tmp/kxprobe.json </dev/null
 step "writes checked in $(( $(date +%s) - w0 ))s"

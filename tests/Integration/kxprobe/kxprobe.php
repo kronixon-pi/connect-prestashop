@@ -29,7 +29,7 @@ class Kxprobe extends Module
         'actionObjectCombinationAddAfter', 'actionObjectProductDeleteBefore', 'actionObjectCategoryDeleteBefore', 'actionObjectManufacturerDeleteBefore',
         'actionObjectFeatureDeleteBefore', 'actionObjectCombinationDeleteBefore', 'actionObjectAddAfter',
         'actionProductUpdate', 'actionObjectProductAddAfter', 'actionObjectProductUpdateAfter', 'actionObjectCategoryUpdateAfter', 'actionCategoryUpdate',
-        'actionObjectManufacturerUpdateAfter',
+        'actionObjectManufacturerUpdateAfter', 'actionObjectImageAddAfter', 'actionObjectImageDeleteBefore',
         'actionUpdateQuantity', 'actionObjectStockAvailableUpdateAfter', 'actionObjectStockAvailableAddAfter',
     ];
 
@@ -63,12 +63,16 @@ class Kxprobe extends Module
     private function fail($rule, $object)
     {
         $text = '';
-        foreach (['name', 'reference'] as $field) {
+        foreach (['name', 'reference', 'legend'] as $field) {
             $text .= ' '.(isset($object->{$field}) ? implode(' ', (array) $object->{$field}) : '');
         }
         $modes = json_decode((string) @file_get_contents('/tmp/kxprobe.json'), true);
         if (strpos($text, 'BOOM') === false || empty($modes[$rule])) {
             return;
+        }
+        if ($modes[$rule] === 'kill-open') {
+            // Dies with the item's transaction still open: nothing it wrote is committed.
+            exec('kill -9 '.(int) getmypid());
         }
         if (strpos($rule, 'delete') !== 0) {
             Db::getInstance()->execute('TRUNCATE '._DB_PREFIX_.'kxprobe');
@@ -184,6 +188,16 @@ class Kxprobe extends Module
     }
 
     public function hookActionObjectCombinationDeleteBefore($params)
+    {
+        $this->fail('delete', $params['object']);
+    }
+
+    public function hookActionObjectImageAddAfter($params)
+    {
+        $this->fail('add', $params['object']);
+    }
+
+    public function hookActionObjectImageDeleteBefore($params)
     {
         $this->fail('delete', $params['object']);
     }

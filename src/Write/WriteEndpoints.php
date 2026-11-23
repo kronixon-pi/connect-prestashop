@@ -22,25 +22,29 @@ use Kronixon\Connect\Api\Budget;
 use Kronixon\Connect\Api\Request;
 use Kronixon\Connect\Api\Response;
 use Kronixon\Connect\Api\Router;
+use Kronixon\Connect\Protocol;
 
 /**
- * The `POST <entities>` endpoints (README §6.1). The Kernel runs them under the write lock and once per
- * Idempotency-Key; Batch runs their items.
+ * The `POST <entities>` endpoints (README §6.1) and `DELETE images`. The Kernel runs them under the write
+ * lock and once per Idempotency-Key; Batch runs their items.
  */
 final class WriteEndpoints
 {
+    /** Endpoints with other limits than 100 items: endpoint => [items, whether none is a request]. */
+    private const LIMITS = ['images' => [50, true]];
+
     /** @var Batch */
     private $batch;
 
     /** @var callable(Warnings, Item): Shop */
     private $shop;
 
-    /** @var array<string, callable(Shop, Item): Writer> endpoint => writer factory */
+    /** @var array<string, callable(Shop, Item, Item): Writer> endpoint => writer factory */
     private $writers;
 
     /**
      * @param  callable(Warnings, Item): Shop  $shop
-     * @param  array<string, callable(Shop, Item): Writer>  $writers
+     * @param  array<string, callable(Shop, Item, Item): Writer>  $writers
      */
     public function __construct(Batch $batch, callable $shop, array $writers)
     {
@@ -51,11 +55,14 @@ final class WriteEndpoints
 
     /**
      * @param  list<string>  $imageFormats
-     * @return array<string, callable(Shop, Item): Writer>
+     * @return array<string, callable(Shop, Item, Item): Writer>
      */
     public static function writers(Download $download, array $imageFormats): array
     {
         return [
+            'images' => static function (Shop $shop, Item $options, Item $body) use ($download, $imageFormats): Writer {
+                return new ImageWriter($shop, $download, ImageFiles::forShop($imageFormats), $body);
+            },
             'categories' => static function (Shop $shop, Item $options): Writer {
                 return new CategoryWriter($shop, $options);
             },
@@ -86,10 +93,16 @@ final class WriteEndpoints
     public function register(Router $router): Router
     {
         foreach ($this->writers as $endpoint => $factory) {
-            $router->add('POST', '/v1/'.$endpoint, function (Request $request, Budget $budget) use ($factory): Response {
-                return $this->batch->run($request, $budget, function (Item $options, Warnings $warnings) use ($factory): Writer {
-                    return $factory(($this->shop)($warnings, $options), $options);
-                });
+            [$max, $empty] = self::LIMITS[$endpoint] ?? [Protocol::MAX_BATCH, false];
+            $router->add('POST', '/v1/'.$endpoint, function (Request $request, Budget $budget) use ($factory, $max, $empty): Response {
+                return $this->batch->run($request, $budget, function (Item $options, Warnings $warnings, Item $body) use ($factory): Writer {
+                    return $factory(($this->shop)($warnings, $options), $options, $body);
+                }, $max, $empty);
+            });
+        }
+        if (isset($this->writers['images'])) {
+            $router->add('DELETE', '/v1/images', function (Request $request, Budget $budget): Response {
+                return (new ImageDeleter(($this->shop)(new Warnings(), new Item([]))))->run($request, $budget);
             });
         }
 

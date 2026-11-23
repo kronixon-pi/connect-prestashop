@@ -17,6 +17,20 @@ All notable changes of the module are listed here; versions follow [Semantic Ver
   `search_reindex`, `cache_flush` and, with ps_facetedsearch active, `facets`.
 - `facets` of `POST attributes` are written (`layered_category` and the shop's filter templates) and read in `GET
   catalog/attributes` when the shop has ps_facetedsearch; without it they stay `facets_unsupported`.
+- `POST images` and `DELETE images` (`images`, `image_alt`): ids kept by `kx_key` + sha256, files replaced in place,
+  alt texts per language, the strategies `sync`/`append`/`replace_all`, order and one cover, combination links. A
+  request that dies while an image is written leaves no half image, and the retry makes exactly one.
+  A request whose items the time budget skips removes no image.
+  A fetch ends within the time budget.
+  Pictures above 50 megapixels are refused from their header.
+
+### Changed
+
+- Logos and images are fetched only from the platform the shop is paired with (its Connect host and port, and the
+  optional `download_hosts` of the pair answer), at public addresses outside development: `download_host_refused`.
+  "Public" is an explicit IANA table, also for IPv4-mapped IPv6 on PHP 7.4.
+  A shop paired before 0.5.0 knows no `download_hosts`: logos and images from another host answer
+  `download_hosts_unknown` until it **pairs again** (before, logos came from any HTTPS host).
 
 ### Fixed
 

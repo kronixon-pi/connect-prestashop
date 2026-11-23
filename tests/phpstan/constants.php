@@ -11,3 +11,5 @@ define('_PS_USE_SQL_SLAVE_', false);
 define('__PS_BASE_URI__', '/');
 define('_PS_ROOT_DIR_', '/var/www/html');
 define('_PS_MANU_IMG_DIR_', '/var/www/html/img/m/');
+define('_PS_IMG_DIR_', '/var/www/html/img/');
+define('_PS_TMP_IMG_DIR_', '/var/www/html/img/tmp/');
