@@ -35,6 +35,7 @@ use Kronixon\Connect\Platform\Pairing;
 use Kronixon\Connect\Protocol;
 use Kronixon\Connect\Redirect\Front;
 use Kronixon\Connect\Services;
+use Kronixon\Connect\Support\SettingsForm;
 use Kronixon\Connect\Write\PendingWrites;
 use Kronixon\Connect\Write\ShopDatabase;
 
@@ -205,33 +206,35 @@ class KronixonConnect extends Module
     }
 
     /**
-     * The settings page's forms (the token of the AdminModules URL guards them).
+     * The settings page's forms: only an administrator's POST to the AdminModules URL acts, never a GET
+     * (Support\SettingsForm: on 9.x the redirect to the Symfony route adds a valid token to a GET).
      *
      * @return array{0: string, 1: bool} the message and whether it is an error
      */
     private function handleForm(Pairing $pairing): array
     {
-        if (Tools::isSubmit('submitKxPlatformUrl')) {
-            return $pairing->setPlatformUrl((string) Tools::getValue('kx_platform_url'))
+        $action = SettingsForm::action($_SERVER, $_POST);
+        if ($action === SettingsForm::PLATFORM_URL) {
+            return $pairing->setPlatformUrl(SettingsForm::field($_POST, 'kx_platform_url'))
                 ? [$this->l('The platform URL was saved.'), false]
                 : [$this->l('The platform URL must be an https:// address.'), true];
         }
-        if (Tools::isSubmit('submitKxPair')) {
-            $outcome = $pairing->pair((string) Tools::getValue('kx_code'));
+        if ($action === SettingsForm::PAIR) {
+            $outcome = $pairing->pair(SettingsForm::field($_POST, 'kx_code'));
 
             return [($outcome['state'] ?? '') === 'paired' ? $this->l('This shop is now paired with Kronixon PI.') : '', false];
         }
-        if (Tools::isSubmit('submitKxUnpair')) {
+        if ($action === SettingsForm::UNPAIR) {
             $pairing->unpair('user');
 
             return [$this->l('This shop is no longer paired with Kronixon PI.'), false];
         }
-        if (Tools::isSubmit('submitKxRotateCron')) {
+        if ($action === SettingsForm::ROTATE_CRON) {
             Services::rotateCronToken();
 
             return [$this->l('The cron URL has a new token. Update the cron of your hosting; the old URL no longer works.'), false];
         }
-        if (Tools::isSubmit('submitKxPing')) {
+        if ($action === SettingsForm::PING) {
             $error = $pairing->ping();
 
             return $error === null ? [$this->l('Kronixon PI answered the signed test request.'), false] : [$this->errorMessage(['code' => $error]), true];
