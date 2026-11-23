@@ -186,6 +186,14 @@ abstract class ObjectModel
     public function validateFieldsLang($die = true, $error_return = false) {}
 
     /**
+     * @param string $field
+     * @param mixed $value
+     * @param int|null $id_lang
+     * @return bool|string
+     */
+    public function validateField($field, $value, $id_lang = null) {}
+
+    /**
      * @param string|ObjectModel $class
      * @return array<string, mixed>
      */
@@ -503,6 +511,14 @@ abstract class Module
      * @return bool
      */
     public function registerHook($hook_name, $shop_list = null) {}
+
+    /**
+     * @param int $id_hook
+     * @param bool $way
+     * @param int|null $position
+     * @return bool
+     */
+    public function updatePosition($id_hook, $way, $position = null) {}
 
     /**
      * @param string $file

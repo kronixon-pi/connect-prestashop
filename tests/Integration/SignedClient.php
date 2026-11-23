@@ -24,6 +24,9 @@ final class SignedClient
     /** @var int */
     private $failures = 0;
 
+    /** @var bool */
+    private $losing = false;
+
     public function __construct(string $base, string $connectTo, string $stateFile = '/tmp/kx-stub/state.json')
     {
         $state = json_decode((string) @file_get_contents($stateFile), true);
@@ -49,6 +52,18 @@ final class SignedClient
     public function post(string $endpoint, array $body, ?string $key = null): array
     {
         return $this->call('POST', $endpoint, [], (string) json_encode($body, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), $key ?? self::uuid());
+    }
+
+    /**
+     * A write whose answer never comes (the request dies in the shop).
+     *
+     * @param array<string, mixed> $body
+     */
+    public function lose(string $endpoint, array $body, string $key): void
+    {
+        $this->losing = true;
+        $this->post($endpoint, $body, $key);
+        $this->losing = false;
     }
 
     /**
@@ -105,6 +120,9 @@ final class SignedClient
         $raw = (string) curl_exec($curl);
         $status = (int) curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
         $signature = hash_hmac('sha256', implode("\n", ['RESPONSE', $nonce, $received['x-kx-timestamp'] ?? '', (string) $status, hash('sha256', $raw)]), $this->state['cur']);
+        if ($this->losing) {
+            return ['status' => $status, 'replay' => false, 'data' => [], 'raw' => $raw];
+        }
         if (! hash_equals($signature, $received['x-kx-signature'] ?? '')) {
             $this->check("$method $endpoint is signed", false, "$status $raw");
         }

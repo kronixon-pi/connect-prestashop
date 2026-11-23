@@ -18,6 +18,7 @@ declare(strict_types=1);
 
 namespace Kronixon\Connect\Write;
 
+use Kronixon\Connect\Api\Budget;
 use Kronixon\Connect\Catalog\Reader;
 
 /**
@@ -33,18 +34,29 @@ abstract class ShopWriter implements Writer
         $this->shop = $shop;
     }
 
+    public function start(Budget $budget): void
+    {
+        $this->shop->pending->recover($budget);
+    }
+
     public function prepare(Item $item): void
     {
+        $this->shop->pending->item($item);
+    }
+
+    public function seal(Item $item): void
+    {
+        $this->shop->pending->seal();
     }
 
     public function committed(Item $item): void
     {
-        $this->shop->keepCreated();
+        $this->shop->pending->keep();
     }
 
-    public function rolledBack(Item $item): void
+    public function rolledBack(Item $item): bool
     {
-        $this->shop->dropCreated();
+        return $this->shop->undo();
     }
 
     public function finish(): void

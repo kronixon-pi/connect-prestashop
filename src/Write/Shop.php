@@ -57,28 +57,30 @@ final class Shop
     /** @var Texts */
     public $texts;
 
-    /** @var list<ObjectModel> what the item being written created */
-    private $created = [];
+    /** @var PendingWrites */
+    public $pending;
 
     /** @var array<string, array<string, list<int>>> match_by lists read in this request */
     private $names = [];
 
-    public function __construct(Context $context, Scope $scope, CompatInterface $compat, Database $db, ImageUrls $urls, Warnings $warnings, bool $strictLanguages)
+    public function __construct(Context $context, Scope $scope, CompatInterface $compat, Database $db, ImageUrls $urls, PendingWrites $pending, Warnings $warnings, bool $strictLanguages)
     {
         $this->context = $context;
         $this->scope = $scope;
         $this->compat = $compat;
         $this->db = $db;
         $this->urls = $urls;
-        $this->map = new EntityMap($db);
+        $this->pending = $pending;
+        $this->map = new EntityMap($db, $pending);
         $this->warnings = $warnings;
         $this->texts = new Texts($scope, $warnings, $strictLanguages);
     }
 
-    /** Whether entity $id of `<table>_shop` belongs to the paired shop. */
+    /** Whether entity $id of `<table>_shop` belongs to the paired shop, as a whole: never what a failed item left. */
     public function holds(string $table, int $id): bool
     {
-        return $this->db->rows('SELECT 1 FROM '.$this->db->table($table.'_shop').' WHERE id_'.$table.' = '.$id.' AND id_shop = '.$this->scope->shopId) !== [];
+        return ! $this->pending->isLeft($table, $id)
+            && $this->db->rows('SELECT 1 FROM '.$this->db->table($table.'_shop').' WHERE id_'.$table.' = '.$id.' AND id_shop = '.$this->scope->shopId) !== [];
     }
 
     /**
@@ -112,33 +114,19 @@ final class Shop
     {
         return new Fields($object, $this->texts, static function (string $html): string {
             return (string) Tools::purifyHTML($html);
-        }, function (ObjectModel $created): void {
-            $this->created[] = $created;
-        });
-    }
-
-    /** What the item being written created, and whatever the lists remember, stays. */
-    public function keepCreated(): void
-    {
-        $this->created = [];
+        }, [$this->pending, 'add']);
     }
 
     /**
-     * After a rollback: an object the item created that is still there was committed by somebody's hook
-     * and goes, the last one first; the lists are read again.
+     * After a rollback: what the item created goes, and the lists are read again.
+     *
+     * @return bool false when something is left
      */
-    public function dropCreated(): void
+    public function undo(): bool
     {
         $this->names = [];
-        foreach (array_reverse($this->created) as $object) {
-            $definition = ObjectModel::getDefinition($object);
-            $there = (int) $object->id > 0
-                && $this->db->rows('SELECT 1 FROM '.$this->db->table((string) $definition['table']).' WHERE '.$definition['primary'].' = '.(int) $object->id) !== [];
-            if ($there) {
-                $object->delete();
-            }
-        }
-        $this->created = [];
+
+        return $this->pending->undo();
     }
 
     /**

@@ -18,7 +18,7 @@ use RuntimeException;
 final class ReleaseBuilder
 {
     /** What the module is: bake-fixture.sh and fixture-sha.sh use the same list (ReleaseBuilderTest). */
-    public const PATHS = ['kronixonconnect.php', 'config.xml', 'index.php', 'LICENSE', 'controllers', 'src', 'sql', 'translations', 'views'];
+    public const PATHS = ['kronixonconnect.php', 'config.xml', 'index.php', 'LICENSE', 'controllers', 'src', 'sql', 'translations', 'upgrade', 'views'];
 
     /** channel => the API host its builds talk to. */
     public const HOSTS = [

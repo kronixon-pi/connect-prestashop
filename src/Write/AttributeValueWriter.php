@@ -101,7 +101,7 @@ final class AttributeValueWriter extends ShopWriter
     {
         [, $parentColumn, $member] = self::KINDS[$kind];
         $id = (int) $object->id === 0 ? null : (int) $object->id;
-        $fields = $this->shop->fields($object);
+        $fields = $this->shop->fields($object)->sentAs([$member => $item->at($member)]);
         $custom = $kind === AttributeWriter::FEATURE && $item->bool('custom') === true;
         $fields->text($member, $this->shop->texts->name($item, $member, $id === null));
         if ($id === null) {

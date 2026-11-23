@@ -46,7 +46,7 @@ final class ReleaseBuilderTest extends TestCase
         sort($sorted, SORT_STRING);
         self::assertSame($sorted, $paths);
         foreach ($paths as $path) {
-            self::assertMatchesRegularExpression('#\Akronixonconnect/(kronixonconnect\.php|config\.xml|index\.php|LICENSE|kx-manifest\.json|(controllers|src|sql|translations|views)/.+)\z#', $path);
+            self::assertMatchesRegularExpression('#\Akronixonconnect/(kronixonconnect\.php|config\.xml|index\.php|LICENSE|kx-manifest\.json|(controllers|src|sql|translations|upgrade|views)/.+)\z#', $path);
             self::assertDoesNotMatchRegularExpression('#(^|/)(tests?|tools|docker|scripts|protocol|\.git[^/]*|\.github|vendor|composer\.(json|lock))(/|$)#', $path);
         }
     }

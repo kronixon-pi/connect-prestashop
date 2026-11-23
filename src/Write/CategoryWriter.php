@@ -86,10 +86,11 @@ final class CategoryWriter extends ShopWriter
         $fields->text('meta_title', $this->shop->texts->meta($item, 'meta_title', $lengths['meta_title']));
         $fields->text('meta_description', $this->shop->texts->meta($item, 'meta_description', $lengths['meta_description']));
         $fields->set('active', $item->bool('active'));
+        $position = $item->int('position');
         $this->move($category, $fields, $parent);
         $changed = $fields->changed();
         $fields->save('category');
-        $changed = $this->place($category, $item->int('position')) || $changed;
+        $changed = $this->place($category, $position) || $changed;
 
         $result = self::done((int) $category->id, $id === null, $changed);
         $this->shop->map->link(self::ENTITY, (int) $category->id, $item->kxId());
@@ -98,10 +99,11 @@ final class CategoryWriter extends ShopWriter
         return $result;
     }
 
-    public function rolledBack(Item $item): void
+    public function rolledBack(Item $item): bool
     {
-        parent::rolledBack($item);
         unset($this->written[$item->key()]);
+
+        return parent::rolledBack($item);
     }
 
     public function finish(): void

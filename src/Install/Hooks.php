@@ -18,16 +18,23 @@ declare(strict_types=1);
 
 namespace Kronixon\Connect\Install;
 
+use Hook;
 use Kronixon\Connect\Compat\CompatInterface;
+use Module;
 
 /**
  * Hooks registered at install (Spec §7.2 Phase-0 events, §7.3 flush on visit, §6.26 routes).
- * Their handlers are empty until M5 (outbox) and M3 (moduleRoutes for kx_redirect). Order events,
- * specific prices and the blog's displayHeader are Phase 2 and are not registered.
+ * Their handlers are empty until M5 (outbox) and M3 (moduleRoutes for kx_redirect), except ADDED, which
+ * marks what a write creates (PendingWrites). Order events, specific prices and the blog's displayHeader
+ * are Phase 2 and are not registered.
  */
 final class Hooks
 {
+    /** The first hook PrestaShop runs once an object's rows are stored. */
+    public const ADDED = 'actionObjectAddAfter';
+
     public const COMMON = [
+        self::ADDED,
         'actionProductAdd',
         'actionProductUpdate',
         'actionProductDelete',
@@ -58,5 +65,11 @@ final class Hooks
     public static function forCompat(CompatInterface $compat): array
     {
         return array_values(array_unique(array_merge(self::COMMON, $compat->versionHooks())));
+    }
+
+    /** Moves the module before the others of ADDED; alone or already first there is nothing to move. */
+    public static function stayFirst(Module $module): void
+    {
+        $module->updatePosition((int) Hook::getIdByName(self::ADDED), false, 1);
     }
 }

@@ -86,7 +86,7 @@ final class AttributeWriter extends ShopWriter
     public function fields(ObjectModel $object, Item $item, string $kind): Fields
     {
         $id = (int) $object->id === 0 ? null : (int) $object->id;
-        $fields = $this->shop->fields($object);
+        $fields = $this->shop->fields($object)->sentAs(['name' => $item->at('name'), 'public_name' => $item->at('public_name')]);
         $name = $this->shop->texts->name($item, 'name', $id === null);
         $fields->text('name', $name);
         if ($kind === self::GROUP) {

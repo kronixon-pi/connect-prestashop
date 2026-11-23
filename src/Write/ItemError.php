@@ -57,12 +57,22 @@ final class ItemError extends RuntimeException
         return new self($code, $field.' names nothing of this shop', $field);
     }
 
-    /** PrestaShop's own validation (`Property Product->ean13 is not valid`): the field, never the message. */
-    public static function refused(string $message): self
+    /** The item failed, or names what an earlier one left, and the half-written object could not be removed yet. */
+    public static function leftOver(?string $field = null): self
+    {
+        return new self('cleanup_failed', 'A half-written object could not be removed yet', $field);
+    }
+
+    /**
+     * PrestaShop's own validation (`Property Product->ean13 is not valid`): the field, never the message.
+     *
+     * @param  (callable(string): string)|null  $member  the item's member of a field
+     */
+    public static function refused(string $message, ?callable $member = null): self
     {
         // 8.x escapes the arrow of its message for HTML.
         return preg_match('/-(?:>|&gt;)(\w+)/', $message, $m) === 1
-            ? self::invalid($m[1], 'is refused by PrestaShop')
+            ? self::invalid($member === null ? $m[1] : $member($m[1]), 'is refused by PrestaShop')
             : new self('validation_failed', 'PrestaShop refused the item');
     }
 
@@ -75,6 +85,11 @@ final class ItemError extends RuntimeException
     public function itemCode(): string
     {
         return $this->itemCode;
+    }
+
+    public function field(): ?string
+    {
+        return $this->field;
     }
 
     /**

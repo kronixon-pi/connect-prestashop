@@ -18,11 +18,16 @@ declare(strict_types=1);
 
 namespace Kronixon\Connect\Write;
 
+use Kronixon\Connect\Api\Budget;
+
 /**
  * One `POST <entities>` endpoint for one request (Batch calls it).
  */
 interface Writer
 {
+    /** Once before the first item: what an earlier request left half-written goes. */
+    public function start(Budget $budget): void;
+
     /**
      * Work of the item that must not hold row locks (a download): before its transaction.
      *
@@ -40,11 +45,18 @@ interface Writer
      */
     public function write(Item $item): array;
 
+    /** The item is complete; the last work inside its transaction. */
+    public function seal(Item $item): void;
+
     /** The item is committed (files, the search index). */
     public function committed(Item $item): void;
 
-    /** The item was rolled back: nothing it created or cached exists. */
-    public function rolledBack(Item $item): void;
+    /**
+     * The item was rolled back: what it created and cached goes.
+     *
+     * @return bool false when something it created is left
+     */
+    public function rolledBack(Item $item): bool;
 
     /** Once after the last item, when any was written (the category tree, caches). */
     public function finish(): void;

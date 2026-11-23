@@ -31,6 +31,7 @@ use Kronixon\Connect\Install\TabRoles;
 use Kronixon\Connect\Platform\Pairing;
 use Kronixon\Connect\Protocol;
 use Kronixon\Connect\Services;
+use Kronixon\Connect\Write\PendingWrites;
 
 /**
  * Kronixon Connect: the only link between this store and Kronixon PI (protocol v1).
@@ -82,7 +83,10 @@ class KronixonConnect extends Module
                 return (bool) parent::uninstall();
             },
             function () use ($compat): bool {
-                return (bool) $this->registerHook(Hooks::forCompat($compat));
+                $registered = (bool) $this->registerHook(Hooks::forCompat($compat));
+                Hooks::stayFirst($this);
+
+                return $registered;
             },
             static function (): bool {
                 if (SealedBox::available()) {
@@ -99,6 +103,15 @@ class KronixonConnect extends Module
         }
 
         return $failed === null;
+    }
+
+    /** Tables and hooks a newer version has and an older one did not (upgrade/): all of them, what is there stays. */
+    public function addMissing(): bool
+    {
+        $ok = $this->installer()->createTables() && (bool) $this->registerHook(Hooks::forCompat(Version::select(_PS_VERSION_)));
+        Hooks::stayFirst($this);
+
+        return $ok;
     }
 
     public function uninstall(): bool
@@ -254,6 +267,17 @@ class KronixonConnect extends Module
      * Hook handlers: registered now so that an upgrade does not have to re-register them; they record
      * nothing until the outbox lands (M5). Each receives PrestaShop's hook parameters.
      */
+
+    /**
+     * An object that a write of this request is creating is stored (PendingWrites); anything else the
+     * shop stores is none of its business.
+     *
+     * @param  array<string, mixed>  $params
+     */
+    public function hookActionObjectAddAfter(array $params): void
+    {
+        PendingWrites::added($params['object'] ?? null);
+    }
 
     /** @param array<string, mixed> $params */
     public function hookActionProductAdd(array $params): void

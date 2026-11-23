@@ -47,7 +47,7 @@ final class TagWriter extends ShopWriter
         if ($id === 0) {
             $tag->name = $name;
             $tag->id_lang = $langId;
-            if (! $tag->add()) {
+            if (! $this->shop->pending->add($tag)) {
                 throw ItemError::notSaved('tag');
             }
         }

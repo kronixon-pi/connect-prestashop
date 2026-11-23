@@ -120,16 +120,36 @@ final class FieldsTest extends TestCase
         self::assertSame(['reference' => true], $product->update_fields, 'only the changed fields are validated');
     }
 
-    public function test_a_failed_save_is_an_error_and_a_created_row_is_known(): void
+    public function test_a_failed_save_is_an_error(): void
     {
         $product = new Product();
         $product->saves = false;
         $this->expectException(ItemError::class);
-        try {
-            $this->fields($product)->save('product');
-        } finally {
-            self::assertSame([$product], $this->created);
-        }
+        $this->fields($product)->save('product');
+    }
+
+    public function test_a_refused_value_is_named_by_the_member_it_was_sent_as(): void
+    {
+        $product = $this->product();
+        $product->valid = 'Property Product->name is not valid';
+        $product->validField = 'Property Product->name is not valid';
+        $fields = $this->fields($product)->sentAs(['name' => 'content.name', 'price' => 'pricing.price']);
+        $fields->text('name', [2 => 'a<b>']);
+        $field = function () use ($fields): ?string {
+            try {
+                $fields->check();
+            } catch (ItemError $error) {
+                return $error->field();
+            }
+
+            return null;
+        };
+        self::assertSame('content.name.bg', $field(), 'the language PrestaShop refuses');
+
+        $product->valid = 'Property Product-&gt;price is not valid';
+        self::assertSame('pricing.price', $field());
+        $product->valid = 'Property Product->ean13 is not valid';
+        self::assertSame('ean13', $field(), 'a field the item has no member for');
     }
 
     public function test_texts_of_an_item(): void
@@ -233,8 +253,10 @@ final class FieldsTest extends TestCase
 
     private function fields(Product $product): Fields
     {
-        return new Fields($product, $this->texts(), 'strtolower', function (ObjectModel $object): void {
+        return new Fields($product, $this->texts(), 'strtolower', function (ObjectModel $object): bool {
             $this->created[] = $object;
+
+            return $object->add();
         });
     }
 }

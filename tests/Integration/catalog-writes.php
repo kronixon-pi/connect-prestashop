@@ -59,7 +59,7 @@ $key = SignedClient::uuid();
 $first = $kx->post('categories', $batch, $key);
 $r = $results($first);
 $kx->check('categories: two created, the parent by key', $first['status'] === 200 && ($r['c-0']['action'] ?? '') === 'created' && ($r['c-1']['action'] ?? '') === 'created' && $first['data']['summary']['ok'] === 2 && $first['data']['continue'] === false, $first['raw']);
-$kx->check('categories: refused items name code and field', ($r['c-2']['code'] ?? '') === 'parent_not_found' && ($r['c-3']['code'] ?? '') === 'parent_not_found' && ($r['c-4']['field'] ?? '') === 'name.en' && ($r['c-5']['code'] ?? '') === 'validation_failed' && ($r['c-5']['field'] ?? '') === 'name', $first['raw']);
+$kx->check('categories: refused items name code and field', ($r['c-2']['code'] ?? '') === 'parent_not_found' && ($r['c-3']['code'] ?? '') === 'parent_not_found' && ($r['c-4']['field'] ?? '') === 'name.en' && ($r['c-5']['code'] ?? '') === 'validation_failed' && ($r['c-5']['field'] ?? '') === 'name.en', $first['raw']);
 $kx->check('categories: refused items left nothing', $value("SELECT COUNT(*) FROM {$p}category") === $before + 2);
 [$c0, $c1] = [(int) ($r['c-0']['external_id'] ?? 0), (int) ($r['c-1']['external_id'] ?? 0)];
 $kx->check('categories: tree (depth, nested set)', $value("SELECT id_parent FROM {$p}category WHERE id_category = $c1") === $c0 && $value("SELECT level_depth FROM {$p}category WHERE id_category = $c1") === $value("SELECT level_depth FROM {$p}category WHERE id_category = $home") + 2
@@ -154,6 +154,19 @@ $kx->check('brands: the logo the shop holds is not fetched again', ($l2['b']['ac
 $l3 = $results($kx->post('brands', ['items' => [['key' => 'b', 'external_id' => (string) $brandId, 'name' => "Brand $tag", 'logo' => null]]]));
 clearstatcache();
 $kx->check('brands: logo null removes it', ($l3['b']['action'] ?? '') === 'updated' && ! is_file($file), (string) json_encode($l3));
+imagepng($image, $logo);
+$png = ['key' => 'b', 'external_id' => (string) $brandId, 'name' => "Brand $tag", 'logo' => ['url' => $inside, 'sha256' => (string) hash_file('sha256', $logo)]];
+$l4 = $results($kx->post('brands', ['items' => [$png]]));
+unlink($logo);
+$l5 = $results($kx->post('brands', ['items' => [$png]]));
+clearstatcache();
+$kx->check('brands: a PNG logo, which PrestaShop converts, is not fetched again', ($l4['b']['action'] ?? '') === 'updated' && $l4['b']['warnings'] === [] && is_array(getimagesize($file)) && hash_file('sha256', $file) !== $png['logo']['sha256']
+    && ($l5['b']['action'] ?? '') === 'unchanged' && $l5['b']['content_hash'] === $l4['b']['content_hash'], (string) json_encode([$l4, $l5]));
+$kx->check('options of a wrong type or value → 422 validation_failed', array_map(static function (array $options) use ($kx): array {
+    $answer = $kx->post('categories', ['items' => [['key' => 'a', 'name' => ['en' => 'x']]], 'options' => $options]);
+
+    return [$answer['status'], $answer['data']['error']['details']['errors'] ?? []];
+}, [['strict_languages' => 'yes'], ['regenerate_tree' => 'sometimes']]) === [[422, ['options.strict_languages']], [422, ['options.regenerate_tree']]]);
 
 // Tags.
 $t = $results($kx->post('tags', ['items' => [['key' => 't', 'lang' => 'bg', 'name' => "таг $tag"], ['key' => 't2', 'lang' => 'bg', 'name' => "таг $tag"], ['key' => 'fr', 'lang' => 'fr', 'name' => 'x'], ['key' => 'long', 'lang' => 'bg', 'name' => str_repeat('x', 33)]]]));

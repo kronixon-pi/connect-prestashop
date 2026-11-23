@@ -24,19 +24,27 @@ namespace Kronixon\Connect\Write;
  */
 final class EntityMap
 {
+    /** Entity types that are not named as their table. */
+    private const TABLES = ['brand' => 'manufacturer', 'variant' => 'product_attribute'];
+
     /** @var Database */
     private $db;
 
-    public function __construct(Database $db)
+    /** @var PendingWrites|null */
+    private $pending;
+
+    public function __construct(Database $db, ?PendingWrites $pending = null)
     {
         $this->db = $db;
+        $this->pending = $pending;
     }
 
     /**
      * The id the item names, null when it is to be created.
      *
      * A given `external_id` that does not exist is an error, never a silent create (a shop restored
-     * from a backup would get duplicates); a remembered `kx_id` whose entity is gone is forgotten.
+     * from a backup would get duplicates); a remembered `kx_id` whose entity is gone is forgotten. What a
+     * failed item left (PendingWrites) is neither written nor created a second time: `cleanup_failed`.
      *
      * @param  callable(int): bool  $exists  whether the entity is there, in the paired shop
      * @param  callable(): list<int>  $match  the entities `match_by` finds
@@ -45,6 +53,7 @@ final class EntityMap
     {
         $id = $item->id('external_id');
         if ($id !== null) {
+            $this->refuseLeft($type, $id, $item->at('external_id'));
             if (! $exists($id)) {
                 throw ItemError::missing($item->at('external_id'));
             }
@@ -53,6 +62,9 @@ final class EntityMap
         }
         $kxId = $item->kxId();
         if ($kxId !== null) {
+            if ($this->pending !== null && $this->pending->claims($kxId)) {
+                throw ItemError::leftOver($item->at('kx_id'));
+            }
             $id = $this->find($type, $kxId);
             if ($id !== null && $exists($id)) {
                 return $id;
@@ -62,6 +74,9 @@ final class EntityMap
             }
         }
         $candidates = $match();
+        foreach ($candidates as $candidate) {
+            $this->refuseLeft($type, $candidate, $item->at('match_by'));
+        }
         if (count($candidates) > 1) {
             throw new ItemError('match_ambiguous', 'More than one entity matches', $item->at('match_by'), [
                 'candidates' => array_map('strval', array_slice($candidates, 0, 20)),
@@ -105,6 +120,21 @@ final class EntityMap
         $now = $this->db->quote(date('Y-m-d H:i:s'));
         $this->db->execute('INSERT INTO '.$table.' (entity_type, external_id, kx_id, flags, date_add, date_upd) VALUES ('
             .$this->db->quote($type).', '.$this->db->quote((string) $id).', '.$this->db->quote($kxId).', '.$flags.', '.$now.', '.$now.')');
+    }
+
+    /** An entity of $table that was removed. */
+    public function forgetEntity(string $table, int $id): void
+    {
+        $type = array_search($table, self::TABLES, true);
+        $this->db->execute('DELETE FROM '.$this->db->table('kx_entity_map').' WHERE entity_type = '.$this->db->quote($type === false ? $table : $type)
+            .' AND external_id = '.$this->db->quote((string) $id));
+    }
+
+    private function refuseLeft(string $type, int $id, string $field): void
+    {
+        if ($this->pending !== null && $this->pending->isLeft(self::TABLES[$type] ?? $type, $id)) {
+            throw ItemError::leftOver($field);
+        }
     }
 
     private function forget(string $kxId): void

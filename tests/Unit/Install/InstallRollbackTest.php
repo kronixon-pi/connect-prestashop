@@ -76,7 +76,7 @@ final class InstallRollbackTest extends TestCase
 
         self::assertNull(Steps::run($steps));
         self::assertSame(['kronixonconnect'], $this->moduleRows);
-        self::assertCount(7, $this->tables);
+        self::assertCount(8, $this->tables);
         self::assertSame('CREATE ps_kx_nonce', $this->log[0]);
         self::assertSame('module:add', end($this->log));
     }

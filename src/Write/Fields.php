@@ -41,19 +41,34 @@ final class Fields
     /** @var array<string, true|array<int, true>> */
     private $changed = [];
 
-    /** @var callable(ObjectModel): void told of every object a save created */
-    private $created;
+    /** @var callable(ObjectModel): bool PendingWrites::add() */
+    private $add;
+
+    /** @var array<string, string> field => the member of the item it was sent as */
+    private $members = [];
 
     /**
      * @param  callable(string): string  $html
-     * @param  callable(ObjectModel): void  $created
+     * @param  callable(ObjectModel): bool  $add
      */
-    public function __construct(ObjectModel $object, Texts $texts, callable $html, callable $created)
+    public function __construct(ObjectModel $object, Texts $texts, callable $html, callable $add)
     {
         $this->object = $object;
         $this->texts = $texts;
         $this->html = $html;
-        $this->created = $created;
+        $this->add = $add;
+    }
+
+    /**
+     * The members the fields are sent as, for the `field` of an error; a field without one is named itself.
+     *
+     * @param  array<string, string>  $members  field => path in the item
+     */
+    public function sentAs(array $members): self
+    {
+        $this->members = $members + $this->members;
+
+        return $this;
     }
 
     public function creating(): bool
@@ -137,9 +152,23 @@ final class Fields
         }
         foreach ([$this->object->validateFields(false, true), $this->object->validateFieldsLang(false, true)] as $valid) {
             if ($valid !== true) {
-                throw ItemError::refused((string) $valid);
+                throw ItemError::refused((string) $valid, [$this, 'member']);
             }
         }
+    }
+
+    /** The item's member that PrestaShop refused as $field: `content.name.bg`, `pricing.price`. */
+    public function member(string $field): string
+    {
+        $member = $this->members[$field] ?? $field;
+        $value = property_exists($this->object, $field) ? $this->object->{$field} : null;
+        foreach (is_array($value) ? $value : [] as $langId => $text) {
+            if ($this->object->validateField($field, $text, (int) $langId) !== true) {
+                return $member.$this->texts->suffix((int) $langId);
+            }
+        }
+
+        return $member;
     }
 
     /** Creates the object, or updates its changed fields; nothing when none changed. */
@@ -150,9 +179,7 @@ final class Fields
         }
         $this->check();
         if ($this->creating()) {
-            $saved = $this->object->add();
-            ($this->created)($this->object);
-            if (! $saved) {
+            if (! ($this->add)($this->object)) {
                 throw ItemError::notSaved($what);
             }
             $this->changed = [];

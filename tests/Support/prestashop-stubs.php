@@ -34,10 +34,33 @@ if (! class_exists('ObjectModel', false)) {
         /** @var bool the answer of add() and update() */
         public $saves = true;
 
+        /** @var string|true the answer of validateField() */
+        public $validField = true;
+
+        /** @var (callable(ObjectModel): void)|null what add() does once the object has its id: rows, hooks */
+        public $onAdd;
+
+        /** @var (callable(ObjectModel): void)|null what delete() of any object does */
+        public static $onDelete;
+
+        /** @var list<ObjectModel> what was deleted */
+        public static $deleted = [];
+
+        /**
+         * @param int|null $id
+         */
+        public function __construct($id = null)
+        {
+            $this->id = $id;
+        }
+
         public function add(): bool
         {
             $this->calls[] = 'add';
             $this->id = 77;
+            if ($this->onAdd !== null) {
+                ($this->onAdd)($this);
+            }
 
             return $this->saves;
         }
@@ -52,8 +75,21 @@ if (! class_exists('ObjectModel', false)) {
         public function delete(): bool
         {
             $this->calls[] = 'delete';
+            self::$deleted[] = $this;
+            if (self::$onDelete !== null) {
+                (self::$onDelete)($this);
+            }
 
             return true;
+        }
+
+        /**
+         * @param mixed $value
+         * @return string|true
+         */
+        public function validateField(string $field, $value, ?int $langId = null)
+        {
+            return $langId === 2 ? $this->validField : true;
         }
 
         /**
@@ -86,7 +122,9 @@ if (! class_exists('ObjectModel', false)) {
          */
         public static function getDefinition($object): array
         {
-            return ['table' => 'product', 'primary' => 'id_product'];
+            $table = ['Category' => 'category', 'Combination' => 'product_attribute'][is_object($object) ? get_class($object) : $object] ?? 'product';
+
+            return ['table' => $table, 'primary' => 'id_'.$table];
         }
     }
 }
@@ -108,6 +146,18 @@ if (! class_exists('Product', false)) {
 
         /** @var mixed */
         public $active;
+    }
+}
+
+if (! class_exists('Category', false)) {
+    class Category extends ObjectModel
+    {
+    }
+}
+
+if (! class_exists('Combination', false)) {
+    class Combination extends ObjectModel
+    {
     }
 }
 

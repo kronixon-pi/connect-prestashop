@@ -3,6 +3,7 @@
 -- stay at 191 characters (utf8mb4 index limit of MySQL 5.6 / COMPACT rows). Created by M0, written by:
 --   kx_nonce, kx_idempotency, kx_log  → M1 (signatures, rotate/unpair, logs)
 --   kx_entity_map                     → read from M2 (kx_id in GET catalog/*), written from M3
+--   kx_pending                        → M3 (what an item that is not complete has created)
 --   kx_redirect                       → M3 (seo/redirects)
 --   kx_image_map                      → M4 (POST/DELETE images)
 --   kx_outbox                         → M5 (webhooks outbox, heartbeat)
@@ -47,6 +48,20 @@ CREATE TABLE IF NOT EXISTS `PREFIX_kx_entity_map` (
   PRIMARY KEY (`id_kx_entity_map`),
   UNIQUE KEY `uq_entity` (`entity_type`, `external_id`),
   UNIQUE KEY `uq_kx_id` (`kx_id`)
+) ENGINE=ENGINE_TYPE DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS `PREFIX_kx_pending` (
+  `id_kx_pending` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `id_shop` INT UNSIGNED NOT NULL,
+  `class` VARCHAR(64) NOT NULL,
+  `entity` VARCHAR(64) NOT NULL COMMENT 'table of the object, without prefix',
+  `id_object` INT UNSIGNED NOT NULL,
+  `kx_id` VARCHAR(36) NOT NULL DEFAULT '' COMMENT 'of the item; empty without one',
+  `item_key` VARCHAR(64) NOT NULL DEFAULT '',
+  `removing` TINYINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '1 = its removal began',
+  `created_at` DATETIME NOT NULL,
+  PRIMARY KEY (`id_kx_pending`),
+  KEY `ix_object` (`id_shop`, `entity`, `id_object`)
 ) ENGINE=ENGINE_TYPE DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS `PREFIX_kx_image_map` (
