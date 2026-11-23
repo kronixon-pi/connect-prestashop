@@ -4,8 +4,15 @@ All notable changes of the module are listed here; versions follow [Semantic Ver
 
 ## [Unreleased]
 
-Nothing in the module itself. Releases are built reproducibly and signed ([docs/RELEASING.md](docs/RELEASING.md)); the
-first one is 0.3.2 on the staging channel.
+### Added
+
+- `POST categories`, `attributes`, `attribute-values`, `brands` and `tags`: batches of up to 100 items, each in its
+  own transaction, with a result per item and the `content_hash` the shop holds afterwards. Announced as the
+  capabilities `categories`, `attributes` and `tags`.
+- `Idempotency-Key` on every `POST`/`DELETE`: a repeated request gets the stored answer for 24 hours, another request
+  with the same key `409 idempotency_conflict`. A key that is not a UUID is now refused (`400`).
+- Releases are built reproducibly and signed ([docs/RELEASING.md](docs/RELEASING.md)); the first one is 0.3.2 on the
+  staging channel.
 
 ## [0.3.2]
 
