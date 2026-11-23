@@ -36,6 +36,9 @@ final class ShopDatabase implements Database
     /** @var PrestaShopSql */
     private $sql;
 
+    /** @var int|null the session's innodb_lock_wait_timeout before lockRows() changed it */
+    private $serverWait;
+
     public function __construct(Db $db, string $prefix)
     {
         $this->db = $db;
@@ -77,7 +80,11 @@ final class ShopDatabase implements Database
     public function lockRows(string $sql, int $waitSeconds): array
     {
         // The session's wait for a row lock (InnoDB's default is 50 s, longer than a request's budget);
-        // it also bounds the waits of the chunk's later statements.
+        // it also bounds the waits of the chunk's later statements, and the server's value comes back
+        // when the transaction ends (restoreWait()).
+        if ($this->serverWait === null) {
+            $this->serverWait = (int) $this->db->getValue('SELECT @@SESSION.innodb_lock_wait_timeout', false);
+        }
         $this->db->execute('SET SESSION innodb_lock_wait_timeout = '.max(1, $waitSeconds), false);
         try {
             return $this->rows($sql.' FOR UPDATE');
@@ -104,12 +111,23 @@ final class ShopDatabase implements Database
     public function commit(): void
     {
         $this->execute('COMMIT');
+        $this->restoreWait();
     }
 
     /** Also drops what PrestaShop cached of the objects that no longer exist. */
     public function rollback(): void
     {
         $this->db->execute('ROLLBACK', false);
+        $this->restoreWait();
         Cache::clean('*');
+    }
+
+    /** The session's lock wait as before lockRows(): hooks and logs after a chunk wait as the server lets them. */
+    private function restoreWait(): void
+    {
+        if ($this->serverWait !== null) {
+            $this->db->execute('SET SESSION innodb_lock_wait_timeout = '.max(1, $this->serverWait), false);
+            $this->serverWait = null;
+        }
     }
 }

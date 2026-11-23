@@ -13,8 +13,9 @@ declare(strict_types=1);
  * end-of-order statement (StockManager::updatePhysicalProductQuantity()) for an order whose lines
  * run against the chunk's lock order succeeds and the chunk is written (9.x: the chunk loses the
  * deadlock and runs once more). Then 1 000 rows per request while that statement runs in a loop for
- * an order of a product in chunk 6: its longest wait is what a checkout waits. One line per check;
- * exit 1 on any failure.
+ * an order of a product in chunk 6: its longest wait is what a checkout waits. Last, the session's
+ * lock wait is its own again after a chunk's commit or rollback. One line per check; exit 1 on any
+ * failure.
  *
  *   php bulk-race.php <shop base URL> <apache address, e.g. 127.0.0.1:80>
  */
@@ -291,6 +292,25 @@ foreach ([
 }
 $db->execute("DELETE FROM {$p}order_detail WHERE id_order IN ($inside, $outside)", false);
 $dropCopies($from);
+
+// The session's lock wait is its own again once a chunk's transaction ends, by commit or rollback:
+// the hooks and logs after a chunk wait as long as the server lets them.
+require_once dirname(__DIR__, 2).'/src/Autoloader.php';
+Kronixon\Connect\Autoloader::register();
+$shopDb = new Kronixon\Connect\Write\ShopDatabase($db, $p);
+$sessionWait = static function () use ($db): int {
+    return (int) $db->getValue('SELECT @@SESSION.innodb_lock_wait_timeout', false);
+};
+$own = $sessionWait();
+$waits = [];
+foreach (['commit', 'rollback'] as $end) {
+    $shopDb->begin();
+    $shopDb->lockRows("SELECT id_stock_available FROM {$p}stock_available WHERE id_product = $id ORDER BY id_stock_available", 3);
+    $during = $sessionWait();
+    $shopDb->$end();
+    $waits[$end] = [$during, $sessionWait()];
+}
+$kx->check("the session's lock wait ($own s) is back after a chunk's commit and rollback", $waits === ['commit' => [3, $own], 'rollback' => [3, $own]] && $own !== 3, (string) json_encode($waits));
 
 echo 'RACE TABLE ', json_encode($table), "\n";
 echo 'SMALL SHOP ', json_encode($small), "\n";
