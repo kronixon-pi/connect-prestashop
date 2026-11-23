@@ -4,10 +4,11 @@ The free, open-source companion module that links a PrestaShop store to **Kronix
 platform never touches the shop's database, files or the PrestaShop Webservice: it talks only to
 this module, over the signed [Connect protocol v1](protocol/v1/README.md).
 
-> **Status: 0.3.2, pairing and catalog reads.** The module pairs with Kronixon PI from its settings page,
-> verifies the signature of every protocol request, signs every answer and serves `capabilities`,
-> `profile`, `health`, `rotate`, `unpair` and the eleven `GET catalog/*` reads. Writes, webhooks and
-> self-update arrive in the next versions. Do not install it on a production shop yet.
+> **Status: 0.4.0, pairing, catalog reads and writes.** The module pairs with Kronixon PI from its settings
+> page, verifies the signature of every protocol request, signs every answer and serves `capabilities`,
+> `profile`, `health`, `rotate`, `unpair`, the eleven `GET catalog/*` reads and the writes of products,
+> variants, categories, attributes and their values, brands, tags and redirects. Prices and stock in bulk,
+> images, webhooks and self-update arrive in the next versions. Do not install it on a production shop yet.
 
 ## Supported versions
 
@@ -148,8 +149,10 @@ and the hooks of other modules run. Rules of the protocol: [§6](protocol/v1/REA
 
 - **What is written.** `categories` (`Category`), `attributes` (`Feature`, `AttributeGroup`),
   `attribute-values` (`FeatureValue`, `Attribute` on 1.7.8, `ProductAttribute` from 8.0), `brands`
-  (`Manufacturer`) and `tags` (`Tag`). Nothing writes a catalog table by SQL; the module's own tables
-  (`kx_entity_map`, `kx_idempotency`) are.
+  (`Manufacturer`), `tags` (`Tag`), `products` (`Product` with `updateCategories()`, `deleteFeatures()` /
+  `addFeaturesToDB()`, `FeatureValue`, `ProductSupplier`, `Tag`), `variants` (`Combination`, and the classes of
+  attributes) and `seo/redirects`. Nothing writes a catalog table by SQL; the module's own tables
+  (`kx_entity_map`, `kx_idempotency`, `kx_redirect`) are.
 - **Only what differs.** An item is compared with the shop: an update saves only the fields, in the languages,
   that changed (`setFieldsToUpdate`), so a field or a language that was not sent keeps what the shop holds; an
   item equal to the shop is `unchanged` and saves nothing (no hook, no new `date_upd`). A create needs the name in
@@ -183,6 +186,26 @@ and the hooks of other modules run. Rules of the protocol: [§6](protocol/v1/REA
 - **Brands.** The logo is fetched before the item's transaction, over HTTPS, without redirects, up to 20 MB in 20 s,
   and dropped unless its sha256 is the announced one; a logo the shop already holds is not fetched.
 - **Tags.** PrestaShop deletes a tag no product has as soon as any product's tags change.
+- **Products.** Only the groups in `groups`. A create is inactive, under Home and in the tax rules group most products
+  have, unless sent otherwise; `stock_initial` applies to a create only and makes no stock movement. The friendly URL
+  of an existing product stays unless `preserve_link_rewrite` is `false`; one PrestaShop refuses is rewritten
+  (`link_rewrite_changed`). Meta texts are made acceptable (`isGenericName`) and cut at the column's length
+  (`meta_title_cut`, `meta_description_cut`). A custom feature text changes in the languages sent; changing any
+  feature of a product gives its custom texts new ids, as PrestaShop's own form does. `reindex: deferred` (the
+  default) marks a changed product for the shop's search indexing, `inline` indexes it at once, `none` leaves it.
+  Hooks always run (`fire_hooks: false` has no effect).
+- **Variants.** One transaction for a product's option groups, values and combinations. Groups and values belong to the
+  whole shop, so they are found (`external_id`, `kx_id`, the name in the default language) or created, never renamed,
+  and no `kx_id` is linked to them. Only `mode: replace` deletes combinations, with their stock. `image_keys` name
+  pictures of `POST images`; pictures the shop added to a combination itself stay, an unknown key is
+  `image_key_unknown`. Without combinations left the product is a simple one again. Packs and virtual products are
+  refused. `content_hash` is the product's.
+- **Redirects.** A product's own (`redirect_type`; `410` from 8.0, else `404` and `redirect_410_unsupported`).
+  A category's addresses and old slugs are kept in `kx_redirect`, by path (friendly URLs only), and served from the
+  hook that builds the routes: one cached setting per request, one indexed lookup where a shop has any. As PrestaShop
+  does for a product, a category is redirected only while inactive (`category_active`); when it is active again, in
+  the back office too, its redirects go. `seo.redirect.auto` keeps the old address of a product whose friendly URL
+  changed.
 
 ## What the module adds to the shop
 
@@ -194,7 +217,8 @@ and the hooks of other modules run. Rules of the protocol: [§6](protocol/v1/REA
 - A Profile "Kronixon Connect" without any access right and an inactive Employee in it; uninstalling removes
   both.
 - Hooks on product, stock, category, image, brand, feature and combination changes. They record nothing yet;
-  later they only queue an event in `kx_outbox` (no HTTP call inside a hook).
+  later they only queue an event in `kx_outbox` (no HTTP call inside a hook). The hook that builds the routes serves
+  the redirects of `kx_redirect`.
 - No core files are changed, no overrides are installed. Translations: English, Bulgarian, German.
 
 ## Development
@@ -216,8 +240,9 @@ then pairs the shop with [tests/Integration/platform-stub.php](tests/Integration
 minimal Connect service run by the shop's own PHP) and plays the platform's side with
 [tests/Integration/platform-driver.php](tests/Integration/platform-driver.php): the signed `GET
 capabilities` check, profile, health, replay/tamper/clock refusals, signed catalog reads, a rotation and an
-unpair. [tests/Integration/catalog-writes.php](tests/Integration/catalog-writes.php) then writes the shop through
-the signed endpoints and compares with the reads. Then [tests/Integration/catalog-walk.php](tests/Integration/catalog-walk.php) walks every catalog
+unpair. [tests/Integration/catalog-writes.php](tests/Integration/catalog-writes.php) and
+[product-writes.php](tests/Integration/product-writes.php) then write the shop through the signed endpoints and
+compare with the reads. Then [tests/Integration/catalog-walk.php](tests/Integration/catalog-walk.php) walks every catalog
 reader in K = 1, 3 and 8 id ranges on `KX_WALK_PRODUCTS` products (generated by SQL; default 0 = the shop's
 own) and [validate-answers.php](tests/Integration/validate-answers.php) checks every answer against its
 schema (needs `make install`): `KX_WALK_PRODUCTS=100000 make smoke PS=91`. Last,
@@ -232,7 +257,7 @@ only place to change them; `scripts/compose.sh` (used by `make` and the CI scrip
 The shops use PrestaShop's documented default admin login and `admin-dev` as the admin folder.
 
 Layout: `kronixonconnect.php` (module class), `controllers/front/api.php` (the only API entry),
-`src/` (`Kronixon\Connect\` — `Api`, `Auth`, `Catalog`, `Compat`, `Crypto`, `Install`, `Platform`, `Shop`, `Support`, `Write`, loaded by the module's
+`src/` (`Kronixon\Connect\` — `Api`, `Auth`, `Catalog`, `Compat`, `Crypto`, `Install`, `Platform`, `Redirect`, `Shop`, `Support`, `Write`, loaded by the module's
 own autoloader; no composer at runtime), `sql/`, `views/`, `protocol/v1/` (protocol document, JSON
 Schemas, signature vectors), `tests/` (PHPUnit, the fixture generator), `docker/`, `scripts/`.
 Development tools live in `tools/vendor`, because PrestaShop loads a module's `vendor/autoload.php`
