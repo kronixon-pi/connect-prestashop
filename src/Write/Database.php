@@ -49,8 +49,9 @@ interface Database extends Sql
     /**
      * A SELECT of catalog rows the open transaction is about to check and write, with their row locks
      * (`FOR UPDATE`): a value another session committed while this one waited is what the read returns,
-     * and a change another session tries after it waits until this transaction ends. The statement's
-     * ORDER BY is the order the rows are locked in. A lock not granted within $waitSeconds (or a
+     * and a change another session tries after it waits until this transaction ends. The statement
+     * reaches the rows by primary key, whose ORDER BY is the order they are locked in: one the server
+     * plans as a scan locks every row it reads. A lock not granted within $waitSeconds (or a
      * deadlock) is RowsLocked; the transaction is then to be rolled back.
      *
      * @return list<array<string, string|null>>

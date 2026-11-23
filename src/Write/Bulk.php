@@ -33,10 +33,12 @@ use Throwable;
  * and written in chunks of 100, each chunk in one transaction that reads the rows it writes with their
  * locks; a row is checked before anything is written, and an order or a save that commits meanwhile
  * waits for the chunk's commit instead of being overwritten. Rows whose locks another session holds
- * longer than the wait are `skipped` (`rows_locked`) with `continue`. A row whose current value the shop already holds is `unchanged`, so a repeat after a lost
- * answer neither writes nor sees a conflict. `expected_*` names the value the platform believes the
- * shop holds: when the shop holds another one (changed in the shop), the row is `conflict` with the
- * shop's value and is not written. When the time budget runs out the rest is `skipped`.
+ * longer than the wait are `skipped` (`rows_locked`) with `continue`; a chunk the server rolls back
+ * as a deadlock's victim while it takes its locks runs once more first. A row whose current value
+ * the shop already holds is `unchanged`, so a repeat after a lost answer neither writes nor sees a
+ * conflict. `expected_*` names the value the platform believes the shop holds: when the shop holds
+ * another one (changed in the shop), the row is `conflict` with the shop's value and is not written.
+ * When the time budget runs out the rest is `skipped`.
  */
 abstract class Bulk
 {
@@ -180,9 +182,19 @@ abstract class Bulk
     abstract protected function parse(Item $row): array;
 
     /**
+     * Before the chunk's transaction, with a plain read: the primary keys of the rows load() locks when
+     * its tables have no other way to reach exactly them (stock/bulk).
+     *
+     * @param  array<int, array<string, mixed>>  $rows
+     */
+    protected function locate(array $rows): void
+    {
+    }
+
+    /**
      * What the shop holds of the rows' products and combinations, read once for the chunk inside its
-     * transaction: first the rows the chunk writes, with their locks (Database::lockRows(), in the order
-     * of their primary key), so `expected_*` is compared with what the shop holds until the commit and
+     * transaction: first the rows the chunk writes, with their locks (Database::lockRows(), by primary
+     * key and in its order), so `expected_*` is compared with what the shop holds until the commit and
      * a change committed meanwhile is not overwritten.
      *
      * @param  array<int, array<string, mixed>>  $rows
@@ -279,34 +291,47 @@ abstract class Bulk
      */
     private function chunk(array $chunk, int $waitSeconds): array
     {
-        $results = [];
-        $changed = [];
-        try {
-            $this->db->begin();
-            $this->load($chunk, $waitSeconds);
-            foreach ($chunk as $i => $row) {
-                try {
-                    $result = $this->row($row);
-                } catch (ItemError $error) {
-                    $result = ['status' => 'error'] + $error->result();
-                }
-                if (($result['action'] ?? null) === 'updated') {
-                    $changed[$row['product']] = $row['product'];
-                }
-                $results[$i] = $result;
-            }
-            $this->db->commit();
-        } catch (Throwable $error) {
+        for ($attempt = 1; ; $attempt++) {
+            $results = [];
+            $changed = [];
+            $failure = null;
             try {
-                $this->db->rollback();
-            } catch (Throwable $ignored) {
-                // nothing open
+                $this->locate($chunk);
+                $this->db->begin();
+                $this->load($chunk, $waitSeconds);
+                foreach ($chunk as $i => $row) {
+                    try {
+                        $result = $this->row($row);
+                    } catch (ItemError $error) {
+                        $result = ['status' => 'error'] + $error->result();
+                    }
+                    if (($result['action'] ?? null) === 'updated') {
+                        $changed[$row['product']] = $row['product'];
+                    }
+                    $results[$i] = $result;
+                }
+                $this->db->commit();
+            } catch (Throwable $error) {
+                $failure = $error;
+                try {
+                    $this->db->rollback();
+                } catch (Throwable $ignored) {
+                    // nothing open
+                }
             }
+            if (! $failure instanceof RowsLocked || ! $failure->deadlock() || $attempt > 1) {
+                break;
+            }
+            // Chosen as the deadlock's victim while taking its locks, before anything was written: the
+            // other statement (an order's) has gone on, so the chunk is read and written once more.
+            $this->log->info('write', 'A bulk chunk lost a deadlock and runs again');
+        }
+        if ($failure !== null) {
             // After the rollback: the log shares the connection.
-            $this->log->warning('write', 'A bulk chunk failed', ['exception' => get_class($error)]);
+            $this->log->warning('write', 'A bulk chunk failed', ['exception' => get_class($failure)]);
             foreach (array_keys($chunk) as $i) {
                 // Rows another session holds are sent again with `continue`, like rows out of time.
-                $results[$i] = $error instanceof RowsLocked
+                $results[$i] = $failure instanceof RowsLocked
                     ? ['status' => 'skipped', 'code' => 'rows_locked', 'message' => 'the rows are locked by another session']
                     : ['status' => 'error', 'code' => 'module_error', 'message' => 'Unexpected module error.'];
             }

@@ -77,6 +77,9 @@ final class StockBulk extends Bulk
     /** @var array<int, int> combination id => product id */
     private $variants = [];
 
+    /** @var list<int> the `id_stock_available` of the chunk's products, ascending (locate()) */
+    private $stockIds = [];
+
     /** @var array<string, array{quantity: int, out_of_stock: int}> `product:variant` => stock row */
     private $stock = [];
 
@@ -132,6 +135,24 @@ final class StockBulk extends Bulk
         ];
     }
 
+    protected function locate(array $rows): void
+    {
+        $products = [];
+        foreach ($rows as $row) {
+            $products[] = (int) $row['product'];
+        }
+        // Every stock row of the chunk's products, their totals included. `stock_available` has no index
+        // that reaches them by product in the order of their ids: a locking read by `id_product` is
+        // planned as a scan of the whole table on a small shop (434 and 1 134 stock rows, MariaDB
+        // 10.11) and locks every row it reads, so the chunk locks them by primary key (load()).
+        $this->stockIds = [];
+        foreach ($this->db->rows('SELECT sa.id_stock_available FROM '.$this->db->table('stock_available').' sa WHERE '.$this->scope->stockWhere('sa')
+            .' AND sa.id_product IN ('.self::in($products).')') as $stock) {
+            $this->stockIds[] = (int) $stock['id_stock_available'];
+        }
+        sort($this->stockIds);
+    }
+
     protected function load(array $rows, int $waitSeconds): void
     {
         $products = [];
@@ -143,15 +164,22 @@ final class StockBulk extends Bulk
             }
         }
         $ids = self::in($products);
-        // First, before any plain read starts the transaction's snapshot: every stock row of the chunk's
-        // products, their totals included, locked by id. An order that commits while this waits is in
-        // what is read (and in what StockAvailable::setQuantity() reads after it); one that comes later
-        // waits for the commit. An order's statements run without a transaction, one row each, so it
-        // never holds a row this waits for while waiting for one this holds.
+        // First, before any plain read starts the transaction's snapshot: the rows locate() found, locked
+        // by primary key in ascending order (a PRIMARY range: only these rows). An order that commits
+        // while this waits is in what is read (and in what StockAvailable::setQuantity() reads after
+        // it); one that comes later waits for the commit. A row created in between is not locked, as a
+        // row that does not exist yet. PrestaShop 1.7.8's order statement scans every stock row in this
+        // same order, so the two cannot deadlock, but it waits for any chunk that holds any stock row.
+        // 9.x updates an order's rows in one statement in the order of its lines: when that is not the
+        // order of their ids, the statement and this read can deadlock; the server rolls one back (on
+        // MariaDB this read, which Bulk::chunk() then runs once more; MySQL may roll back the order's
+        // statement instead, which PrestaShop does not repeat).
         $this->stock = [];
-        foreach ($this->db->lockRows('SELECT sa.id_product, sa.id_product_attribute, sa.quantity, sa.out_of_stock FROM '.$this->db->table('stock_available').' sa WHERE '
-            .$this->scope->stockWhere('sa').' AND sa.id_product IN ('.$ids.') ORDER BY sa.id_stock_available', $waitSeconds) as $stock) {
-            $this->stock[(int) $stock['id_product'].':'.(int) $stock['id_product_attribute']] = ['quantity' => (int) $stock['quantity'], 'out_of_stock' => (int) $stock['out_of_stock']];
+        if ($this->stockIds !== []) {
+            foreach ($this->db->lockRows('SELECT sa.id_product, sa.id_product_attribute, sa.quantity, sa.out_of_stock FROM '.$this->db->table('stock_available').' sa'
+                .' WHERE sa.id_stock_available IN ('.self::in($this->stockIds).') ORDER BY sa.id_stock_available', $waitSeconds) as $stock) {
+                $this->stock[(int) $stock['id_product'].':'.(int) $stock['id_product_attribute']] = ['quantity' => (int) $stock['quantity'], 'out_of_stock' => (int) $stock['out_of_stock']];
+            }
         }
         $this->products = [];
         foreach ($this->db->rows('SELECT ps.id_product, ps.visibility, (SELECT COUNT(*) FROM '.$this->db->table('product_attribute').' pa WHERE pa.id_product = ps.id_product) AS variants, m.flags FROM '

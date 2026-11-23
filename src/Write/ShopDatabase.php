@@ -83,8 +83,9 @@ final class ShopDatabase implements Database
             return $this->rows($sql.' FOR UPDATE');
         } catch (Throwable $error) {
             // 1205 lock wait timeout, 1213 deadlock (_PS_DEBUG_SQL_ throws, otherwise executeS() is false).
-            if (in_array((int) $this->db->getNumberError(), [1205, 1213], true)) {
-                throw new RowsLocked('The rows of a bulk chunk are locked by another session.', 0, $error);
+            $code = (int) $this->db->getNumberError();
+            if (in_array($code, [1205, 1213], true)) {
+                throw new RowsLocked('The rows of a bulk chunk are locked by another session.', $code === 1213, $error);
             }
             throw $error;
         }

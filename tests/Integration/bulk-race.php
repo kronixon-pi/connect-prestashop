@@ -8,8 +8,13 @@ declare(strict_types=1);
  * starts, the change commits while the module waits for the row's lock. With `expected_*` the row
  * is `conflict` with the committed value and nothing is written; without it the platform's value
  * lands after the change. A row held longer than the module's wait is `skipped` (`rows_locked`).
- * Then 1 000 rows per request while a probe session updates one row in a loop, as a checkout does:
- * its longest wait is the longest lock a chunk holds. One line per check; exit 1 on any failure.
+ * On a small shop (about 434 stock rows, where a read by `id_product` is planned as a scan) a chunk
+ * locks only its own rows: another product's row stays free while the chunk waits. PrestaShop's own
+ * end-of-order statement (StockManager::updatePhysicalProductQuantity()) for an order whose lines
+ * run against the chunk's lock order succeeds and the chunk is written (9.x: the chunk loses the
+ * deadlock and runs once more). Then 1 000 rows per request while that statement runs in a loop for
+ * an order of a product in chunk 6: its longest wait is what a checkout waits. One line per check;
+ * exit 1 on any failure.
  *
  *   php bulk-race.php <shop base URL> <apache address, e.g. 127.0.0.1:80>
  */
@@ -32,7 +37,23 @@ if (($argv[3] ?? '') === 'send') {
     $answer = $kx->post((string) $argv[4], (array) json_decode((string) $argv[5], true));
     // Short: the parent reads the pipe only once this process ends (a pipe holds 64 kB).
     $data = $answer['data'];
-    echo json_encode(['status' => $answer['status'], 'data' => ['results' => array_slice($data['results'] ?? [], 0, 1), 'summary' => $data['summary'] ?? null, 'continue' => $data['continue'] ?? null], 'seconds' => round(microtime(true) - $t0, 3)]);
+    echo json_encode(['status' => $answer['status'], 'data' => ['results' => array_slice($data['results'] ?? [], 0, 2), 'summary' => $data['summary'] ?? null, 'continue' => $data['continue'] ?? null], 'seconds' => round(microtime(true) - $t0, 3)]);
+    exit(0);
+}
+$orderStatement = static function (int $idOrder): bool {
+    // The last stock statement of PaymentModule::validateOrder(), autocommit, as a checkout runs it.
+    return (bool) (new PrestaShop\PrestaShop\Adapter\StockManager())->updatePhysicalProductQuantity(
+        (int) Configuration::get('PS_SHOP_DEFAULT'),
+        (int) Configuration::get('PS_OS_ERROR'),
+        (int) Configuration::get('PS_OS_CANCELED'),
+        null,
+        $idOrder
+    );
+};
+if (($argv[3] ?? '') === 'order') {
+    $t0 = microtime(true);
+    $ok = $orderStatement((int) $argv[4]);
+    echo json_encode(['ok' => $ok, 'errno' => Db::getInstance()->getNumberError(), 'seconds' => round(microtime(true) - $t0, 3)]);
     exit(0);
 }
 $db = Db::getInstance();
@@ -42,13 +63,16 @@ $shop = (int) Configuration::get('PS_SHOP_DEFAULT');
 $other = static function (): PDO {
     return new PDO('mysql:host='._DB_SERVER_.';dbname='._DB_NAME_, _DB_USER_, _DB_PASSWD_, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
 };
-$start = static function (string $endpoint, array $body) use ($argv): array {
-    $process = proc_open([PHP_BINARY, __FILE__, (string) $argv[1], (string) $argv[2], 'send', $endpoint, (string) json_encode($body)], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+$child = static function (array $args) use ($argv): array {
+    $process = proc_open(array_merge([PHP_BINARY, __FILE__, (string) $argv[1], (string) $argv[2]], $args), [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
     if (! is_resource($process)) {
         throw new RuntimeException('proc_open failed');
     }
 
     return [$process, $pipes];
+};
+$start = static function (string $endpoint, array $body) use ($child): array {
+    return $child(['send', $endpoint, (string) json_encode($body)]);
 };
 $finish = static function (array $started): array {
     [$process, $pipes] = $started;
@@ -109,35 +133,136 @@ $result = $answer['data']['results'][0] ?? [];
 $kx->check('a row held longer than the wait (10 s): skipped/rows_locked with continue, nothing written', ($result['code'] ?? null) === 'rows_locked' && ($answer['data']['continue'] ?? null) === true && $state($id)[0] === 5 && ($answer['seconds'] ?? 0) < 13, (string) json_encode([$result, $answer['seconds'] ?? null, $state($id)]));
 $table[] = ['stock safe, row held past the wait', 5, ($result['status'] ?? '?').'/'.($result['code'] ?? '?'), null, $state($id)[0], $answer['seconds'] ?? null];
 
-// 1 000 rows per request while a checkout updates a row of the sixth chunk every 5 ms: the longest
-// wait of its statements is the longest lock of a chunk.
-$n = 1000;
-$from = (int) $db->getValue("SELECT MAX(id_product) FROM {$p}product", false) + 1;
-$copy = static function (string $table, string $where, array $set) use ($db, $p, $n): void {
-    $columns = [];
-    foreach ($db->executeS("SELECT column_name AS c FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = '$p$table' ORDER BY ordinal_position", true, false) as $row) {
-        $columns[] = (string) $row['c'];
+// Copies of the race product (catalog rows and stock row) and an order of some of them.
+$copies = static function (int $count) use ($db, $p, $id): int {
+    $from = (int) $db->getValue("SELECT MAX(id_product) FROM {$p}product", false) + 1;
+    $copyId = '('.($from - 1).' + s.seq)';
+    foreach (['product' => [], 'product_shop' => [], 'product_lang' => ['link_rewrite' => "CONCAT('race-', $copyId)"], 'stock_available' => ['id_stock_available' => 'NULL']] as $table => $set) {
+        $set['id_product'] = $copyId;
+        $columns = [];
+        foreach ($db->executeS("SELECT column_name AS c FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = '$p$table' ORDER BY ordinal_position", true, false) as $row) {
+            $columns[] = (string) $row['c'];
+        }
+        $select = array_map(static function (string $c) use ($set): string {
+            return $set[$c] ?? 't.`'.$c.'`';
+        }, $columns);
+        $where = "t.id_product = $id".($table === 'stock_available' ? ' AND t.id_product_attribute = 0' : '');
+        $db->execute("INSERT INTO `$p$table` (`".implode('`, `', $columns).'`) SELECT '.implode(', ', $select)." FROM `$p$table` t CROSS JOIN seq_1_to_$count s WHERE $where", false);
     }
-    $select = array_map(static function (string $c) use ($set): string {
-        return $set[$c] ?? 't.`'.$c.'`';
-    }, $columns);
-    $db->execute("INSERT INTO `$p$table` (`".implode('`, `', $columns).'`) SELECT '.implode(', ', $select)." FROM `$p$table` t CROSS JOIN seq_1_to_$n s WHERE $where", false);
+    // Statistics of the shop as it now is: the plans of a small shop or of a large one.
+    $db->execute("ANALYZE TABLE {$p}stock_available", false);
+
+    return $from;
 };
-$copyId = '('.($from - 1).' + s.seq)';
-$copy('product', "t.id_product = $id", ['id_product' => $copyId]);
-$copy('product_shop', "t.id_product = $id", ['id_product' => $copyId]);
-$copy('product_lang', "t.id_product = $id", ['id_product' => $copyId, 'link_rewrite' => "CONCAT('race-', $copyId)"]);
-$copy('stock_available', "t.id_product = $id AND t.id_product_attribute = 0", ['id_stock_available' => 'NULL', 'id_product' => $copyId]);
+$dropCopies = static function (int $from) use ($db, $p): void {
+    foreach (['product', 'product_shop', 'product_lang', 'stock_available'] as $copied) {
+        $db->execute("DELETE FROM {$p}$copied WHERE id_product >= $from", false);
+    }
+};
+$orderOf = static function (array $products) use ($db, $p): int {
+    // Order lines only: what the end-of-order statement reads to find the order's stock rows.
+    $idOrder = 900000000 + random_int(1, 99999999);
+    $template = $db->getRow("SELECT * FROM {$p}order_detail ORDER BY id_order_detail DESC LIMIT 1", false);
+    foreach ($products as $product) {
+        $line = $template;
+        unset($line['id_order_detail']);
+        $line['id_order'] = $idOrder;
+        $line['product_id'] = $product;
+        $line['product_attribute_id'] = 0;
+        $db->insert('order_detail', array_map('pSQL', $line));
+    }
+
+    return $idOrder;
+};
+$byStockId = static function (int $first, int $last) use ($db, $p): array {
+    return array_map('intval', array_column($db->executeS("SELECT id_product FROM {$p}stock_available WHERE id_product BETWEEN $first AND $last AND id_product_attribute = 0 ORDER BY id_stock_available", true, false), 'id_product'));
+};
+$logged = static function () use ($db, $p): int {
+    return (int) $db->getValue("SELECT COUNT(*) FROM {$p}kx_log WHERE message = 'A bulk chunk lost a deadlock and runs again'", false);
+};
+
+// A small shop (about 434 stock rows: a locking read by id_product is planned as a scan of the table
+// and locks every row). Another session holds the chunk's row with the highest id: the chunk waits for
+// it holding its other rows, and only them.
+$count = max(200, 434 - (int) $db->getValue("SELECT COUNT(*) FROM {$p}stock_available", false));
+$from = $copies($count);
+$chunk = $byStockId($from, $from + 99);
+$session = $other();
+$session->beginTransaction();
+$session->exec("UPDATE {$p}stock_available SET quantity = quantity WHERE id_product = ".$chunk[99].' AND id_product_attribute = 0');
+$batch = [];
+foreach ($chunk as $i => $product) {
+    $batch[] = ['product_id' => (string) $product, 'variant_id' => '0', 'quantity' => 20 + $i];
+}
+$request = $start('stock/bulk', ['rows' => $batch]);
+usleep(800000);
+$probe = $other();
+$probe->exec('SET SESSION innodb_lock_wait_timeout = 1');
+$free = [];
+foreach (['race product, before the chunk' => $id, 'a copy after the chunk' => $from + $count - 1, 'first row of the chunk' => $chunk[0]] as $name => $product) {
+    try {
+        $probe->exec("UPDATE {$p}stock_available SET quantity = quantity WHERE id_product = $product AND id_product_attribute = 0");
+        $free[$name] = 'free';
+    } catch (PDOException $e) {
+        $free[$name] = 'locked';
+    }
+}
+$session->commit();
+$answer = $finish($request);
+$small = ['stock_rows' => (int) $db->getValue("SELECT COUNT(*) FROM {$p}stock_available", false)] + $free;
+$kx->check('a small shop ('.$small['stock_rows'].' stock rows): while a chunk waits, another product\'s row is free and its own first row is locked', $free === ['race product, before the chunk' => 'free', 'a copy after the chunk' => 'free', 'first row of the chunk' => 'locked'] && ($answer['data']['summary']['ok'] ?? 0) === 100, (string) json_encode([$free, $answer['data']['summary'] ?? $answer]));
+$dropCopies($from);
+
+// An order whose lines run against the chunk's lock order: 9.x updates the order's stock rows in the
+// order of its lines (B, then A), the chunk locks by id (A, then B). A third session holds A, so the
+// chunk waits for A while the order's statement takes B and waits for A; then A is released.
+$from = $copies(2);
+[$a, $b] = $byStockId($from, $from + 1);
+$idOrder = $orderOf([$b, $a]);
+$before = $logged();
+$session = $other();
+$session->beginTransaction();
+$session->exec("UPDATE {$p}stock_available SET quantity = quantity WHERE id_product = $a AND id_product_attribute = 0");
+$request = $start('stock/bulk', ['rows' => [['product_id' => (string) $a, 'variant_id' => '0', 'quantity' => 41], ['product_id' => (string) $b, 'variant_id' => '0', 'quantity' => 42]]]);
+usleep(700000);
+$orderRun = $child(['order', (string) $idOrder]);
+usleep(700000);
+$session->commit();
+$orderAnswer = $finish($orderRun);
+$answer = $finish($request);
+$results = $answer['data']['results'] ?? [];
+$deadlock = ['order_statement' => $orderAnswer, 'chunk' => array_map(static function (array $r): string {
+    return ($r['status'] ?? '?').'/'.($r['action'] ?? $r['code'] ?? '?');
+}, $results), 'runs_again' => $logged() - $before, 'stock' => [$state($a)[0], $state($b)[0]], 'seconds' => $answer['seconds'] ?? null];
+$kx->check('an order whose lines run against the chunk\'s lock order: its statement succeeds and the chunk is written (runs again: '.$deadlock['runs_again'].')', ($orderAnswer['ok'] ?? null) === true && $deadlock['chunk'] === ['ok/updated', 'ok/updated'] && $deadlock['stock'] === [41, 42], (string) json_encode($deadlock));
+$db->execute("DELETE FROM {$p}order_detail WHERE id_order = $idOrder", false);
+$dropCopies($from);
+
+// 1 000 rows per request while PrestaShop's end-of-order statement runs in a loop for an order of a
+// product in chunk 6 (prices: a back-office save of its row) and for an order of a product outside
+// the request: their longest waits are what a checkout waits.
+$n = 1000;
+$from = $copies($n);
 $probed = $from + 550;
+$inside = $orderOf([$probed]);
+$outside = $orderOf([$id]);
 $holds = [];
 foreach ([
-    'prices/bulk' => ["UPDATE {$p}product_shop SET price = price WHERE id_product = $probed AND id_shop = $shop", static function (int $id, int $i): array {
+    'prices/bulk' => [static function () use ($other, $p, $probed, $shop): void {
+        static $session = null;
+        $session = $session ?? $other();
+        $session->exec("UPDATE {$p}product_shop SET price = price WHERE id_product = $probed AND id_shop = $shop");
+    }, static function (int $id, int $i): array {
         return ['product_id' => (string) $id, 'variant_id' => '0', 'price' => (string) (100 + $i)];
     }],
-    'stock/bulk safe' => ["UPDATE {$p}stock_available SET quantity = quantity WHERE id_product = $probed AND id_product_attribute = 0", static function (int $id, int $i): array {
+    'stock/bulk safe' => [static function () use ($orderStatement, $inside): void {
+        $orderStatement($inside);
+    }, static function (int $id, int $i): array {
         return ['product_id' => (string) $id, 'variant_id' => '0', 'quantity' => $i];
     }],
-    'stock/bulk fast' => ["UPDATE {$p}stock_available SET quantity = quantity WHERE id_product = $probed AND id_product_attribute = 0", static function (int $id, int $i): array {
+    'stock/bulk fast' => [static function () use ($orderStatement, $inside): void {
+        $orderStatement($inside);
+    }, static function (int $id, int $i): array {
         return ['product_id' => (string) $id, 'variant_id' => '0', 'quantity' => $i + 1];
     }],
 ] as $endpoint => [$probe, $row]) {
@@ -145,27 +270,31 @@ foreach ([
     for ($i = 0; $i < $n; $i++) {
         $batch[] = $row($from + $i, $i);
     }
-    $session = $other();
     $request = $start(explode(' ', $endpoint)[0], ['rows' => $batch] + (strpos($endpoint, 'fast') !== false ? ['options' => ['mode' => 'fast']] : []));
     $longest = 0.0;
+    $longestOutside = 0.0;
     $probes = 0;
     do {
         $t0 = microtime(true);
-        $session->exec($probe);
+        $probe();
         $longest = max($longest, microtime(true) - $t0);
+        $t0 = microtime(true);
+        $orderStatement($outside);
+        $longestOutside = max($longestOutside, microtime(true) - $t0);
         $probes++;
         usleep(5000);
         $running = proc_get_status($request[0])['running'];
     } while ($running);
     $answer = $finish($request);
-    $holds[$endpoint] = ['request_s' => $answer['seconds'] ?? null, 'chunk_avg_s' => round((float) ($answer['seconds'] ?? 0) / 10, 3), 'checkout_longest_wait_s' => round($longest, 3), 'probes' => $probes];
-    $kx->check("$endpoint: $n rows while a checkout writes a row of chunk 6, longest wait {$holds[$endpoint]['checkout_longest_wait_s']} s", ($answer['data']['summary']['ok'] ?? 0) === $n && $longest < 2.0, (string) json_encode([$answer['data']['summary'] ?? $answer, $holds[$endpoint]]));
+    $holds[$endpoint] = ['request_s' => $answer['seconds'] ?? null, 'chunk_avg_s' => round((float) ($answer['seconds'] ?? 0) / 10, 3), 'longest_wait_s' => round($longest, 3), 'longest_wait_outside_s' => round($longestOutside, 3), 'probes' => $probes];
+    $kx->check("$endpoint: $n rows while an order of a product of chunk 6 is written, longest wait {$holds[$endpoint]['longest_wait_s']} s (outside the request {$holds[$endpoint]['longest_wait_outside_s']} s)", ($answer['data']['summary']['ok'] ?? 0) === $n && $longest < 2.0 && $longestOutside < 2.0, (string) json_encode([$answer['data']['summary'] ?? $answer, $holds[$endpoint]]));
 }
-foreach (['product', 'product_shop', 'product_lang', 'stock_available'] as $copied) {
-    $db->execute("DELETE FROM {$p}$copied WHERE id_product >= $from", false);
-}
+$db->execute("DELETE FROM {$p}order_detail WHERE id_order IN ($inside, $outside)", false);
+$dropCopies($from);
 
 echo 'RACE TABLE ', json_encode($table), "\n";
+echo 'SMALL SHOP ', json_encode($small), "\n";
+echo 'ORDER DEADLOCK ', json_encode($deadlock), "\n";
 echo 'LOCK HOLDS ', json_encode($holds), "\n";
 echo 'BULK RACE failures=', $kx->failures(), "\n";
 exit($kx->failures() === 0 ? 0 : 1);

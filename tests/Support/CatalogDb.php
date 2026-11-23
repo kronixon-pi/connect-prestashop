@@ -105,6 +105,9 @@ final class CatalogDb implements Database, ImageUrls
     /** @var list<string>|null when an array, every statement run through rows() is appended */
     public $log;
 
+    /** @var list<string> with $log, the statements of rows() run outside a transaction */
+    public $outside = [];
+
     /** @var list<array{0: string, 1: int}> the statements and waits of lockRows() */
     public $locks = [];
 
@@ -113,6 +116,9 @@ final class CatalogDb implements Database, ImageUrls
 
     /** @var bool lockRows() is not granted the locks */
     public $lockFails = false;
+
+    /** @var int lockRows() calls still to lose a deadlock (RowsLocked::deadlock()) */
+    public $deadlocks = 0;
 
     /** @var bool 1.7.8: no product_shop.unit_price */
     public $legacy = false;
@@ -136,6 +142,9 @@ final class CatalogDb implements Database, ImageUrls
         $this->queries++;
         if ($this->log !== null) {
             $this->log[] = $sql;
+            if (! $this->pdo->inTransaction()) {
+                $this->outside[] = $sql;
+            }
         }
         $rows = [];
         $statement = $this->pdo->query($sql);
@@ -184,6 +193,10 @@ final class CatalogDb implements Database, ImageUrls
         }
         if ($this->lockFails) {
             throw new RowsLocked('locked');
+        }
+        if ($this->deadlocks > 0) {
+            $this->deadlocks--;
+            throw new RowsLocked('deadlock', true);
         }
 
         return $this->rows($sql);

@@ -258,10 +258,21 @@ in the order sent, told apart by `product_id` and `variant_id` (a row naming the
 refused). They write as the protocol defines it, without `Product::save()`: rows are read and written in chunks of
 100, each chunk in one transaction, a row checked before anything of it is written; a chunk that fails is
 `module_error` for its rows and the next chunk goes on. A chunk reads the rows it writes with their row locks
-(`SELECT … FOR UPDATE`, by id) first: an order or a back-office save that committed meanwhile is what the row is
-compared with, and one that comes later waits for the chunk's commit (measured with 1 000 rows: a checkout waited at
-most 0.08 s for prices, 0.2 s / 0.35 s for `safe` stock on 1.7.8 / 9.1 and 0.03 s for `fast`). PrestaShop writes an
-order's stock one statement at a time, without a transaction, so the two never wait for each other. Rows whose locks
+(`SELECT … FOR UPDATE`) first, exactly those rows, by primary key in ascending order (stock: the ids are read just
+before the chunk's transaction; a stock row created in between is not locked, as one that does not exist yet): an
+order or a back-office save that committed meanwhile is what the row is compared with, and one that comes later
+waits for the chunk's commit. Another product's rows stay free.
+PrestaShop 1.7.8's end-of-order stock statement (`StockManager::updatePhysicalProductQuantity()`) scans and locks
+every stock row of the shop, by its design, so on 1.7.8 a checkout waits for any chunk that holds stock rows, about
+one chunk, whether its products are in the request or not.
+9.x updates an order's stock rows in one statement in the order of its lines; when that order runs against the
+chunk's, the two can deadlock. The server then rolls back the chunk, which has written nothing yet, and the chunk
+runs once more; the order's statement goes on (reproduced on MariaDB 10.11 and on MySQL 5.7, 8.0 and 8.4: the chunk
+was the victim every time). If a server rolled back the order's statement instead, PrestaShop would not repeat it,
+and the order's reserved and physical quantities would stay stale until the next stock update of its products.
+Measured with 1 000 rows, PrestaShop's end-of-order statement waited at most 0.06 s during `prices/bulk`; for a
+product in a `stock/bulk` request 0.45 s / 0.38 s (`safe`) and 0.05 s / 0.02 s (`fast`) on 1.7.8 / 9.1; for a
+product outside it 0.45 s / 0.05 s on 1.7.8 and 0.004 s / 0.001 s on 9.1. Rows whose locks
 another session holds longer than the chunk's wait (10 s at most, never past the budget) are `skipped` with
 `code: rows_locked` and `continue: true`, nothing of them written. Under the write lock and once per
 `Idempotency-Key`, as every `POST`; what a dead write left half-written is removed first, and a product that is still

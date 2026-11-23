@@ -149,17 +149,56 @@ final class StockBulkTest extends TestCase
         self::assertSame('12', $this->db->rows('SELECT quantity FROM ps_stock_available WHERE id_product = 2 AND id_product_attribute = 0')[0]['quantity']);
     }
 
-    public function test_the_chunk_locks_its_stock_rows_first_by_id_inside_its_transaction(): void
+    public function test_the_chunk_locks_exactly_its_stock_rows_by_primary_key_first_inside_its_transaction(): void
     {
+        // Another product's stock row (id 5) between the chunk's own (1–4) and after them (6).
+        $this->db->product(3, [], [], 7);
+        $this->db->insert('stock_available', ['id_product' => 1, 'id_product_attribute' => 9, 'quantity' => 0]);
         $this->db->log = [];
         $this->send([['product_id' => '2', 'variant_id' => '7', 'quantity' => 6], ['product_id' => '1', 'variant_id' => '0', 'quantity' => 6]]);
 
         self::assertCount(1, $this->db->locks);
-        self::assertStringContainsString('ORDER BY sa.id_stock_available', $this->db->locks[0][0]);
-        $catalog = array_values(array_filter($this->db->log, static function (string $sql): bool {
+        self::assertStringContainsString('WHERE sa.id_stock_available IN (1,2,3,4,6) ORDER BY sa.id_stock_available', $this->db->locks[0][0]);
+        self::assertStringNotContainsString('id_product IN', $this->db->locks[0][0], 'by primary key only: no plan that scans other rows');
+        $outside = array_values(array_filter($this->db->outside, static function (string $sql): bool {
             return strpos($sql, 'kx_pending') === false;
         }));
-        self::assertSame($this->db->locks[0][0], $catalog[0], 'no read of the catalog before the lock starts the snapshot');
+        self::assertCount(1, $outside);
+        self::assertStringStartsWith('SELECT sa.id_stock_available FROM', $outside[0], 'the ids are read before the transaction');
+        $inside = array_values(array_diff($this->db->log, $this->db->outside));
+        self::assertSame($this->db->locks[0][0], $inside[0], 'no read of the catalog before the lock starts the snapshot');
+    }
+
+    public function test_a_chunk_that_loses_a_deadlock_runs_once_more_and_then_is_skipped(): void
+    {
+        $this->db->deadlocks = 1;
+        $data = $this->send([['product_id' => '1', 'variant_id' => '0', 'quantity' => 8]]);
+        self::assertSame([['ok', 'updated', 5, []]], self::results($data));
+        self::assertCount(2, $this->db->locks);
+        self::assertSame(['set 1:0=8@1'], $this->calls);
+
+        $this->db->locks = [];
+        $this->db->deadlocks = 2;
+        $data = $this->send([['product_id' => '1', 'variant_id' => '0', 'quantity' => 9]]);
+        self::assertSame(['skipped', 'rows_locked'], [$data['results'][0]['status'], $data['results'][0]['code']]);
+        self::assertTrue($data['continue']);
+        self::assertCount(2, $this->db->locks, 'once more, not more');
+        self::assertSame('8', $this->db->rows('SELECT quantity FROM ps_stock_available WHERE id_product = 1')[0]['quantity']);
+
+        $this->db->locks = [];
+        $this->db->lockFails = true;
+        $data = $this->send([['product_id' => '1', 'variant_id' => '0', 'quantity' => 9]]);
+        self::assertSame('rows_locked', $data['results'][0]['code']);
+        self::assertCount(1, $this->db->locks, 'a lock wait timeout is not repeated');
+    }
+
+    public function test_a_chunk_without_stock_rows_locks_nothing_and_creates_them(): void
+    {
+        $this->db->pdo->exec('DELETE FROM ps_stock_available WHERE id_product = 1');
+        $data = $this->send([['product_id' => '1', 'variant_id' => '0', 'quantity' => 4]]);
+        self::assertSame([['ok', 'updated', 0, []]], self::results($data));
+        self::assertSame([], $this->db->locks);
+        self::assertSame(['set 1:0=4@1'], $this->calls);
     }
 
     public function test_a_quantity_another_session_commits_while_the_chunk_waits_is_a_conflict_in_both_modes(): void
