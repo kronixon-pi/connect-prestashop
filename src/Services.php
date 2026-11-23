@@ -381,10 +381,12 @@ final class Services
     }
 
     /**
-     * On a page view of the storefront or the back office (a GET): a flush after the answer, only when
-     * the server can send the answer first (Outbox\Delivery::onPageView()), at most once a minute. A
-     * page view never waits for the platform. Everything it reads here is cached by PrestaShop for the
-     * request: a page view costs no query.
+     * On a page view (a GET): a flush after the answer, only when the server can send the answer first
+     * (Outbox\Delivery::onPageView()), at most once a minute. A page view never waits for the platform.
+     * Everything it reads here is cached by PrestaShop for the request: a page view costs no query.
+     * A back-office page that Symfony sends (every one on 9.x) does not flush: Response::send() has
+     * already called fastcgi_finish_request(), so the module's call returns false and the rows wait for
+     * the next storefront view, the cron or a pull.
      */
     public static function flushOnVisit(Context $context): void
     {

@@ -532,7 +532,9 @@ class KronixonConnect extends Module
     }
 
     /**
-     * Runs on every back-office request, as on the storefront.
+     * Runs on every back-office request, as on the storefront. Under PHP-FPM a back-office page that
+     * Symfony sends (every one on 9.x) never flushes: Symfony has already finished the answer
+     * (Services::flushOnVisit()).
      *
      * @param  array<string, mixed>  $params
      */

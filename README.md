@@ -453,6 +453,8 @@ other modules, imports, and stock changed by orders. It never tells the platform
     PHP can send the page before the flush starts: `fastcgi_finish_request()` (PHP-FPM) or
     `litespeed_finish_request()` (LiteSpeed). The flush then runs after the visitor has the page, with a 5 s
     budget. Under Apache mod_php nothing is flushed on a page view: a visitor never waits for the platform.
+    Back-office pages that Symfony sends (all of them on 9.x, the migrated ones before) do not flush:
+    Symfony has already finished the answer, so the module's flush does not start there.
   - from the platform itself, with `GET events` and `POST events/ack`, when its webhooks have stopped, or when
     nothing else sends (mod_php without a cron).
 
