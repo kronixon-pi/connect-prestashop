@@ -42,14 +42,19 @@ if (($argv[3] ?? '') === 'send') {
     exit(0);
 }
 $orderStatement = static function (int $idOrder): bool {
-    // The last stock statement of PaymentModule::validateOrder(), autocommit, as a checkout runs it.
-    return (bool) (new PrestaShop\PrestaShop\Adapter\StockManager())->updatePhysicalProductQuantity(
-        (int) Configuration::get('PS_SHOP_DEFAULT'),
-        (int) Configuration::get('PS_OS_ERROR'),
-        (int) Configuration::get('PS_OS_CANCELED'),
-        null,
-        $idOrder
-    );
+    // The last stock statements of PaymentModule::validateOrder(), autocommit, as a checkout runs
+    // them; false when the server refuses one (a deadlock's victim), which PrestaShop does not repeat.
+    try {
+        return (bool) (new PrestaShop\PrestaShop\Adapter\StockManager())->updatePhysicalProductQuantity(
+            (int) Configuration::get('PS_SHOP_DEFAULT'),
+            (int) Configuration::get('PS_OS_ERROR'),
+            (int) Configuration::get('PS_OS_CANCELED'),
+            null,
+            $idOrder
+        );
+    } catch (Throwable $error) {
+        return false;
+    }
 };
 if (($argv[3] ?? '') === 'order') {
     $t0 = microtime(true);
@@ -240,6 +245,32 @@ $kx->check('an order whose lines run against the chunk\'s lock order: its statem
 $db->execute("DELETE FROM {$p}order_detail WHERE id_order = $idOrder", false);
 $dropCopies($from);
 
+// An order of one product of a `fast` chunk: its statement reaches the stock row through the
+// id_product index, the index entry first and the row second, while the chunk holds the row from its
+// first statement. A chunk that wrote through that index would then wait for the entry: a deadlock
+// in which the server rolled back the order's statement (9.0.3). A third session holds A's index
+// entry (a covering shared read), so the chunk would wait on its write of A while the order of B
+// takes B's entry and waits for B's row.
+$from = $copies(2);
+[$a, $b] = $byStockId($from, $from + 1);
+$idOrder = $orderOf([$b]);
+$session = $other();
+$session->beginTransaction();
+$session->query("SELECT id_product FROM {$p}stock_available FORCE INDEX (id_product) WHERE id_product = $a LOCK IN SHARE MODE")->fetchAll();
+$request = $start('stock/bulk', ['options' => ['mode' => 'fast'], 'rows' => [['product_id' => (string) $a, 'variant_id' => '0', 'quantity' => 31], ['product_id' => (string) $b, 'variant_id' => '0', 'quantity' => 32]]]);
+usleep(700000);
+$orderRun = $child(['order', (string) $idOrder]);
+usleep(700000);
+$session->commit();
+$orderAnswer = $finish($orderRun);
+$answer = $finish($request);
+$entry = ['order_statement' => $orderAnswer, 'chunk' => array_map(static function (array $r): string {
+    return ($r['status'] ?? '?').'/'.($r['action'] ?? $r['code'] ?? '?');
+}, $answer['data']['results'] ?? []), 'stock' => [$state($a)[0], $state($b)[0]]];
+$kx->check('fast: an order of a product of the chunk, which takes the index entry before the row: its statement succeeds and the chunk is written', ($orderAnswer['ok'] ?? null) === true && $entry['chunk'] === ['ok/updated', 'ok/updated'] && $entry['stock'] === [31, 32], (string) json_encode($entry));
+$db->execute("DELETE FROM {$p}order_detail WHERE id_order = $idOrder", false);
+$dropCopies($from);
+
 // 1 000 rows per request while PrestaShop's end-of-order statement runs in a loop for an order of a
 // product in chunk 6 (prices: a back-office save of its row) and for an order of a product outside
 // the request: their longest waits are what a checkout waits.
@@ -316,6 +347,7 @@ $kx->check("the session's lock wait ($own s) is back after a chunk's commit and 
 echo 'RACE TABLE ', json_encode($table), "\n";
 echo 'SMALL SHOP ', json_encode($small), "\n";
 echo 'ORDER DEADLOCK ', json_encode($deadlock), "\n";
+echo 'FAST INDEX ENTRY ', json_encode($entry), "\n";
 echo 'LOCK HOLDS ', json_encode($holds), "\n";
 echo 'BULK RACE failures=', $kx->failures(), "\n";
 exit($kx->failures() === 0 ? 0 : 1);

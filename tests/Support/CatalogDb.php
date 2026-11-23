@@ -108,6 +108,9 @@ final class CatalogDb implements Database, ImageUrls
     /** @var list<string> with $log, the statements of rows() run outside a transaction */
     public $outside = [];
 
+    /** @var list<string> the statements of bulk() */
+    public $bulks = [];
+
     /** @var list<array{0: string, 1: int}> the statements and waits of lockRows() */
     public $locks = [];
 
@@ -173,6 +176,7 @@ final class CatalogDb implements Database, ImageUrls
 
     public function bulk(string $sql): void
     {
+        $this->bulks[] = $sql;
         $this->pdo->exec(str_replace('NOW()', "datetime('now')", $sql));
     }
 

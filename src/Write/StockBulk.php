@@ -80,8 +80,11 @@ final class StockBulk extends Bulk
     /** @var list<int> the `id_stock_available` of the chunk's products, ascending (locate()) */
     private $stockIds = [];
 
-    /** @var array<string, array{quantity: int, out_of_stock: int}> `product:variant` => stock row */
+    /** @var array<string, array{id: int, quantity: int, out_of_stock: int}> `product:variant` => stock row */
     private $stock = [];
+
+    /** @var int the chunk's longest wait for a row lock */
+    private $wait = 1;
 
     /** @var array<int, list<Warnings>> product id => the warnings of its rows in the chunk */
     private $rowsOf = [];
@@ -175,10 +178,15 @@ final class StockBulk extends Bulk
         // MariaDB this read, which Bulk::chunk() then runs once more; MySQL may roll back the order's
         // statement instead, which PrestaShop does not repeat).
         $this->stock = [];
+        // Every later write of these rows goes by primary key too (quantity(), outOfStock(), the totals
+        // in committed()), as StockAvailable::setQuantity() does: the order's statement reaches a row
+        // through the `id_product` index, its entry first, so a chunk that held the row and then wrote
+        // it through that index would wait for the entry the order holds (a deadlock, 9.x).
+        $this->wait = $waitSeconds;
         if ($this->stockIds !== []) {
-            foreach ($this->db->lockRows('SELECT sa.id_product, sa.id_product_attribute, sa.quantity, sa.out_of_stock FROM '.$this->db->table('stock_available').' sa'
+            foreach ($this->db->lockRows('SELECT sa.id_stock_available, sa.id_product, sa.id_product_attribute, sa.quantity, sa.out_of_stock FROM '.$this->db->table('stock_available').' sa'
                 .' WHERE sa.id_stock_available IN ('.self::in($this->stockIds).') ORDER BY sa.id_stock_available', $waitSeconds) as $stock) {
-                $this->stock[(int) $stock['id_product'].':'.(int) $stock['id_product_attribute']] = ['quantity' => (int) $stock['quantity'], 'out_of_stock' => (int) $stock['out_of_stock']];
+                $this->stock[(int) $stock['id_product'].':'.(int) $stock['id_product_attribute']] = ['id' => (int) $stock['id_stock_available'], 'quantity' => (int) $stock['quantity'], 'out_of_stock' => (int) $stock['out_of_stock']];
             }
         }
         $this->products = [];
@@ -233,11 +241,11 @@ final class StockBulk extends Bulk
         }
         $changed = false;
         if ($quantity !== $current || $stock === null) {
-            $this->quantity($productId, $variantId, $quantity, $stock !== null);
+            $this->quantity($productId, $variantId, $quantity, $stock === null ? null : $stock['id']);
             $changed = true;
         }
         if ($policy !== null && ($stock === null || $policy !== $stock['out_of_stock'])) {
-            ($this->setOutOfStock)($productId, $policy, $this->scope->shopId, $variantId);
+            $this->outOfStock($productId, $variantId, $policy, $stock !== null);
             $changed = true;
         }
 
@@ -250,11 +258,7 @@ final class StockBulk extends Bulk
         if ($this->totals !== [] || ($this->visibility !== 'none' && $touched !== [])) {
             $this->db->begin();
             try {
-                foreach (array_keys($this->totals) as $id) {
-                    $this->db->bulk('UPDATE '.$this->db->table('stock_available').' SET quantity = (SELECT q FROM (SELECT COALESCE(SUM(c.quantity), 0) AS q FROM '
-                        .$this->db->table('stock_available').' c WHERE '.$this->scope->stockWhere('c').' AND c.id_product = '.$id.' AND c.id_product_attribute <> 0) t)'
-                        .' WHERE '.str_replace('sa.', '', $this->scope->stockWhere('sa')).' AND id_product = '.$id.' AND id_product_attribute = 0');
-                }
+                $this->totals();
                 if ($this->visibility !== 'none') {
                     $this->visibility($touched);
                 }
@@ -282,18 +286,72 @@ final class StockBulk extends Bulk
         return [];
     }
 
-    private function quantity(int $productId, int $variantId, int $quantity, bool $exists): void
+    /**
+     * The total of the combinations of each product written fast, in the product's row: its stock rows
+     * the chunk knew, locked again by primary key in ascending order, summed, and the total written by
+     * primary key (a combination created since the chunk read its rows is not in the sum).
+     */
+    private function totals(): void
     {
-        if ($this->mode === 'safe' || ! $exists) {
+        $ids = [];
+        foreach ($this->stock as $key => $stock) {
+            if (isset($this->totals[(int) $key])) {
+                $ids[] = $stock['id'];
+            }
+        }
+        if ($ids === []) {
+            return;
+        }
+        sort($ids);
+        $sums = [];
+        $totalRows = [];
+        foreach ($this->db->lockRows('SELECT sa.id_stock_available, sa.id_product, sa.id_product_attribute, sa.quantity FROM '.$this->db->table('stock_available').' sa'
+            .' WHERE sa.id_stock_available IN ('.self::in($ids).') ORDER BY sa.id_stock_available', $this->wait) as $row) {
+            $product = (int) $row['id_product'];
+            if ((int) $row['id_product_attribute'] === 0) {
+                $totalRows[$product] = (int) $row['id_stock_available'];
+            } else {
+                $sums[$product] = ($sums[$product] ?? 0) + (int) $row['quantity'];
+            }
+        }
+        foreach ($totalRows as $product => $id) {
+            $this->db->bulk('UPDATE '.$this->db->table('stock_available').' SET quantity = '.($sums[$product] ?? 0).' WHERE id_stock_available = '.$id);
+        }
+    }
+
+    private function quantity(int $productId, int $variantId, int $quantity, ?int $stockId): void
+    {
+        if ($this->mode === 'safe' || $stockId === null) {
             ($this->setQuantity)($productId, $variantId, $quantity, $this->scope->shopId);
 
             return;
         }
         $this->db->bulk('UPDATE '.$this->db->table('stock_available').' SET quantity = '.$quantity.', physical_quantity = reserved_quantity + '.$quantity
-            .' WHERE '.str_replace('sa.', '', $this->scope->stockWhere('sa')).' AND id_product = '.$productId.' AND id_product_attribute = '.$variantId);
+            .' WHERE id_stock_available = '.$stockId);
         if ($this->fireHooks) {
             $this->announce('actionUpdateQuantity', ['id_product' => $productId, 'id_product_attribute' => $variantId, 'quantity' => $quantity, 'id_shop' => $this->scope->shopId]);
         }
+    }
+
+    /**
+     * The out-of-stock policy as StockAvailable::setProductOutOfStock() sets it (every stock row of the
+     * product for variant "0", no hook), by primary key on the rows the chunk holds; a row the shop did
+     * not have yet goes through PrestaShop, which creates it.
+     */
+    private function outOfStock(int $productId, int $variantId, int $policy, bool $exists): void
+    {
+        if (! $exists) {
+            ($this->setOutOfStock)($productId, $policy, $this->scope->shopId, $variantId);
+
+            return;
+        }
+        $ids = [];
+        foreach ($this->stock as $key => $stock) {
+            if ($variantId === 0 ? (int) $key === $productId : $key === $productId.':'.$variantId) {
+                $ids[] = $stock['id'];
+            }
+        }
+        $this->db->bulk('UPDATE '.$this->db->table('stock_available').' SET out_of_stock = '.$policy.' WHERE id_stock_available IN ('.self::in($ids).')');
     }
 
     /**

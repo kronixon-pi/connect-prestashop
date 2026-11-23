@@ -53,7 +53,8 @@ final class StockBulkTest extends TestCase
 
         self::assertSame([], ProtocolSchemas::errors('stock-bulk.json', $data));
         self::assertSame([['ok', 'updated', 5, []], ['ok', 'updated', 1, ['location_ignored', 'available_texts_ignored']], ['ok', 'unchanged', 2, []]], self::results($data));
-        self::assertSame(['set 1:0=9@1', 'set 2:7=4@1', 'out 2:7=1@1'], $this->calls);
+        self::assertSame(['set 1:0=9@1', 'set 2:7=4@1'], $this->calls);
+        self::assertSame(['1', '2'], array_column($this->db->rows('SELECT out_of_stock FROM ps_stock_available WHERE id_product = 2 AND id_product_attribute IN (7, 8) ORDER BY id_product_attribute'), 'out_of_stock'), 'the policy of the row sent, by primary key');
         self::assertSame(['actionKxBulkStockUpdated'], $this->hooks);
     }
 
@@ -195,10 +196,34 @@ final class StockBulkTest extends TestCase
     public function test_a_chunk_without_stock_rows_locks_nothing_and_creates_them(): void
     {
         $this->db->pdo->exec('DELETE FROM ps_stock_available WHERE id_product = 1');
-        $data = $this->send([['product_id' => '1', 'variant_id' => '0', 'quantity' => 4]]);
+        $data = $this->send([['product_id' => '1', 'variant_id' => '0', 'quantity' => 4, 'out_of_stock' => 1]], ['mode' => 'fast']);
         self::assertSame([['ok', 'updated', 0, []]], self::results($data));
         self::assertSame([], $this->db->locks);
-        self::assertSame(['set 1:0=4@1'], $this->calls);
+        self::assertSame(['set 1:0=4@1', 'out 1:0=1@1'], $this->calls, 'a row the shop does not have goes through PrestaShop, which creates it');
+    }
+
+    public function test_every_stock_write_after_the_lock_goes_by_primary_key(): void
+    {
+        // An order's statement reaches a stock row through the id_product index, its entry first: a
+        // chunk that holds the row must not write it through that index.
+        $this->db->insert('stock_available', ['id_product' => 1, 'id_product_attribute' => 9, 'quantity' => 4]);
+        $this->send([
+            ['product_id' => '2', 'variant_id' => '7', 'quantity' => 10, 'out_of_stock' => 0],
+            ['product_id' => '1', 'variant_id' => '0', 'quantity' => 6, 'out_of_stock' => 1],
+        ], ['mode' => 'fast']);
+
+        $stock = array_values(array_filter($this->db->bulks, static function (string $sql): bool {
+            return strpos($sql, 'ps_stock_available') !== false;
+        }));
+        self::assertCount(5, $stock, 'two quantities, two policies, one total');
+        foreach ($stock as $sql) {
+            self::assertMatchesRegularExpression('/ WHERE id_stock_available (= \d+|IN \([0-9,]+\))\z/', $sql);
+        }
+        self::assertSame(['1', '1'], array_column($this->db->rows('SELECT out_of_stock FROM ps_stock_available WHERE id_product = 1 ORDER BY id_product_attribute'), 'out_of_stock'), 'variant "0": every row of the product, as setProductOutOfStock()');
+        self::assertSame(['2', '0', '2'], array_column($this->db->rows('SELECT out_of_stock FROM ps_stock_available WHERE id_product = 2 ORDER BY id_product_attribute DESC'), 'out_of_stock'), 'a combination: its row only');
+        self::assertSame(['12', '6'], array_column($this->db->rows('SELECT quantity FROM ps_stock_available WHERE id_product_attribute = 0 ORDER BY id_product DESC'), 'quantity'), 'the total of product 2: 10 + 2');
+        self::assertCount(2, $this->db->locks, 'the chunk, then the totals: both by primary key');
+        self::assertStringContainsString('WHERE sa.id_stock_available IN (2,3,4) ORDER BY sa.id_stock_available', $this->db->locks[1][0]);
     }
 
     public function test_a_quantity_another_session_commits_while_the_chunk_waits_is_a_conflict_in_both_modes(): void
