@@ -217,5 +217,44 @@ foreach ($kinds as $kind => [$endpoint, $fields, $ids, $rows, $whole]) {
     }
 }
 
+/*
+ * What another module hooked to a create or an update sees (kxprobe, names with SEEN): the object is
+ * stored inactive until its item is complete; once committed, the hooks of an update tell every module
+ * that it is active, as the stored row says. One sent inactive is never seen active.
+ */
+$prober = Module::getInstanceByName('kxprobe');
+$kx->check('kxprobe stands on every hook it logs', $prober instanceof Kxprobe && (bool) $prober->registerAll());
+/** The lines of the probe's log for entity $id of $table: `hook object=… row=…`. */
+$seen = static function (string $table, int $id): array {
+    $lines = [];
+    foreach (is_file(Kxprobe::SEEN_LOG) ? (array) file(Kxprobe::SEEN_LOG, FILE_IGNORE_NEW_LINES) : [] as $line) {
+        $parts = explode(' ', (string) $line);
+        if (count($parts) === 5 && $parts[1] === $table && $parts[2] === (string) $id) {
+            $lines[] = $parts[0].' '.$parts[3].' '.$parts[4];
+        }
+    }
+
+    return $lines;
+};
+$announced = [
+    'category' => ['category', 'actionCategoryUpdate'],
+    'brand' => ['manufacturer', 'actionObjectManufacturerUpdateAfter'],
+];
+foreach ($announced as $kind => [$table, $lastHook]) {
+    [$endpoint, $fields, $ids] = $kinds[$kind];
+    @unlink(Kxprobe::SEEN_LOG);
+    $answer = $kx->post($endpoint, ['items' => [
+        ['key' => 'on', 'external_id' => null, 'kx_id' => SignedClient::uuid(), 'active' => true] + $fields("SEEN on $kind $tag"),
+        ['key' => 'off', 'external_id' => null, 'kx_id' => SignedClient::uuid(), 'active' => false] + $fields("SEEN off $kind $tag"),
+    ]]);
+    [$on, $off] = [$ids("SEEN on $kind $tag")[0] ?? 0, $ids("SEEN off $kind $tag")[0] ?? 0];
+    $onLines = $seen($table, $on);
+    $offLines = $seen($table, $off);
+    echo "  seen $kind on:  ", implode(', ', $onLines), "\n  seen $kind off: ", implode(', ', $offLines), "\n";
+    $kx->check("$kind sent active: the last hook another module sees is $lastHook, object=1 row=1", $short($answer) === ['on' => 'created', 'off' => 'created']
+        && count($onLines) >= 2 && end($onLines) === "$lastHook object=1 row=1" && $value("SELECT active FROM {$p}$table WHERE id_$table = $on") === 1, $answer['raw']);
+    $kx->check("$kind sent inactive: no hook ever sees it active", $offLines !== [] && preg_grep('/=1/', $offLines) === [] && $value("SELECT active FROM {$p}$table WHERE id_$table = $off") === 0, (string) json_encode($offLines));
+}
+
 echo 'FAILED-WRITES failures=', $kx->failures(), "\n";
 exit($kx->failures() === 0 ? 0 : 1);

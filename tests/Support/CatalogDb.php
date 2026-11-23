@@ -141,9 +141,9 @@ final class CatalogDb implements Database, ImageUrls
         $this->pdo->exec($sql);
     }
 
-    public function activate(string $class, string $table, string $primary, int $id): void
+    public function setActive(string $class, string $table, string $primary, int $id, bool $active): void
     {
-        $this->pdo->exec('UPDATE '.$this->table($table).' SET active = 1 WHERE '.$primary.' = '.$id);
+        $this->pdo->exec('UPDATE '.$this->table($table).' SET active = '.(int) $active.' WHERE '.$primary.' = '.$id);
     }
 
     public function quote(string $text): string

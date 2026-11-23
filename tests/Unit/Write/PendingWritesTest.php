@@ -15,8 +15,10 @@ use Kronixon\Connect\Write\Item;
 use Kronixon\Connect\Write\ItemError;
 use Kronixon\Connect\Write\PendingWrites;
 use ObjectModel;
+use PDOException;
 use PHPUnit\Framework\TestCase;
 use Product;
+use RuntimeException;
 use TypeError;
 
 require_once dirname(__DIR__, 2).'/Support/prestashop-stubs.php';
@@ -37,6 +39,9 @@ final class PendingWritesTest extends TestCase
 
     /** @var list<array<string, string|null>> */
     private $logged = [];
+
+    /** @var list<array{hook: string, class: string|null, id: int|null, product: int, product_shop: int}> */
+    private $hooks = [];
 
     protected function setUp(): void
     {
@@ -251,6 +256,90 @@ final class PendingWritesTest extends TestCase
         $this->pending->item(new Item(['key' => 'c']));
         $this->pending->seal();
         self::assertSame(0, $this->active('product', 77), 'the next item shows nothing of it');
+        $this->pending->keep();
+        self::assertSame([], $this->hooks, 'and announces nothing');
+    }
+
+    public function test_once_committed_the_hooks_of_an_update_see_what_seal_showed_as_stored(): void
+    {
+        $this->db->begin();
+        $this->pending->add($this->withPage(new Product(), 'product', true));
+        $this->pending->seal();
+        self::assertSame([], $this->hooks, 'nothing before the commit');
+        $this->db->commit();
+        $this->pending->keep();
+
+        self::assertSame([
+            'actionObjectUpdateBefore', 'actionObjectProductUpdateBefore', 'actionObjectUpdateAfter', 'actionObjectProductUpdateAfter',
+            'actionProductSave', 'actionProductUpdate',
+        ], array_column($this->hooks, 'hook'));
+        foreach ($this->hooks as $hook) {
+            self::assertSame(['Product', 77, 1, 1], [$hook['class'], $hook['id'], $hook['product'], $hook['product_shop']], $hook['hook'].': a loaded product, active in the database');
+        }
+        $this->pending->keep();
+        self::assertCount(6, $this->hooks, 'once');
+
+        $this->hooks = [];
+        $this->pending->item(new Item(['key' => 'b', 'kx_id' => self::KX]));
+        $this->db->delete('product', 'id_product = 77');
+        $this->db->delete('product_shop', 'id_product = 77');
+        $this->pending->add($this->withPage(new Category(), 'category', true));
+        $this->pending->seal();
+        $this->pending->keep();
+        self::assertSame(['actionObjectUpdateBefore', 'actionObjectCategoryUpdateBefore', 'actionObjectUpdateAfter', 'actionObjectCategoryUpdateAfter', 'actionCategoryUpdate'], array_column($this->hooks, 'hook'));
+        self::assertSame([77, 1], [$this->hooks[4]['id'], $this->active('category', 77)]);
+    }
+
+    public function test_a_failed_hook_after_the_commit_is_logged_and_one_rolled_back_announces_nothing(): void
+    {
+        $failing = $this->request(1, static function (): void {
+            throw new RuntimeException('a hook of another module');
+        });
+        $failing->add($this->withPage(new Product(), 'product', true));
+        $failing->seal();
+        $failing->keep();
+        self::assertSame(['A hook after showing an object failed'], array_column($this->logged, 'message'));
+        self::assertSame(1, $this->active('product', 77), 'the item stays written');
+
+        $this->db->delete('product', 'id_product = 77');
+        $this->db->delete('product_shop', 'id_product = 77');
+        $this->pending->item(new Item(['key' => 'b', 'kx_id' => self::KX]));
+        $this->db->begin();
+        $this->pending->add($this->withPage(new Product(), 'product', true));
+        $this->pending->seal();
+        $this->db->rollback();
+        $this->pending->undo();
+        $this->pending->keep();
+        self::assertSame([], $this->hooks, 'the commit failed');
+    }
+
+    public function test_after_a_hook_committed_a_mark_left_always_names_an_inactive_object(): void
+    {
+        // No transaction, as after ps_facetedsearch's TRUNCATE: every statement stands alone.
+        $this->db->pdo->exec('CREATE TRIGGER no_unmark BEFORE DELETE ON ps_kx_pending BEGIN SELECT RAISE(ABORT, \'refused\'); END');
+        $this->pending->add($this->withPage(new Product(), 'product', true));
+        try {
+            $this->pending->seal();
+            self::fail('sealed');
+        } catch (PDOException $error) {
+            self::assertSame([0, 0, ['77']], [$this->active('product', 77), $this->active('product_shop', 77), $this->marks()], 'the mark stayed: hidden again');
+        }
+        $this->pending->keep();
+        self::assertSame([], $this->hooks);
+        $this->db->pdo->exec('DROP TRIGGER no_unmark');
+
+        $this->db->pdo->exec('CREATE TRIGGER no_show BEFORE UPDATE ON ps_product_shop BEGIN SELECT RAISE(ABORT, \'refused\'); END');
+        $this->pending->item(new Item(['key' => 'b', 'kx_id' => self::KX]));
+        $this->db->delete('kx_pending', '1 = 1');
+        $this->db->delete('product', 'id_product = 77');
+        $this->db->delete('product_shop', 'id_product = 77');
+        $this->pending->add($this->withPage(new Product(), 'product', true));
+        try {
+            $this->pending->seal();
+            self::fail('sealed');
+        } catch (PDOException $error) {
+            self::assertSame([0, 0, ['77']], [$this->active('product', 77), $this->active('product_shop', 77), $this->marks()], 'not shown: still pending, for the clean-up');
+        }
     }
 
     public function test_another_shops_marks_are_its_own(): void
@@ -386,11 +475,23 @@ final class PendingWritesTest extends TestCase
         $this->db->insert('kx_pending', ['id_shop' => 1, 'class' => $class, 'entity' => $table, 'id_object' => $id, 'removing' => $removing, 'created_at' => date('Y-m-d H:i:s')]);
     }
 
-    private function request(int $shopId = 1): PendingWrites
+    /**
+     * @param  (callable(string, array<string, mixed>): void)|null  $hook  else one that records into $hooks
+     */
+    private function request(int $shopId = 1, ?callable $hook = null): PendingWrites
     {
         $pending = new PendingWrites($this->db, $shopId, new Log(function (array $row): void {
             $this->logged[] = $row;
-        }));
+        }), $hook ?? function (string $name, array $params): void {
+            $object = $params['object'] ?? $params['product'] ?? $params['category'];
+            $this->hooks[] = [
+                'hook' => $name,
+                'class' => is_object($object) ? get_class($object) : null,
+                'id' => $object instanceof ObjectModel ? $object->id : null,
+                'product' => $this->active('product', 77),
+                'product_shop' => $this->active('product_shop', 77),
+            ];
+        });
         $pending->item(new Item(['key' => 'a', 'kx_id' => self::KX]));
 
         return $pending;
