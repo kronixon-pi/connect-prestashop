@@ -215,7 +215,8 @@ and the hooks of other modules run. Rules of the protocol: [§6](protocol/v1/REA
   refused. A combination a failed item left is never the default one, and the product's variants are `cleanup_failed`
   until it can be removed. `content_hash` is the product's.
 - **Redirects.** A product's own (`redirect_type`; `410` from 8.0, else `404` and `redirect_410_unsupported`).
-  A category's addresses and old slugs are kept in `kx_redirect`, by path (friendly URLs only), and served from the
+  A category's addresses and old slugs are kept in `kx_redirect`, by path (friendly URLs only, compared byte for
+  byte as PrestaShop's router does: `/en/CART`, `/en/Cart` and `/en/Cart ` are three paths), and served from the
   hook that builds the routes: one cached setting per request, one indexed lookup where a shop has any. As PrestaShop
   does for a product, a category is redirected only while inactive (`category_active`); when it is active again, in
   the back office too, its redirects go. `seo.redirect.auto` keeps the old address of a product whose friendly URL

@@ -307,6 +307,15 @@ $oldOwn = str_replace('redirected-2', 'an-old-name', $path2);
 $kx->check('redirects: an old address of the target itself, of nobody, of an inactive entity is free', $oldOwn !== $path2 && $slug($oldOwn, $p2) === 'created ' && $slug("/en/gone-$tag", $p2) === 'created ' && $slug(RedirectPath($link->getCategoryLink((int) $rc, null, $en)), $p2) === 'created ');
 [$status, $where] = $visit("/en/gone-$tag");
 $kx->check('redirects: which is served', $status === 301 && strpos($where, "/$p2-") !== false, "$status $where");
+// One row is one path, byte for byte, as for PrestaShop's router: neither case nor a trailing space is ignored.
+$written = [$slug('/en/CART', $p2), $slug('/en/Cart', $p2), $slug('/en/Cart', $p2), $slug("/en/KX-$tag", $p2), $slug("/en/KX-$tag ", $p2)];
+$served = [];
+foreach (['/en/CART', '/en/Cart', '/EN/cart', '/en/cart%20', "/en/KX-$tag", "/en/kx-$tag", "/en/KX-$tag%20", "/en/KX-$tag%20%20"] as $path) {
+    $served[$path] = $visit($path)[0];
+}
+$kx->check('redirects: /en/CART and /en/Cart are two paths, /EN/cart and /en/cart%20 none', $written === ['created ', 'created ', 'unchanged ', 'created ', 'created ']
+    && $served === ['/en/CART' => 301, '/en/Cart' => 301, '/EN/cart' => 404, '/en/cart%20' => 404, "/en/KX-$tag" => 301, "/en/kx-$tag" => 404, "/en/KX-$tag%20" => 301, "/en/KX-$tag%20%20" => 404]
+    && $value("SELECT COUNT(*) FROM {$p}kx_redirect WHERE path_from IN ('/en/CART', '/en/Cart', '/en/cart', '/en/KX-$tag', '/en/KX-$tag ')") === 4, (string) json_encode([$written, $served]));
 $active($rc, 'c', true);
 [$status] = $visit(RedirectPath($link->getCategoryLink((int) $rc, null, $en)));
 $kx->check('redirects: a page the shop shows again at such a path wins', $status === 200, (string) $status);

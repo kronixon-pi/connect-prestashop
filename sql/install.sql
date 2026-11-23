@@ -78,7 +78,7 @@ CREATE TABLE IF NOT EXISTS `PREFIX_kx_image_map` (
 CREATE TABLE IF NOT EXISTS `PREFIX_kx_redirect` (
   `id_kx_redirect` INT UNSIGNED NOT NULL AUTO_INCREMENT,
   `id_shop` INT UNSIGNED NOT NULL,
-  `path_from` VARCHAR(191) NOT NULL,
+  `path_from` VARBINARY(764) NOT NULL COMMENT 'UTF-8, at most 191 characters, compared byte for byte as the router does',
   `target_type` VARCHAR(16) NOT NULL,
   `target_id` INT UNSIGNED NOT NULL DEFAULT 0,
   `code` SMALLINT UNSIGNED NOT NULL,

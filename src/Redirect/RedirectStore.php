@@ -24,13 +24,14 @@ use Kronixon\Connect\Write\Database;
 /**
  * `kx_redirect`: old paths of one shop and where they lead (a product, a category, or nowhere: 410).
  * KX_REDIRECTS is `1` while the table may hold any (sync()), so a shop without redirects pays no query
- * for them.
+ * for them. `path_from` is VARBINARY: one row is one path byte for byte, as for PrestaShop's router (no
+ * collation folds case or ignores a trailing space).
  */
 final class RedirectStore
 {
     public const FLAG = 'KX_REDIRECTS';
 
-    /** `kx_redirect.path_from`. */
+    /** `kx_redirect.path_from`, in characters (764 bytes). */
     private const LENGTH = 191;
 
     /** @var Database */

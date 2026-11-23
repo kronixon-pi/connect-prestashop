@@ -57,6 +57,18 @@ final class RedirectStoreTest extends TestCase
         self::assertNull($one->find('/old'));
     }
 
+    public function test_case_and_a_trailing_space_make_another_path(): void
+    {
+        $store = new RedirectStore(new CatalogDb(), new MemorySettings(), 1);
+        self::assertSame('created', $store->put('/en/CART', 'product', 5, 301));
+
+        self::assertNull($store->find('/en/Cart'));
+        self::assertNull($store->find('/en/CART '));
+        self::assertSame(['created', 'created', 'unchanged'], [$store->put('/en/Cart', 'product', 6, 301), $store->put('/en/CART ', 'product', 7, 301), $store->put('/en/CART', 'product', 5, 301)]);
+        self::assertTrue($store->remove(['/en/Cart']));
+        self::assertSame([5, 7], [$store->find('/en/CART')['target_id'] ?? 0, $store->find('/en/CART ')['target_id'] ?? 0]);
+    }
+
     public function test_the_flag_goes_with_the_last_row_of_any_shop(): void
     {
         $db = new CatalogDb();

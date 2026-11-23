@@ -63,6 +63,17 @@ final class InstallTest extends TestCase
                 self::assertLessThanOrEqual(191, (int) $length, $column.' is indexed');
             }
         }
+        preg_match_all('/`([a-z_0-9]+)` VARBINARY\(([0-9]+)\)/', $sql, $m, PREG_SET_ORDER);
+        foreach ($m as [$all, $column, $length]) {
+            self::assertLessThanOrEqual(767, (int) $length, $column.' fits the oldest index limit, in bytes');
+        }
+    }
+
+    public function test_redirect_paths_are_compared_byte_for_byte_after_an_install_and_an_upgrade(): void
+    {
+        $column = '`path_from` VARBINARY(764) NOT NULL';
+        self::assertStringContainsString($column, (string) file_get_contents(self::ROOT.'/sql/install.sql'), 'no collation folds case or trailing spaces');
+        self::assertStringContainsString('MODIFY '.$column, (string) file_get_contents(self::ROOT.'/upgrade/upgrade-0.4.0.php'), 'the text column of 0.3.2 becomes the same');
     }
 
     public function test_sql_file_refuses_unexpected_prefixes(): void
