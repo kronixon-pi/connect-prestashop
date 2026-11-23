@@ -96,8 +96,12 @@ final class Kernel
     /** @var int */
     private $suppressedErrors = 0;
 
+    /** @var (callable(Budget): void)|null */
+    private $beforeRead;
+
     /**
      * @param  (callable(int): void)|null  $onVerified  called with the time of each verified request
+     * @param  (callable(Budget): void)|null  $beforeRead  the clean-up of half-written objects (PendingWrites), before a GET under the free write lock
      */
     public function __construct(
         Router $router,
@@ -109,8 +113,10 @@ final class Kernel
         int $budgetSeconds = Protocol::TIME_BUDGET_S,
         int $rateLimit = Protocol::RATE_LIMIT_PER_MINUTE,
         ?callable $onVerified = null,
-        ?IdempotencyStore $idempotency = null
+        ?IdempotencyStore $idempotency = null,
+        ?callable $beforeRead = null
     ) {
+        $this->beforeRead = $beforeRead;
         $this->idempotency = $idempotency;
         $this->router = $router;
         $this->pairing = $pairing;
@@ -255,6 +261,8 @@ final class Kernel
 
         $handler = $this->router->resolve($request);
         if ($request->method() === 'GET') {
+            $this->beforeRead($budget);
+
             return $handler($request, $budget);
         }
         if (! $this->lock->acquire()) {
@@ -262,6 +270,27 @@ final class Kernel
         }
         try {
             return $this->once($request, $handler, $budget, $now);
+        } finally {
+            $this->lock->release();
+        }
+    }
+
+    /**
+     * What a dead write left half-written also goes on a store that only gets reads: before a GET, when
+     * no write holds the lock (one that does cleans up itself). The reads leave such objects out anyway;
+     * a failure here is logged and the read goes on.
+     */
+    private function beforeRead(Budget $budget): void
+    {
+        if ($this->beforeRead === null || ! $this->lock->acquire()) {
+            return;
+        }
+        try {
+            ($this->beforeRead)($budget);
+        } catch (Throwable $error) {
+            if ($this->log !== null) {
+                $this->log->warning('api', 'The clean-up before a read failed', ['exception' => get_class($error)], $this->requestId);
+            }
         } finally {
             $this->lock->release();
         }

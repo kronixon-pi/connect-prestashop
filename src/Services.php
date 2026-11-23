@@ -22,6 +22,7 @@ use Cache;
 use Context;
 use Db;
 use Employee;
+use Kronixon\Connect\Api\Budget;
 use Kronixon\Connect\Api\Endpoints;
 use Kronixon\Connect\Api\Kernel;
 use Kronixon\Connect\Api\Router;
@@ -136,8 +137,7 @@ final class Services
         return new WriteEndpoints(
             new Batch($db, self::log()),
             static function (Warnings $warnings, Item $options) use ($context, $compat, $db): Shop {
-                $context->employee = new Employee();
-                Cache::clean('hook_module_exec_list_*');
+                self::backOfficeHooks($context);
 
                 return new Shop($context, PrestaShopScope::of($context, $compat), $compat, $db, new PrestaShopImageUrls($context->link), new PendingWrites($db, (int) $context->shop->id, self::log()), $warnings, $options->bool('strict_languages') === true);
             },
@@ -169,7 +169,33 @@ final class Services
                     $settings->set(Endpoints::LAST_REQUEST_AT, (string) $now);
                 }
             },
-            new DbIdempotency(Db::getInstance(), _DB_PREFIX_)
+            new DbIdempotency(Db::getInstance(), _DB_PREFIX_),
+            self::recoverOnRead($context)
         );
+    }
+
+    /**
+     * Before a read: at most PendingWrites::PER_READ objects a dead write left go (Kernel, under the write
+     * lock), on the master connection and with the hooks of a write; nothing but one lookup when there is
+     * no mark.
+     *
+     * @return callable(Budget): void
+     */
+    private static function recoverOnRead(Context $context): callable
+    {
+        return static function (Budget $budget) use ($context): void {
+            $pending = new PendingWrites(new ShopDatabase(Db::getInstance(), _DB_PREFIX_), (int) $context->shop->id, self::log());
+            if ($pending->any()) {
+                self::backOfficeHooks($context);
+                $pending->recover($budget, PendingWrites::PER_READ);
+            }
+        };
+    }
+
+    /** Hooks as in the back office (writes()). */
+    private static function backOfficeHooks(Context $context): void
+    {
+        $context->employee = new Employee();
+        Cache::clean('hook_module_exec_list_*');
     }
 }
